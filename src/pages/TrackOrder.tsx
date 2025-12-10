@@ -1,0 +1,292 @@
+import { useState } from 'react';
+import { Search, Package, Calendar, CheckCircle, Clock, Truck, ArrowRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { mockOrders, getPublicTimeline } from '@/data/mockData';
+import { Order, STAGE_LABELS, Stage } from '@/types/order';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
+
+const stageOrder: Stage[] = ['sales', 'design', 'prepress', 'production', 'dispatch', 'completed'];
+
+function StageIndicator({ currentStage }: { currentStage: Stage }) {
+  const currentIndex = stageOrder.indexOf(currentStage);
+  
+  return (
+    <div className="flex items-center justify-between w-full max-w-lg mx-auto my-8">
+      {stageOrder.slice(0, -1).map((stage, index) => {
+        const isCompleted = index < currentIndex;
+        const isCurrent = index === currentIndex;
+        
+        return (
+          <div key={stage} className="flex items-center">
+            <div className="flex flex-col items-center">
+              <div 
+                className={cn(
+                  "h-10 w-10 rounded-full flex items-center justify-center text-sm font-medium transition-all",
+                  isCompleted && "bg-success text-success-foreground",
+                  isCurrent && "bg-primary text-primary-foreground ring-4 ring-primary/20",
+                  !isCompleted && !isCurrent && "bg-muted text-muted-foreground"
+                )}
+              >
+                {isCompleted ? (
+                  <CheckCircle className="h-5 w-5" />
+                ) : (
+                  index + 1
+                )}
+              </div>
+              <span className={cn(
+                "text-xs mt-2 text-center",
+                (isCompleted || isCurrent) ? "text-foreground font-medium" : "text-muted-foreground"
+              )}>
+                {STAGE_LABELS[stage]}
+              </span>
+            </div>
+            {index < stageOrder.length - 2 && (
+              <div 
+                className={cn(
+                  "h-1 w-8 sm:w-12 mx-1",
+                  isCompleted ? "bg-success" : "bg-muted"
+                )}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export default function TrackOrder() {
+  const [orderNumber, setOrderNumber] = useState('');
+  const [phone, setPhone] = useState('');
+  const [searchedOrder, setSearchedOrder] = useState<Order | null>(null);
+  const [error, setError] = useState('');
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    
+    if (!orderNumber.trim()) {
+      setError('Please enter an order number');
+      return;
+    }
+
+    const order = mockOrders.find(o => 
+      o.order_id.toLowerCase() === orderNumber.toLowerCase()
+    );
+
+    if (order) {
+      setSearchedOrder(order);
+    } else {
+      setError('Order not found. Please check the order number and try again.');
+      setSearchedOrder(null);
+    }
+  };
+
+  const publicTimeline = searchedOrder ? getPublicTimeline(searchedOrder.order_id) : [];
+
+  return (
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="bg-card border-b border-border">
+        <div className="container py-6">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center">
+              <span className="text-primary-foreground font-bold text-lg">C</span>
+            </div>
+            <div>
+              <h1 className="font-display font-bold text-xl">Chhapai</h1>
+              <p className="text-sm text-muted-foreground">Order Tracking</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="container py-8">
+        {/* Search Section */}
+        <div className="max-w-xl mx-auto text-center mb-8">
+          <h2 className="text-3xl font-display font-bold mb-2">Track Your Order</h2>
+          <p className="text-muted-foreground mb-6">
+            Enter your order number to check the current status
+          </p>
+
+          <form onSubmit={handleSearch} className="space-y-4">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Enter order number (e.g., ORD-2024-001)"
+                  value={orderNumber}
+                  onChange={(e) => setOrderNumber(e.target.value)}
+                  className="pl-10 h-12 text-base"
+                />
+              </div>
+              <Button type="submit" size="lg" className="px-8">
+                Track
+              </Button>
+            </div>
+            
+            <Input
+              type="tel"
+              placeholder="Phone number (optional)"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="h-12"
+            />
+          </form>
+
+          {error && (
+            <p className="mt-4 text-destructive text-sm">{error}</p>
+          )}
+        </div>
+
+        {/* Results */}
+        {searchedOrder && (
+          <div className="max-w-3xl mx-auto animate-fade-in space-y-6">
+            {/* Order Summary */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-xl font-display">{searchedOrder.order_id}</CardTitle>
+                    <p className="text-muted-foreground mt-1">
+                      Ordered on {format(searchedOrder.created_at, 'MMMM d, yyyy')}
+                    </p>
+                  </div>
+                  <Badge 
+                    variant={searchedOrder.is_completed ? 'success' : 'default'}
+                    className="text-sm"
+                  >
+                    {searchedOrder.is_completed ? 'Completed' : 'In Progress'}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* Progress indicator */}
+                {searchedOrder.items[0] && (
+                  <StageIndicator currentStage={searchedOrder.items[0].current_stage} />
+                )}
+
+                {/* Expected delivery */}
+                {searchedOrder.order_level_delivery_date && (
+                  <div className="flex items-center justify-center gap-3 p-4 bg-secondary/50 rounded-lg">
+                    <Truck className="h-5 w-5 text-primary" />
+                    <div>
+                      <p className="font-medium">Expected Delivery</p>
+                      <p className="text-muted-foreground">
+                        {format(searchedOrder.order_level_delivery_date, 'EEEE, MMMM d, yyyy')}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Items */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-display flex items-center gap-2">
+                  <Package className="h-5 w-5" />
+                  Items in this Order
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {searchedOrder.items.map((item) => (
+                    <div 
+                      key={item.item_id}
+                      className="flex items-start justify-between gap-4 p-4 bg-secondary/30 rounded-lg"
+                    >
+                      <div>
+                        <h4 className="font-medium">{item.product_name}</h4>
+                        <p className="text-sm text-muted-foreground">Quantity: {item.quantity}</p>
+                      </div>
+                      <Badge variant={`stage-${item.current_stage}` as any}>
+                        {STAGE_LABELS[item.current_stage]}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Timeline */}
+            {publicTimeline.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg font-display flex items-center gap-2">
+                    <Clock className="h-5 w-5" />
+                    Order Updates
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {publicTimeline.map((entry) => (
+                      <div key={entry.timeline_id} className="flex gap-4">
+                        <div className="h-2 w-2 mt-2 rounded-full bg-primary shrink-0" />
+                        <div>
+                          <p className="font-medium">
+                            {entry.action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {format(entry.created_at, 'MMM d, yyyy \'at\' h:mm a')}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* Demo hint */}
+        {!searchedOrder && (
+          <div className="max-w-xl mx-auto mt-8 text-center">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium">Demo:</span> Try searching for{' '}
+              <button 
+                onClick={() => setOrderNumber('ORD-2024-001')}
+                className="text-primary hover:underline"
+              >
+                ORD-2024-001
+              </button>
+              {', '}
+              <button 
+                onClick={() => setOrderNumber('ORD-2024-002')}
+                className="text-primary hover:underline"
+              >
+                ORD-2024-002
+              </button>
+              {', or '}
+              <button 
+                onClick={() => setOrderNumber('ORD-2024-003')}
+                className="text-primary hover:underline"
+              >
+                ORD-2024-003
+              </button>
+            </p>
+          </div>
+        )}
+      </main>
+
+      {/* Footer */}
+      <footer className="border-t border-border mt-auto">
+        <div className="container py-6 text-center text-sm text-muted-foreground">
+          <p>© 2024 Chhapai. All rights reserved.</p>
+          <p className="mt-1">
+            Need help? Contact us at{' '}
+            <a href="tel:+919876543210" className="text-primary hover:underline">
+              +91 98765 43210
+            </a>
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
