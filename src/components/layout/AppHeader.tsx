@@ -1,8 +1,8 @@
 import { Menu, Search, Bell, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
+import { UserMenu } from './UserMenu';
+import { ThemeToggle } from './ThemeToggle';
 
 interface AppHeaderProps {
   onMenuClick: () => void;
@@ -46,6 +46,8 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
             <Search className="h-5 w-5" />
           </Button>
           
+          <ThemeToggle />
+          
           <Button variant="ghost" size="icon" className="relative">
             <Bell className="h-5 w-5" />
             <span className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-priority-red text-white text-[10px] font-medium rounded-full flex items-center justify-center">
@@ -60,6 +62,8 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
           <Button size="icon" className="sm:hidden">
             <Plus className="h-5 w-5" />
           </Button>
+          
+          <UserMenu />
         </div>
       </div>
     </header>
