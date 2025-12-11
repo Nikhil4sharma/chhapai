@@ -1,8 +1,17 @@
-import { Menu, Search, Bell, Plus } from 'lucide-react';
+import { Menu, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { UserMenu } from './UserMenu';
 import { ThemeToggle } from './ThemeToggle';
+import { NotificationsDropdown } from './NotificationsDropdown';
+import { SearchBar } from './SearchBar';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { useNavigate } from 'react-router-dom';
+import { toast } from '@/hooks/use-toast';
 
 interface AppHeaderProps {
   onMenuClick: () => void;
@@ -10,62 +19,78 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) {
-  return (
-    <header className="sticky top-0 z-30 h-16 bg-background/95 backdrop-blur-sm border-b border-border">
-      <div className="flex items-center justify-between h-full px-4 lg:px-6">
-        {/* Left section */}
-        <div className="flex items-center gap-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden"
-            onClick={onMenuClick}
-          >
-            <Menu className="h-5 w-5" />
-          </Button>
-          <h1 className="text-xl font-display font-semibold text-foreground">
-            {title}
-          </h1>
-        </div>
+  const navigate = useNavigate();
 
-        {/* Center section - Search */}
-        <div className="hidden md:flex flex-1 max-w-md mx-8">
-          <div className="relative w-full">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search orders, customers..."
-              className="pl-10 bg-secondary/50 border-0 focus-visible:ring-1"
-            />
+  const handleNewOrder = () => {
+    toast({
+      title: "New Order",
+      description: "Create order feature coming soon",
+    });
+  };
+
+  return (
+    <TooltipProvider>
+      <header className="sticky top-0 z-30 h-16 bg-background/95 backdrop-blur-sm border-b border-border">
+        <div className="flex items-center justify-between h-full px-4 lg:px-6">
+          {/* Left section */}
+          <div className="flex items-center gap-4">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="lg:hidden"
+                  onClick={onMenuClick}
+                >
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Toggle menu</TooltipContent>
+            </Tooltip>
+            <h1 className="text-xl font-display font-semibold text-foreground">
+              {title}
+            </h1>
+          </div>
+
+          {/* Center section - Search (Desktop) */}
+          <div className="hidden md:flex flex-1 max-w-md mx-8">
+            <SearchBar />
+          </div>
+
+          {/* Right section */}
+          <div className="flex items-center gap-2">
+            {/* Mobile Search */}
+            <div className="md:hidden">
+              <SearchBar isMobile />
+            </div>
+            
+            <ThemeToggle />
+            
+            <NotificationsDropdown />
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="sm" className="hidden sm:flex gap-2" onClick={handleNewOrder}>
+                  <Plus className="h-4 w-4" />
+                  New Order
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Create a new order</TooltipContent>
+            </Tooltip>
+            
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="icon" className="sm:hidden" onClick={handleNewOrder}>
+                  <Plus className="h-5 w-5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Create a new order</TooltipContent>
+            </Tooltip>
+            
+            <UserMenu />
           </div>
         </div>
-
-        {/* Right section */}
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" className="md:hidden">
-            <Search className="h-5 w-5" />
-          </Button>
-          
-          <ThemeToggle />
-          
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="h-5 w-5" />
-            <span className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-priority-red text-white text-[10px] font-medium rounded-full flex items-center justify-center">
-              3
-            </span>
-          </Button>
-
-          <Button size="sm" className="hidden sm:flex gap-2">
-            <Plus className="h-4 w-4" />
-            New Order
-          </Button>
-          <Button size="icon" className="sm:hidden">
-            <Plus className="h-5 w-5" />
-          </Button>
-          
-          <UserMenu />
-        </div>
-      </div>
-    </header>
+      </header>
+    </TooltipProvider>
   );
 }

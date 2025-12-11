@@ -19,6 +19,9 @@ import OrderDetail from "./pages/OrderDetail";
 import TrackOrder from "./pages/TrackOrder";
 import Profile from "./pages/Profile";
 import Admin from "./pages/Admin";
+import Team from "./pages/Team";
+import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
