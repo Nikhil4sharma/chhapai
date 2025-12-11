@@ -63,6 +63,13 @@ export type Database = {
             referencedRelation: "orders"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "order_files_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders_secure"
+            referencedColumns: ["id"]
+          },
         ]
       }
       order_items: {
@@ -129,6 +136,13 @@ export type Database = {
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders_secure"
             referencedColumns: ["id"]
           },
         ]
@@ -281,6 +295,13 @@ export type Database = {
             referencedRelation: "orders"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "timeline_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders_secure"
+            referencedColumns: ["id"]
+          },
         ]
       }
       user_roles: {
@@ -306,7 +327,57 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      orders_secure: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          customer_address: string | null
+          customer_email: string | null
+          customer_name: string | null
+          customer_phone: string | null
+          delivery_date: string | null
+          global_notes: string | null
+          id: string | null
+          is_completed: boolean | null
+          order_id: string | null
+          priority: string | null
+          source: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          customer_address?: never
+          customer_email?: never
+          customer_name?: string | null
+          customer_phone?: never
+          delivery_date?: string | null
+          global_notes?: string | null
+          id?: string | null
+          is_completed?: boolean | null
+          order_id?: string | null
+          priority?: string | null
+          source?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          customer_address?: never
+          customer_email?: never
+          customer_name?: string | null
+          customer_phone?: never
+          delivery_date?: string | null
+          global_notes?: string | null
+          id?: string | null
+          is_completed?: boolean | null
+          order_id?: string | null
+          priority?: string | null
+          source?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       get_user_department: { Args: { _user_id: string }; Returns: string }
