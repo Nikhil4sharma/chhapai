@@ -81,9 +81,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       if (filesError) throw filesError;
 
-      // Fetch profiles for assigned user names
+      // Fetch profiles for assigned user names (using secure view)
       const { data: profilesData } = await supabase
-        .from('profiles')
+        .from('profiles_secure')
         .select('user_id, full_name');
 
       const profilesMap = new Map(profilesData?.map(p => [p.user_id, p.full_name]) || []);
