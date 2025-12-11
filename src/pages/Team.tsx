@@ -57,9 +57,9 @@ export default function Team() {
   const fetchTeamMembers = async () => {
     setLoading(true);
     try {
-      // Fetch profiles with their roles
+      // Fetch profiles with their roles (using secure view)
       const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
+        .from('profiles_secure')
         .select('*');
 
       if (profilesError) throw profilesError;

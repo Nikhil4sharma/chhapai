@@ -43,7 +43,7 @@ export default function Admin() {
     setIsLoading(true);
     try {
       const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
+        .from('profiles_secure')
         .select('*');
 
       if (profilesError) throw profilesError;

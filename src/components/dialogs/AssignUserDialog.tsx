@@ -52,9 +52,9 @@ export function AssignUserDialog({
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      // Fetch profiles with matching department
+      // Fetch profiles with matching department (using secure view)
       const { data: profiles, error } = await supabase
-        .from('profiles')
+        .from('profiles_secure')
         .select('user_id, full_name, department')
         .eq('department', department);
 
