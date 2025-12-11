@@ -22,6 +22,16 @@ export interface OrderFile {
   is_public?: boolean;
 }
 
+export interface OrderFile {
+  file_id: string;
+  url: string;
+  file_name?: string;
+  type: 'proof' | 'final' | 'image' | 'other';
+  uploaded_by: string;
+  uploaded_at: Date;
+  is_public?: boolean;
+}
+
 export interface OrderItem {
   item_id: string;
   order_id: string;
@@ -38,6 +48,7 @@ export interface OrderItem {
   current_stage: Stage;
   current_substage: SubStage;
   assigned_to?: string;
+  assigned_to_name?: string | null;
   assigned_department: UserRole;
   delivery_date: Date;
   priority_computed: Priority;
@@ -49,6 +60,7 @@ export interface OrderItem {
 }
 
 export interface Order {
+  id?: string; // UUID from Supabase
   order_id: string;
   source: 'wordpress' | 'manual';
   customer: Customer;

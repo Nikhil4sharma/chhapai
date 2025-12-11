@@ -1,36 +1,212 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { Order, OrderItem, TimelineEntry, Stage, SubStage, Priority } from '@/types/order';
-import { mockOrders, mockTimeline, computePriority } from '@/data/mockData';
 import { useAuth } from './AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 interface OrderContextType {
   orders: Order[];
   timeline: TimelineEntry[];
+  isLoading: boolean;
   getOrderById: (orderId: string) => Order | undefined;
   getOrdersByDepartment: () => Order[];
+  getOrdersForUser: () => Order[];
   getTimelineForOrder: (orderId: string, itemId?: string) => TimelineEntry[];
-  updateItemStage: (orderId: string, itemId: string, newStage: Stage, substage?: SubStage) => void;
-  updateItemSubstage: (orderId: string, itemId: string, substage: SubStage) => void;
-  assignToDepartment: (orderId: string, itemId: string, department: string) => void;
-  addTimelineEntry: (entry: Omit<TimelineEntry, 'timeline_id' | 'created_at'>) => void;
-  uploadFile: (orderId: string, itemId: string, file: File) => Promise<void>;
-  addNote: (orderId: string, note: string) => void;
-  updateOrder: (orderId: string, updates: Partial<Order>) => void;
-  completeSubstage: (orderId: string, itemId: string) => void;
-  startSubstage: (orderId: string, itemId: string, substage: SubStage) => void;
-  markAsDispatched: (orderId: string, itemId: string) => void;
-  sendToProduction: (orderId: string, itemId: string) => void;
+  updateItemStage: (orderId: string, itemId: string, newStage: Stage, substage?: SubStage) => Promise<void>;
+  updateItemSubstage: (orderId: string, itemId: string, substage: SubStage) => Promise<void>;
+  assignToDepartment: (orderId: string, itemId: string, department: string) => Promise<void>;
+  assignToUser: (orderId: string, itemId: string, userId: string, userName: string) => Promise<void>;
+  addTimelineEntry: (entry: Omit<TimelineEntry, 'timeline_id' | 'created_at'>) => Promise<void>;
+  uploadFile: (orderId: string, itemId: string, file: File, replaceExisting?: boolean) => Promise<void>;
+  addNote: (orderId: string, note: string) => Promise<void>;
+  updateOrder: (orderId: string, updates: Partial<Order>) => Promise<void>;
+  deleteOrder: (orderId: string) => Promise<void>;
+  completeSubstage: (orderId: string, itemId: string) => Promise<void>;
+  startSubstage: (orderId: string, itemId: string, substage: SubStage) => Promise<void>;
+  markAsDispatched: (orderId: string, itemId: string) => Promise<void>;
+  sendToProduction: (orderId: string, itemId: string) => Promise<void>;
+  refreshOrders: () => Promise<void>;
+  getCompletedOrders: () => Order[];
 }
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
 
 const PRODUCTION_SUBSTAGES: SubStage[] = ['foiling', 'printing', 'pasting', 'cutting', 'letterpress', 'embossing', 'packing'];
 
+// Helper to compute priority based on days until delivery
+const computePriority = (deliveryDate: Date | null): Priority => {
+  if (!deliveryDate) return 'blue';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const delivery = new Date(deliveryDate);
+  delivery.setHours(0, 0, 0, 0);
+  const daysUntil = Math.ceil((delivery.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (daysUntil > 5) return 'blue';
+  if (daysUntil >= 3) return 'yellow';
+  return 'red';
+};
+
 export function OrderProvider({ children }: { children: React.ReactNode }) {
-  const [orders, setOrders] = useState<Order[]>(mockOrders);
-  const [timeline, setTimeline] = useState<TimelineEntry[]>(mockTimeline);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const { user, profile, role, isAdmin } = useAuth();
+
+  // Fetch orders from Supabase
+  const fetchOrders = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      
+      // Fetch orders
+      const { data: ordersData, error: ordersError } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (ordersError) throw ordersError;
+
+      // Fetch order items
+      const { data: itemsData, error: itemsError } = await supabase
+        .from('order_items')
+        .select('*');
+
+      if (itemsError) throw itemsError;
+
+      // Fetch files
+      const { data: filesData, error: filesError } = await supabase
+        .from('order_files')
+        .select('*');
+
+      if (filesError) throw filesError;
+
+      // Fetch profiles for assigned user names
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('user_id, full_name');
+
+      const profilesMap = new Map(profilesData?.map(p => [p.user_id, p.full_name]) || []);
+
+      // Map data to Order type
+      const mappedOrders: Order[] = (ordersData || []).map(order => {
+        const orderItems = (itemsData || [])
+          .filter(item => item.order_id === order.id)
+          .map(item => {
+            const itemFiles = (filesData || [])
+              .filter(file => file.item_id === item.id || (file.order_id === order.id && !file.item_id))
+              .map(file => ({
+                file_id: file.id,
+                url: file.file_url,
+                type: file.file_type as 'proof' | 'final' | 'image' | 'other',
+                uploaded_by: file.uploaded_by || '',
+                uploaded_at: new Date(file.created_at),
+                is_public: file.is_public,
+                file_name: file.file_name,
+              }));
+
+            const assignedUserName = item.assigned_to ? profilesMap.get(item.assigned_to) : null;
+
+            return {
+              item_id: item.id,
+              order_id: item.order_id,
+              product_name: item.product_name,
+              sku: item.sku,
+              quantity: item.quantity,
+              specifications: item.specifications || {},
+              need_design: item.need_design,
+              current_stage: item.current_stage as Stage,
+              current_substage: item.current_substage as SubStage,
+              assigned_to: item.assigned_to,
+              assigned_to_name: assignedUserName,
+              assigned_department: item.assigned_department as any,
+              delivery_date: item.delivery_date ? new Date(item.delivery_date) : new Date(),
+              priority_computed: computePriority(item.delivery_date ? new Date(item.delivery_date) : null),
+              files: itemFiles,
+              is_ready_for_production: item.is_ready_for_production,
+              is_dispatched: item.is_dispatched,
+              created_at: new Date(item.created_at),
+              updated_at: new Date(item.updated_at),
+            } as OrderItem;
+          });
+
+        return {
+          id: order.id,
+          order_id: order.order_id,
+          source: order.source as 'wordpress' | 'manual',
+          customer: {
+            name: order.customer_name,
+            phone: order.customer_phone || '',
+            email: order.customer_email || '',
+            address: order.customer_address || '',
+          },
+          created_by: order.created_by || '',
+          created_at: new Date(order.created_at),
+          updated_at: new Date(order.updated_at),
+          global_notes: order.global_notes,
+          is_completed: order.is_completed,
+          order_level_delivery_date: order.delivery_date ? new Date(order.delivery_date) : undefined,
+          priority_computed: computePriority(order.delivery_date ? new Date(order.delivery_date) : null),
+          items: orderItems,
+        } as Order;
+      });
+
+      setOrders(mappedOrders);
+    } catch (error) {
+      console.error('Error fetching orders:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load orders",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Fetch timeline from Supabase
+  const fetchTimeline = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('timeline')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const mappedTimeline: TimelineEntry[] = (data || []).map(entry => ({
+        timeline_id: entry.id,
+        order_id: entry.order_id,
+        item_id: entry.item_id,
+        stage: entry.stage as Stage,
+        substage: entry.substage as SubStage,
+        action: entry.action as any,
+        performed_by: entry.performed_by || '',
+        performed_by_name: entry.performed_by_name || 'Unknown',
+        notes: entry.notes,
+        attachments: entry.attachments as any,
+        qty_confirmed: entry.qty_confirmed,
+        paper_treatment: entry.paper_treatment,
+        created_at: new Date(entry.created_at),
+        is_public: entry.is_public,
+      }));
+
+      setTimeline(mappedTimeline);
+    } catch (error) {
+      console.error('Error fetching timeline:', error);
+    }
+  }, []);
+
+  // Initial fetch
+  useEffect(() => {
+    if (user) {
+      fetchOrders();
+      fetchTimeline();
+    }
+  }, [user, fetchOrders, fetchTimeline]);
+
+  const refreshOrders = useCallback(async () => {
+    await Promise.all([fetchOrders(), fetchTimeline()]);
+  }, [fetchOrders, fetchTimeline]);
 
   const getOrderById = useCallback((orderId: string) => {
     return orders.find(o => o.order_id === orderId);
@@ -38,33 +214,77 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
   const getOrdersByDepartment = useCallback(() => {
     if (isAdmin || role === 'sales') {
-      return orders;
+      return orders.filter(o => !o.is_completed);
     }
     
     return orders.filter(order =>
-      order.items.some(item => item.assigned_department === role)
+      !order.is_completed && order.items.some(item => item.assigned_department === role)
+    );
+  }, [orders, role, isAdmin]);
+
+  const getOrdersForUser = useCallback(() => {
+    if (isAdmin) {
+      return orders.filter(o => !o.is_completed);
+    }
+
+    return orders.filter(order =>
+      !order.is_completed && order.items.some(item => 
+        item.assigned_department === role || item.assigned_to === user?.id
+      )
+    );
+  }, [orders, role, isAdmin, user]);
+
+  const getCompletedOrders = useCallback(() => {
+    if (isAdmin || role === 'sales') {
+      return orders.filter(o => o.is_completed);
+    }
+    return orders.filter(o => 
+      o.is_completed && o.items.some(item => item.assigned_department === role)
     );
   }, [orders, role, isAdmin]);
 
   const getTimelineForOrder = useCallback((orderId: string, itemId?: string) => {
+    // Find order by order_id to get the UUID
+    const order = orders.find(o => o.order_id === orderId);
+    const orderUUID = order?.id || orderId;
+    
     return timeline
-      .filter(entry => entry.order_id === orderId && (!itemId || entry.item_id === itemId))
-      .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
-  }, [timeline]);
+      .filter(entry => entry.order_id === orderUUID && (!itemId || entry.item_id === itemId))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [timeline, orders]);
 
-  const addTimelineEntry = useCallback((entry: Omit<TimelineEntry, 'timeline_id' | 'created_at'>) => {
-    const newEntry: TimelineEntry = {
-      ...entry,
-      timeline_id: `t-${Date.now()}`,
-      created_at: new Date(),
-    };
-    setTimeline(prev => [newEntry, ...prev]);
-  }, []);
+  const addTimelineEntry = useCallback(async (entry: Omit<TimelineEntry, 'timeline_id' | 'created_at'>) => {
+    try {
+      const { error } = await supabase
+        .from('timeline')
+        .insert({
+          order_id: entry.order_id,
+          item_id: entry.item_id,
+          stage: entry.stage,
+          substage: entry.substage,
+          action: entry.action,
+          performed_by: entry.performed_by,
+          performed_by_name: entry.performed_by_name,
+          notes: entry.notes,
+          attachments: entry.attachments,
+          qty_confirmed: entry.qty_confirmed,
+          paper_treatment: entry.paper_treatment,
+          is_public: entry.is_public ?? true,
+        });
 
-  const updateItemStage = useCallback((orderId: string, itemId: string, newStage: Stage, substage?: SubStage) => {
-    setOrders(prev => prev.map(order => {
-      if (order.order_id !== orderId) return order;
-      
+      if (error) throw error;
+      await fetchTimeline();
+    } catch (error) {
+      console.error('Error adding timeline entry:', error);
+    }
+  }, [fetchTimeline]);
+
+  const updateItemStage = useCallback(async (orderId: string, itemId: string, newStage: Stage, substage?: SubStage) => {
+    try {
+      const order = orders.find(o => o.order_id === orderId);
+      const item = order?.items.find(i => i.item_id === itemId);
+      if (!order || !item) return;
+
       const deptMap: Record<Stage, 'sales' | 'design' | 'prepress' | 'production'> = {
         sales: 'sales',
         design: 'design', 
@@ -73,80 +293,92 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         dispatch: 'production',
         completed: 'production',
       };
-      
-      return {
-        ...order,
-        updated_at: new Date(),
-        items: order.items.map(item => {
-          if (item.item_id !== itemId) return item;
-          
-          return {
-            ...item,
-            current_stage: newStage,
-            current_substage: substage || null,
-            assigned_department: deptMap[newStage],
-            updated_at: new Date(),
-          };
-        }),
-      };
-    }));
 
-    addTimelineEntry({
-      order_id: orderId,
-      item_id: itemId,
-      stage: newStage,
-      substage: substage,
-      action: 'assigned',
-      performed_by: user?.id || '',
-      performed_by_name: profile?.full_name || 'Unknown',
-      notes: `Moved to ${newStage}${substage ? ` - ${substage}` : ''}`,
-      is_public: true,
-    });
+      const { error } = await supabase
+        .from('order_items')
+        .update({
+          current_stage: newStage,
+          current_substage: substage || null,
+          assigned_department: deptMap[newStage],
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
 
-    toast({
-      title: "Stage Updated",
-      description: `Item moved to ${newStage}${substage ? ` - ${substage}` : ''}`,
-    });
-  }, [user, profile, addTimelineEntry]);
+      if (error) throw error;
 
-  const updateItemSubstage = useCallback((orderId: string, itemId: string, substage: SubStage) => {
-    setOrders(prev => prev.map(order => {
-      if (order.order_id !== orderId) return order;
-      
-      return {
-        ...order,
-        updated_at: new Date(),
-        items: order.items.map(item => {
-          if (item.item_id !== itemId) return item;
-          
-          return {
-            ...item,
-            current_substage: substage,
-            updated_at: new Date(),
-          };
-        }),
-      };
-    }));
+      // Add timeline entry
+      await addTimelineEntry({
+        order_id: order.id!,
+        item_id: itemId,
+        stage: newStage,
+        substage: substage,
+        action: 'assigned',
+        performed_by: user?.id || '',
+        performed_by_name: profile?.full_name || 'Unknown',
+        notes: `Moved to ${newStage}${substage ? ` - ${substage}` : ''}`,
+        is_public: true,
+      });
 
-    addTimelineEntry({
-      order_id: orderId,
-      item_id: itemId,
-      stage: 'production',
-      substage: substage,
-      action: 'substage_started',
-      performed_by: user?.id || '',
-      performed_by_name: profile?.full_name || 'Unknown',
-      notes: `Started ${substage}`,
-      is_public: true,
-    });
+      await fetchOrders();
 
-    toast({
-      title: "Production Stage Started",
-      description: `Started ${substage}`,
-    });
-  }, [user, profile, addTimelineEntry]);
+      toast({
+        title: "Stage Updated",
+        description: `Item moved to ${newStage}${substage ? ` - ${substage}` : ''}`,
+      });
+    } catch (error) {
+      console.error('Error updating item stage:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update stage",
+        variant: "destructive",
+      });
+    }
+  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
 
-  const completeSubstage = useCallback((orderId: string, itemId: string) => {
+  const updateItemSubstage = useCallback(async (orderId: string, itemId: string, substage: SubStage) => {
+    try {
+      const order = orders.find(o => o.order_id === orderId);
+      if (!order) return;
+
+      const { error } = await supabase
+        .from('order_items')
+        .update({
+          current_substage: substage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (error) throw error;
+
+      await addTimelineEntry({
+        order_id: order.id!,
+        item_id: itemId,
+        stage: 'production',
+        substage: substage,
+        action: 'substage_started',
+        performed_by: user?.id || '',
+        performed_by_name: profile?.full_name || 'Unknown',
+        notes: `Started ${substage}`,
+        is_public: true,
+      });
+
+      await fetchOrders();
+
+      toast({
+        title: "Production Stage Started",
+        description: `Started ${substage}`,
+      });
+    } catch (error) {
+      console.error('Error updating substage:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update substage",
+        variant: "destructive",
+      });
+    }
+  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
+
+  const completeSubstage = useCallback(async (orderId: string, itemId: string) => {
     const order = orders.find(o => o.order_id === orderId);
     const item = order?.items.find(i => i.item_id === itemId);
     
@@ -155,17 +387,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     const currentIndex = PRODUCTION_SUBSTAGES.indexOf(item.current_substage);
     const isLastSubstage = currentIndex === PRODUCTION_SUBSTAGES.length - 1;
 
-    if (isLastSubstage) {
-      // Move to dispatch
-      updateItemStage(orderId, itemId, 'dispatch');
-    } else {
-      // Move to next substage
-      const nextSubstage = PRODUCTION_SUBSTAGES[currentIndex + 1];
-      updateItemSubstage(orderId, itemId, nextSubstage);
-    }
-
-    addTimelineEntry({
-      order_id: orderId,
+    // Add completion timeline entry
+    await addTimelineEntry({
+      order_id: order!.id!,
       item_id: itemId,
       stage: 'production',
       substage: item.current_substage,
@@ -175,54 +399,95 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       notes: `Completed ${item.current_substage}`,
       is_public: true,
     });
+
+    if (isLastSubstage) {
+      await updateItemStage(orderId, itemId, 'dispatch');
+    } else {
+      const nextSubstage = PRODUCTION_SUBSTAGES[currentIndex + 1];
+      await updateItemSubstage(orderId, itemId, nextSubstage);
+    }
   }, [orders, user, profile, updateItemStage, updateItemSubstage, addTimelineEntry]);
 
-  const startSubstage = useCallback((orderId: string, itemId: string, substage: SubStage) => {
-    updateItemSubstage(orderId, itemId, substage);
+  const startSubstage = useCallback(async (orderId: string, itemId: string, substage: SubStage) => {
+    await updateItemSubstage(orderId, itemId, substage);
   }, [updateItemSubstage]);
 
-  const markAsDispatched = useCallback((orderId: string, itemId: string) => {
-    updateItemStage(orderId, itemId, 'completed');
+  const markAsDispatched = useCallback(async (orderId: string, itemId: string) => {
+    try {
+      const order = orders.find(o => o.order_id === orderId);
+      if (!order) return;
+
+      const { error } = await supabase
+        .from('order_items')
+        .update({
+          current_stage: 'completed',
+          is_dispatched: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (error) throw error;
+
+      await addTimelineEntry({
+        order_id: order.id!,
+        item_id: itemId,
+        stage: 'dispatch',
+        action: 'dispatched',
+        performed_by: user?.id || '',
+        performed_by_name: profile?.full_name || 'Unknown',
+        notes: 'Item dispatched',
+        is_public: true,
+      });
+
+      // Check if all items are completed
+      const updatedItems = order.items.map(i => 
+        i.item_id === itemId ? { ...i, current_stage: 'completed' as Stage, is_dispatched: true } : i
+      );
+      const allCompleted = updatedItems.every(i => i.current_stage === 'completed');
+
+      if (allCompleted) {
+        await supabase
+          .from('orders')
+          .update({ is_completed: true, updated_at: new Date().toISOString() })
+          .eq('id', order.id);
+      }
+
+      await fetchOrders();
+
+      toast({
+        title: "Item Dispatched",
+        description: "Item has been marked as dispatched and completed",
+      });
+    } catch (error) {
+      console.error('Error marking as dispatched:', error);
+      toast({
+        title: "Error",
+        description: "Failed to mark as dispatched",
+        variant: "destructive",
+      });
+    }
+  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
+
+  const sendToProduction = useCallback(async (orderId: string, itemId: string) => {
+    await updateItemStage(orderId, itemId, 'production', 'foiling');
     
-    addTimelineEntry({
-      order_id: orderId,
-      item_id: itemId,
-      stage: 'dispatch',
-      action: 'dispatched',
-      performed_by: user?.id || '',
-      performed_by_name: profile?.full_name || 'Unknown',
-      notes: 'Item dispatched',
-      is_public: true,
-    });
+    const order = orders.find(o => o.order_id === orderId);
+    if (order) {
+      await addTimelineEntry({
+        order_id: order.id!,
+        item_id: itemId,
+        stage: 'production',
+        substage: 'foiling',
+        action: 'sent_to_production',
+        performed_by: user?.id || '',
+        performed_by_name: profile?.full_name || 'Unknown',
+        notes: 'Item sent to production',
+        is_public: true,
+      });
+    }
+  }, [orders, user, profile, updateItemStage, addTimelineEntry]);
 
-    toast({
-      title: "Item Dispatched",
-      description: "Item has been marked as dispatched and completed",
-    });
-  }, [user, profile, updateItemStage, addTimelineEntry]);
-
-  const sendToProduction = useCallback((orderId: string, itemId: string) => {
-    updateItemStage(orderId, itemId, 'production', 'foiling');
-    
-    addTimelineEntry({
-      order_id: orderId,
-      item_id: itemId,
-      stage: 'production',
-      substage: 'foiling',
-      action: 'sent_to_production',
-      performed_by: user?.id || '',
-      performed_by_name: profile?.full_name || 'Unknown',
-      notes: 'Item sent to production',
-      is_public: true,
-    });
-
-    toast({
-      title: "Sent to Production",
-      description: "Item has been sent to production - Foiling stage",
-    });
-  }, [user, profile, updateItemStage, addTimelineEntry]);
-
-  const assignToDepartment = useCallback((orderId: string, itemId: string, department: string) => {
+  const assignToDepartment = useCallback(async (orderId: string, itemId: string, department: string) => {
     const stageMap: Record<string, Stage> = {
       sales: 'sales',
       design: 'design',
@@ -231,117 +496,275 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     };
 
     const newStage = stageMap[department] || 'sales';
-    updateItemStage(orderId, itemId, newStage, department === 'production' ? 'foiling' : undefined);
+    await updateItemStage(orderId, itemId, newStage, department === 'production' ? 'foiling' : undefined);
   }, [updateItemStage]);
 
-  const uploadFile = useCallback(async (orderId: string, itemId: string, file: File) => {
-    // In a real app, this would upload to storage
-    const fileUrl = URL.createObjectURL(file);
-    const fileType = file.type.includes('pdf') ? 'proof' : 'image';
+  const assignToUser = useCallback(async (orderId: string, itemId: string, userId: string, userName: string) => {
+    try {
+      const order = orders.find(o => o.order_id === orderId);
+      if (!order) return;
 
-    setOrders(prev => prev.map(order => {
-      if (order.order_id !== orderId) return order;
+      const { error } = await supabase
+        .from('order_items')
+        .update({
+          assigned_to: userId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (error) throw error;
+
+      await addTimelineEntry({
+        order_id: order.id!,
+        item_id: itemId,
+        stage: order.items.find(i => i.item_id === itemId)?.current_stage || 'sales',
+        action: 'assigned',
+        performed_by: user?.id || '',
+        performed_by_name: profile?.full_name || 'Unknown',
+        notes: `Assigned to ${userName}`,
+        is_public: true,
+      });
+
+      await fetchOrders();
+
+      toast({
+        title: "User Assigned",
+        description: `Item assigned to ${userName}`,
+      });
+    } catch (error) {
+      console.error('Error assigning user:', error);
+      toast({
+        title: "Error",
+        description: "Failed to assign user",
+        variant: "destructive",
+      });
+    }
+  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
+
+  const uploadFile = useCallback(async (orderId: string, itemId: string, file: File, replaceExisting: boolean = false) => {
+    try {
+      const order = orders.find(o => o.order_id === orderId);
+      if (!order) return;
+
+      // Upload to Supabase storage
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${orderId}/${itemId}/${Date.now()}.${fileExt}`;
       
-      return {
-        ...order,
-        items: order.items.map(item => {
-          if (item.item_id !== itemId) return item;
-          
-          return {
-            ...item,
-            files: [...item.files, {
-              file_id: `f-${Date.now()}`,
-              url: fileUrl,
-              type: fileType,
-              uploaded_by: user?.id || '',
-              uploaded_at: new Date(),
-              is_public: true,
-            }],
-          };
-        }),
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('order-files')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('order-files')
+        .getPublicUrl(fileName);
+
+      const fileType = file.type.includes('pdf') ? 'proof' : 
+                       file.type.includes('image') ? 'image' : 'other';
+
+      // If replace existing, delete old files first
+      if (replaceExisting) {
+        await supabase
+          .from('order_files')
+          .delete()
+          .eq('item_id', itemId);
+      }
+
+      // Insert file record
+      const { error: insertError } = await supabase
+        .from('order_files')
+        .insert({
+          order_id: order.id,
+          item_id: itemId,
+          file_url: urlData.publicUrl,
+          file_name: file.name,
+          file_type: fileType,
+          uploaded_by: user?.id,
+          is_public: true,
+        });
+
+      if (insertError) throw insertError;
+
+      await addTimelineEntry({
+        order_id: order.id!,
+        item_id: itemId,
+        stage: order.items.find(i => i.item_id === itemId)?.current_stage || 'sales',
+        action: replaceExisting ? 'final_proof_uploaded' : 'uploaded_proof',
+        performed_by: user?.id || '',
+        performed_by_name: profile?.full_name || 'Unknown',
+        notes: `${replaceExisting ? 'Replaced with' : 'Uploaded'} ${file.name}`,
+        attachments: [{ url: urlData.publicUrl, type: file.type }],
+        is_public: true,
+      });
+
+      await fetchOrders();
+
+      toast({
+        title: replaceExisting ? "File Replaced" : "File Uploaded",
+        description: `${file.name} has been ${replaceExisting ? 'replaced' : 'uploaded'} successfully`,
+      });
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      toast({
+        title: "Error",
+        description: "Failed to upload file",
+        variant: "destructive",
+      });
+    }
+  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
+
+  const addNote = useCallback(async (orderId: string, note: string) => {
+    try {
+      const order = orders.find(o => o.order_id === orderId);
+      if (!order) return;
+
+      const newNotes = order.global_notes ? `${order.global_notes}\n${note}` : note;
+
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          global_notes: newNotes,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', order.id);
+
+      if (error) throw error;
+
+      await addTimelineEntry({
+        order_id: order.id!,
+        stage: 'sales',
+        action: 'note_added',
+        performed_by: user?.id || '',
+        performed_by_name: profile?.full_name || 'Unknown',
+        notes: note,
+        is_public: false,
+      });
+
+      await fetchOrders();
+
+      toast({
+        title: "Note Added",
+        description: "Your note has been saved",
+      });
+    } catch (error) {
+      console.error('Error adding note:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add note",
+        variant: "destructive",
+      });
+    }
+  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
+
+  const updateOrder = useCallback(async (orderId: string, updates: Partial<Order>) => {
+    try {
+      const order = orders.find(o => o.order_id === orderId);
+      if (!order) return;
+
+      const dbUpdates: any = {
+        updated_at: new Date().toISOString(),
       };
-    }));
 
-    addTimelineEntry({
-      order_id: orderId,
-      item_id: itemId,
-      stage: orders.find(o => o.order_id === orderId)?.items.find(i => i.item_id === itemId)?.current_stage || 'sales',
-      action: 'uploaded_proof',
-      performed_by: user?.id || '',
-      performed_by_name: profile?.full_name || 'Unknown',
-      notes: `Uploaded ${file.name}`,
-      attachments: [{ url: fileUrl, type: file.type }],
-      is_public: true,
-    });
+      if (updates.customer) {
+        dbUpdates.customer_name = updates.customer.name;
+        dbUpdates.customer_email = updates.customer.email;
+        dbUpdates.customer_phone = updates.customer.phone;
+        dbUpdates.customer_address = updates.customer.address;
+      }
+      if (updates.global_notes !== undefined) dbUpdates.global_notes = updates.global_notes;
+      if (updates.order_level_delivery_date) dbUpdates.delivery_date = updates.order_level_delivery_date.toISOString();
 
-    toast({
-      title: "File Uploaded",
-      description: `${file.name} has been uploaded successfully`,
-    });
-  }, [orders, user, profile, addTimelineEntry]);
+      const { error } = await supabase
+        .from('orders')
+        .update(dbUpdates)
+        .eq('id', order.id);
 
-  const addNote = useCallback((orderId: string, note: string) => {
-    setOrders(prev => prev.map(order => {
-      if (order.order_id !== orderId) return order;
+      if (error) throw error;
+
+      await fetchOrders();
+
+      toast({
+        title: "Order Updated",
+        description: "Changes have been saved",
+      });
+    } catch (error) {
+      console.error('Error updating order:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update order",
+        variant: "destructive",
+      });
+    }
+  }, [orders, fetchOrders]);
+
+  const deleteOrder = useCallback(async (orderId: string) => {
+    try {
+      const order = orders.find(o => o.order_id === orderId);
+      if (!order) return;
+
+      // Check permission
+      if (!isAdmin && role !== 'sales') {
+        toast({
+          title: "Permission Denied",
+          description: "Only Admin and Sales can delete orders",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Delete related records first
+      await supabase.from('timeline').delete().eq('order_id', order.id);
+      await supabase.from('order_files').delete().eq('order_id', order.id);
+      await supabase.from('order_items').delete().eq('order_id', order.id);
       
-      return {
-        ...order,
-        global_notes: order.global_notes ? `${order.global_notes}\n${note}` : note,
-        updated_at: new Date(),
-      };
-    }));
+      const { error } = await supabase
+        .from('orders')
+        .delete()
+        .eq('id', order.id);
 
-    addTimelineEntry({
-      order_id: orderId,
-      stage: 'sales',
-      action: 'note_added',
-      performed_by: user?.id || '',
-      performed_by_name: profile?.full_name || 'Unknown',
-      notes: note,
-      is_public: false,
-    });
+      if (error) throw error;
 
-    toast({
-      title: "Note Added",
-      description: "Your note has been saved",
-    });
-  }, [user, profile, addTimelineEntry]);
+      await fetchOrders();
 
-  const updateOrder = useCallback((orderId: string, updates: Partial<Order>) => {
-    setOrders(prev => prev.map(order => {
-      if (order.order_id !== orderId) return order;
-      
-      return {
-        ...order,
-        ...updates,
-        updated_at: new Date(),
-      };
-    }));
-
-    toast({
-      title: "Order Updated",
-      description: "Changes have been saved",
-    });
-  }, []);
+      toast({
+        title: "Order Deleted",
+        description: "Order has been permanently deleted",
+      });
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete order",
+        variant: "destructive",
+      });
+    }
+  }, [orders, isAdmin, role, fetchOrders]);
 
   return (
     <OrderContext.Provider value={{
       orders,
       timeline,
+      isLoading,
       getOrderById,
       getOrdersByDepartment,
+      getOrdersForUser,
       getTimelineForOrder,
       updateItemStage,
       updateItemSubstage,
       assignToDepartment,
+      assignToUser,
       addTimelineEntry,
       uploadFile,
       addNote,
       updateOrder,
+      deleteOrder,
       completeSubstage,
       startSubstage,
       markAsDispatched,
       sendToProduction,
+      refreshOrders,
+      getCompletedOrders,
     }}>
       {children}
     </OrderContext.Provider>
