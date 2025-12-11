@@ -33,6 +33,7 @@ export default function Admin() {
   const [newPassword, setNewPassword] = useState('');
   const [newFullName, setNewFullName] = useState('');
   const [newRole, setNewRole] = useState<AppRole>('sales');
+  const [newDepartment, setNewDepartment] = useState('sales');
 
   useEffect(() => {
     fetchUsers();
@@ -101,6 +102,23 @@ export default function Admin() {
         variant: "destructive",
       });
     } else {
+      // Update department in profile after user creation
+      // The profile is created by trigger, so we need to wait a moment
+      setTimeout(async () => {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('user_id')
+          .eq('full_name', newFullName)
+          .limit(1);
+        
+        if (profiles && profiles[0]) {
+          await supabase
+            .from('profiles')
+            .update({ department: newDepartment })
+            .eq('user_id', profiles[0].user_id);
+        }
+      }, 1000);
+
       toast({
         title: "Success",
         description: `User ${newEmail} created successfully`,
@@ -110,6 +128,7 @@ export default function Admin() {
       setNewPassword('');
       setNewFullName('');
       setNewRole('sales');
+      setNewDepartment('sales');
       fetchUsers();
     }
     
@@ -133,12 +152,6 @@ export default function Admin() {
 
       if (error) throw error;
 
-      // Also update department in profiles
-      await supabase
-        .from('profiles')
-        .update({ department: newRole })
-        .eq('user_id', userId);
-
       toast({
         title: "Success",
         description: "User role updated",
@@ -150,6 +163,31 @@ export default function Admin() {
       toast({
         title: "Error",
         description: "Failed to update role",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUpdateDepartment = async (userId: string, department: string) => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ department })
+        .eq('user_id', userId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Department updated",
+      });
+      
+      fetchUsers();
+    } catch (error) {
+      console.error('Error updating department:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update department",
         variant: "destructive",
       });
     }
@@ -236,7 +274,7 @@ export default function Admin() {
               </div>
               
               <div className="space-y-2">
-                <Label htmlFor="newRole">Role</Label>
+                <Label htmlFor="newRole">Role (Permissions)</Label>
                 <Select value={newRole} onValueChange={(v) => setNewRole(v as AppRole)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select role" />
@@ -249,6 +287,23 @@ export default function Admin() {
                     <SelectItem value="production">Production</SelectItem>
                   </SelectContent>
                 </Select>
+                <p className="text-xs text-muted-foreground">Controls user permissions</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="newDepartment">Department</Label>
+                <Select value={newDepartment} onValueChange={setNewDepartment}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sales">Sales</SelectItem>
+                    <SelectItem value="design">Design</SelectItem>
+                    <SelectItem value="prepress">Prepress</SelectItem>
+                    <SelectItem value="production">Production</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Which orders they can see</p>
               </div>
 
               <div className="flex justify-end gap-2">
@@ -306,7 +361,20 @@ export default function Admin() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {user.department || '-'}
+                        <Select 
+                          value={user.department || 'sales'} 
+                          onValueChange={(v) => handleUpdateDepartment(user.user_id, v)}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue>{user.department || 'Select'}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="sales">Sales</SelectItem>
+                            <SelectItem value="design">Design</SelectItem>
+                            <SelectItem value="prepress">Prepress</SelectItem>
+                            <SelectItem value="production">Production</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </TableCell>
                       <TableCell>
                         <Select 
