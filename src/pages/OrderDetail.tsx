@@ -16,6 +16,9 @@ import {
   ArrowRight,
   FileText,
   CheckCircle,
+  Factory,
+  Truck,
+  Send,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -48,7 +51,7 @@ import { PRODUCTION_STEPS, STAGE_LABELS, Stage, SubStage } from '@/types/order';
 
 export default function OrderDetail() {
   const { orderId } = useParams();
-  const { getOrderById, getTimelineForOrder, uploadFile, assignToDepartment, addNote, updateOrder, updateItemStage, completeSubstage } = useOrders();
+  const { getOrderById, getTimelineForOrder, uploadFile, assignToDepartment, addNote, updateOrder, updateItemStage, completeSubstage, sendToProduction, markAsDispatched } = useOrders();
   const { isAdmin, role } = useAuth();
   
   const order = getOrderById(orderId || '');
@@ -428,9 +431,64 @@ export default function OrderDetail() {
                 <CardTitle className="text-lg font-display">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
+                {/* Send to Production - show only if not already in production/dispatch/completed */}
+                {mainItem && !['production', 'dispatch', 'completed'].includes(mainItem.current_stage) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button 
+                        className="w-full" 
+                        size="sm"
+                        onClick={() => sendToProduction(orderId!, mainItem.item_id)}
+                      >
+                        <Factory className="h-4 w-4 mr-2" />
+                        Send to Production
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Send this item to production workflow</TooltipContent>
+                  </Tooltip>
+                )}
+
+                {/* Mark as Dispatched - show only if in dispatch stage */}
+                {mainItem && mainItem.current_stage === 'dispatch' && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button 
+                        className="w-full bg-green-600 hover:bg-green-700" 
+                        size="sm"
+                        onClick={() => markAsDispatched(orderId!, mainItem.item_id)}
+                      >
+                        <Truck className="h-4 w-4 mr-2" />
+                        Mark Dispatched
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Mark this item as dispatched and complete the order</TooltipContent>
+                  </Tooltip>
+                )}
+
+                {/* Mark Complete - show only if not completed */}
+                {mainItem && mainItem.current_stage !== 'completed' && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button 
+                        variant="outline"
+                        className="w-full border-green-500/50 hover:bg-green-500/10" 
+                        size="sm"
+                        onClick={() => updateItemStage(orderId!, mainItem.item_id, 'completed')}
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2 text-green-500" />
+                        Mark Complete
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Mark this order item as completed</TooltipContent>
+                  </Tooltip>
+                )}
+
+                <Separator className="my-2" />
+
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button 
+                      variant="outline"
                       className="w-full" 
                       size="sm"
                       onClick={() => {
