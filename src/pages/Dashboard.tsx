@@ -1,4 +1,5 @@
-import { ShoppingCart, AlertTriangle, Package, TrendingUp, CheckCircle, Loader2 } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { ShoppingCart, AlertTriangle, Package, TrendingUp, CheckCircle, Loader2, ChevronLeft, ChevronRight, Filter, ArrowUpDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatsCard } from '@/components/dashboard/StatsCard';
 import { StageProgress } from '@/components/dashboard/StageProgress';
@@ -7,6 +8,14 @@ import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Tooltip,
   TooltipContent,
@@ -14,14 +23,76 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
+const ITEMS_PER_PAGE = 9;
+
+type SortOption = 'newest' | 'oldest' | 'priority' | 'delivery';
+type FilterOption = 'all' | 'red' | 'yellow' | 'blue';
+
 export default function Dashboard() {
   const { getOrdersByDepartment, getCompletedOrders, isLoading } = useOrders();
   const { isAdmin, role, profile } = useAuth();
   const navigate = useNavigate();
   
+  // Pagination state
+  const [activePage, setActivePage] = useState(1);
+  const [urgentPage, setUrgentPage] = useState(1);
+  const [completedPage, setCompletedPage] = useState(1);
+  
+  // Sort and filter state
+  const [sortBy, setSortBy] = useState<SortOption>('newest');
+  const [filterBy, setFilterBy] = useState<FilterOption>('all');
+  
   const orders = getOrdersByDepartment();
   const completedOrders = getCompletedOrders();
   const urgentOrders = orders.filter(o => o.priority_computed === 'red');
+  
+  // Apply sorting and filtering
+  const sortOrders = (orderList: typeof orders) => {
+    const sorted = [...orderList];
+    switch (sortBy) {
+      case 'newest':
+        return sorted.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      case 'oldest':
+        return sorted.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+      case 'priority':
+        const priorityOrder = { red: 0, yellow: 1, blue: 2 };
+        return sorted.sort((a, b) => priorityOrder[a.priority_computed] - priorityOrder[b.priority_computed]);
+      case 'delivery':
+        return sorted.sort((a, b) => {
+          const dateA = a.order_level_delivery_date || a.items[0]?.delivery_date;
+          const dateB = b.order_level_delivery_date || b.items[0]?.delivery_date;
+          if (!dateA) return 1;
+          if (!dateB) return -1;
+          return new Date(dateA).getTime() - new Date(dateB).getTime();
+        });
+      default:
+        return sorted;
+    }
+  };
+
+  const filterOrders = (orderList: typeof orders) => {
+    if (filterBy === 'all') return orderList;
+    return orderList.filter(o => o.priority_computed === filterBy);
+  };
+
+  const processedOrders = useMemo(() => 
+    filterOrders(sortOrders(orders)), 
+    [orders, sortBy, filterBy]
+  );
+  
+  const processedCompletedOrders = useMemo(() => 
+    sortOrders(completedOrders), 
+    [completedOrders, sortBy]
+  );
+  
+  // Pagination helpers
+  const paginateArray = <T,>(array: T[], page: number) => {
+    const start = (page - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    return array.slice(start, end);
+  };
+
+  const getTotalPages = (total: number) => Math.ceil(total / ITEMS_PER_PAGE);
   
   // Calculate stats
   const stats = {
@@ -56,6 +127,43 @@ export default function Dashboard() {
 
   const handleCardClick = (path: string) => {
     navigate(path);
+  };
+
+  // Pagination component
+  const Pagination = ({ 
+    currentPage, 
+    totalPages, 
+    onPageChange 
+  }: { 
+    currentPage: number; 
+    totalPages: number; 
+    onPageChange: (page: number) => void;
+  }) => {
+    if (totalPages <= 1) return null;
+    
+    return (
+      <div className="flex items-center justify-center gap-2 mt-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(currentPage - 1)}
+          disabled={currentPage === 1}
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          Page {currentPage} of {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => onPageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+    );
   };
 
   if (isLoading) {
@@ -162,21 +270,61 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+        {/* Sort and Filter Controls */}
+        <div className="flex flex-wrap gap-4 items-center">
+          <div className="flex items-center gap-2">
+            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="newest">Newest First</SelectItem>
+                <SelectItem value="oldest">Oldest First</SelectItem>
+                <SelectItem value="priority">Priority</SelectItem>
+                <SelectItem value="delivery">Delivery Date</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+            <Select value={filterBy} onValueChange={(v) => setFilterBy(v as FilterOption)}>
+              <SelectTrigger className="w-[150px]">
+                <SelectValue placeholder="Filter by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Priorities</SelectItem>
+                <SelectItem value="red">Urgent (Red)</SelectItem>
+                <SelectItem value="yellow">Warning (Yellow)</SelectItem>
+                <SelectItem value="blue">Normal (Blue)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
         {/* Orders Tabs */}
         <Tabs defaultValue="active" className="space-y-4">
           <TabsList>
-            <TabsTrigger value="active">Active Orders ({orders.length})</TabsTrigger>
+            <TabsTrigger value="active">Active Orders ({processedOrders.length})</TabsTrigger>
             <TabsTrigger value="urgent">Urgent ({urgentOrders.length})</TabsTrigger>
-            <TabsTrigger value="completed">Completed ({completedOrders.length})</TabsTrigger>
+            <TabsTrigger value="completed">Completed ({processedCompletedOrders.length})</TabsTrigger>
           </TabsList>
 
           <TabsContent value="active">
-            {orders.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {orders.slice(0, 9).map((order) => (
-                  <OrderCard key={order.order_id} order={order} />
-                ))}
-              </div>
+            {processedOrders.length > 0 ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {paginateArray(processedOrders, activePage).map((order) => (
+                    <OrderCard key={order.order_id} order={order} />
+                  ))}
+                </div>
+                <Pagination 
+                  currentPage={activePage}
+                  totalPages={getTotalPages(processedOrders.length)}
+                  onPageChange={setActivePage}
+                />
+              </>
             ) : (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
@@ -189,11 +337,18 @@ export default function Dashboard() {
 
           <TabsContent value="urgent">
             {urgentOrders.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {urgentOrders.map((order) => (
-                  <OrderCard key={order.order_id} order={order} />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {paginateArray(urgentOrders, urgentPage).map((order) => (
+                    <OrderCard key={order.order_id} order={order} />
+                  ))}
+                </div>
+                <Pagination 
+                  currentPage={urgentPage}
+                  totalPages={getTotalPages(urgentOrders.length)}
+                  onPageChange={setUrgentPage}
+                />
+              </>
             ) : (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
@@ -205,12 +360,19 @@ export default function Dashboard() {
           </TabsContent>
 
           <TabsContent value="completed">
-            {completedOrders.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {completedOrders.map((order) => (
-                  <OrderCard key={order.order_id} order={order} />
-                ))}
-              </div>
+            {processedCompletedOrders.length > 0 ? (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {paginateArray(processedCompletedOrders, completedPage).map((order) => (
+                    <OrderCard key={order.order_id} order={order} />
+                  ))}
+                </div>
+                <Pagination 
+                  currentPage={completedPage}
+                  totalPages={getTotalPages(processedCompletedOrders.length)}
+                  onPageChange={setCompletedPage}
+                />
+              </>
             ) : (
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">

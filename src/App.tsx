@@ -48,17 +48,66 @@ const App = () => (
                 }>
                   <Route path="/" element={<Dashboard />} />
                   <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/sales" element={<Sales />} />
-                  <Route path="/design" element={<Design />} />
-                  <Route path="/prepress" element={<Prepress />} />
-                  <Route path="/production" element={<Production />} />
-                  <Route path="/dispatch" element={<Dispatch />} />
+                  
+                  {/* Sales - accessible by admin and sales */}
+                  <Route path="/sales" element={
+                    <ProtectedRoute allowedRoles={['admin', 'sales']}>
+                      <Sales />
+                    </ProtectedRoute>
+                  } />
+                  
+                  {/* Design - accessible by admin and design */}
+                  <Route path="/design" element={
+                    <ProtectedRoute allowedRoles={['admin', 'design']}>
+                      <Design />
+                    </ProtectedRoute>
+                  } />
+                  
+                  {/* Prepress - accessible by admin and prepress */}
+                  <Route path="/prepress" element={
+                    <ProtectedRoute allowedRoles={['admin', 'prepress']}>
+                      <Prepress />
+                    </ProtectedRoute>
+                  } />
+                  
+                  {/* Production - accessible by admin and production */}
+                  <Route path="/production" element={
+                    <ProtectedRoute allowedRoles={['admin', 'production']}>
+                      <Production />
+                    </ProtectedRoute>
+                  } />
+                  
+                  {/* Dispatch - accessible by admin and production */}
+                  <Route path="/dispatch" element={
+                    <ProtectedRoute allowedRoles={['admin', 'production']}>
+                      <Dispatch />
+                    </ProtectedRoute>
+                  } />
+                  
                   <Route path="/orders/:orderId" element={<OrderDetail />} />
                   <Route path="/profile" element={<Profile />} />
-                  <Route path="/admin" element={<Admin />} />
-                  <Route path="/team" element={<Team />} />
-                  <Route path="/reports" element={<Reports />} />
-                  <Route path="/settings" element={<Settings />} />
+                  
+                  {/* Admin-only routes */}
+                  <Route path="/admin" element={
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Admin />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/team" element={
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Team />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/reports" element={
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Reports />
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/settings" element={
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Settings />
+                    </ProtectedRoute>
+                  } />
                 </Route>
                 
                 {/* Catch-all */}

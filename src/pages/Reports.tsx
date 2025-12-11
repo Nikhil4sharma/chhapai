@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { BarChart3, TrendingUp, TrendingDown, Calendar, Download, Filter } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { BarChart3, TrendingUp, TrendingDown, Calendar, Download, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -9,34 +9,108 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { getDashboardStats } from '@/data/mockData';
+import { useOrders } from '@/contexts/OrderContext';
 import { toast } from '@/hooks/use-toast';
-
-const reportData = [
-  { label: 'Orders Completed', value: 156, change: 12, isPositive: true },
-  { label: 'On-Time Delivery', value: '94%', change: 3, isPositive: true },
-  { label: 'Average Processing Time', value: '2.4 days', change: 0.3, isPositive: false },
-  { label: 'Customer Satisfaction', value: '4.8/5', change: 0.2, isPositive: true },
-];
-
-const stageData = [
-  { stage: 'Sales', count: 12, percentage: 15 },
-  { stage: 'Design', count: 18, percentage: 22 },
-  { stage: 'Prepress', count: 8, percentage: 10 },
-  { stage: 'Production', count: 32, percentage: 40 },
-  { stage: 'Dispatch', count: 10, percentage: 13 },
-];
 
 export default function Reports() {
   const [period, setPeriod] = useState('month');
-  const stats = getDashboardStats();
+  const { orders, getCompletedOrders, isLoading } = useOrders();
+  const completedOrders = getCompletedOrders();
+
+  // Calculate real stats from orders
+  const stats = useMemo(() => {
+    const byStage = {
+      sales: 0,
+      design: 0,
+      prepress: 0,
+      production: 0,
+      dispatch: 0,
+      completed: 0,
+    };
+    
+    const byPriority = {
+      red: 0,
+      yellow: 0,
+      blue: 0,
+    };
+
+    let totalItems = 0;
+
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        byStage[item.current_stage]++;
+        byPriority[item.priority_computed]++;
+        totalItems++;
+      });
+    });
+
+    completedOrders.forEach(order => {
+      order.items.forEach(item => {
+        if (item.current_stage === 'completed') {
+          byStage.completed++;
+        }
+      });
+    });
+
+    return { byStage, byPriority, totalItems };
+  }, [orders, completedOrders]);
+
+  // Calculate stage distribution
+  const stageData = useMemo(() => {
+    const total = Object.values(stats.byStage).reduce((a, b) => a + b, 0);
+    return [
+      { stage: 'Sales', count: stats.byStage.sales, percentage: total > 0 ? Math.round((stats.byStage.sales / total) * 100) : 0 },
+      { stage: 'Design', count: stats.byStage.design, percentage: total > 0 ? Math.round((stats.byStage.design / total) * 100) : 0 },
+      { stage: 'Prepress', count: stats.byStage.prepress, percentage: total > 0 ? Math.round((stats.byStage.prepress / total) * 100) : 0 },
+      { stage: 'Production', count: stats.byStage.production, percentage: total > 0 ? Math.round((stats.byStage.production / total) * 100) : 0 },
+      { stage: 'Dispatch', count: stats.byStage.dispatch, percentage: total > 0 ? Math.round((stats.byStage.dispatch / total) * 100) : 0 },
+    ];
+  }, [stats]);
+
+  // Report cards with real data
+  const reportData = useMemo(() => [
+    { label: 'Active Orders', value: orders.length, change: 0, isPositive: true },
+    { label: 'Completed Orders', value: completedOrders.length, change: 0, isPositive: true },
+    { label: 'Total Items', value: stats.totalItems, change: 0, isPositive: true },
+    { label: 'Urgent Items', value: stats.byPriority.red, change: 0, isPositive: false },
+  ], [orders, completedOrders, stats]);
 
   const handleExport = () => {
+    // Generate CSV export
+    const csvData = orders.map(order => ({
+      order_id: order.order_id,
+      customer: order.customer.name,
+      items: order.items.length,
+      status: order.is_completed ? 'Completed' : 'In Progress',
+      created_at: order.created_at.toISOString(),
+    }));
+
+    const csvContent = [
+      Object.keys(csvData[0] || {}).join(','),
+      ...csvData.map(row => Object.values(row).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders-report-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+
     toast({
-      title: "Export Started",
-      description: "Your report will be downloaded shortly",
+      title: "Export Complete",
+      description: "Your report has been downloaded",
     });
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Loading reports...</span>
+      </div>
+    );
+  }
 
   return (
     <TooltipProvider>
@@ -67,7 +141,7 @@ export default function Reports() {
                   Export
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Export report as PDF</TooltipContent>
+              <TooltipContent>Export report as CSV</TooltipContent>
             </Tooltip>
           </div>
         </div>
@@ -80,14 +154,6 @@ export default function Reports() {
                 <p className="text-sm text-muted-foreground mb-1">{item.label}</p>
                 <div className="flex items-end justify-between">
                   <span className="text-2xl font-bold text-foreground">{item.value}</span>
-                  <div className={`flex items-center text-sm ${item.isPositive ? 'text-green-500' : 'text-priority-red'}`}>
-                    {item.isPositive ? (
-                      <TrendingUp className="h-4 w-4 mr-1" />
-                    ) : (
-                      <TrendingDown className="h-4 w-4 mr-1" />
-                    )}
-                    {item.change}%
-                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -99,7 +165,7 @@ export default function Reports() {
           <CardHeader>
             <CardTitle className="text-lg font-display flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
-              Orders by Stage
+              Items by Stage
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -108,7 +174,7 @@ export default function Reports() {
                 <div key={item.stage}>
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm font-medium text-foreground">{item.stage}</span>
-                    <span className="text-sm text-muted-foreground">{item.count} orders</span>
+                    <span className="text-sm text-muted-foreground">{item.count} items</span>
                   </div>
                   <div className="h-2 bg-secondary rounded-full overflow-hidden">
                     <div 
