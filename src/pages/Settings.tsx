@@ -30,6 +30,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { PRODUCTION_STEPS } from '@/types/order';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function Settings() {
   const { isAdmin } = useAuth();
@@ -45,30 +46,56 @@ export default function Settings() {
   );
   const [newStageName, setNewStageName] = useState('');
 
-  // WooCommerce settings
+  // WooCommerce settings - only non-sensitive preferences stored locally
   const [wooSettings, setWooSettings] = useState({
-    storeUrl: '',
-    consumerKey: '',
-    consumerSecret: '',
     autoSync: true,
     syncInterval: 15,
     lastSync: null as Date | null,
     isConnected: false,
+    storeUrlMasked: null as string | null,
   });
   const [syncLoading, setSyncLoading] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [checkingConfig, setCheckingConfig] = useState(true);
 
-  // Load saved settings from localStorage (in production, use database)
+  // Load saved non-sensitive settings and check server config
   useEffect(() => {
-    const savedWooSettings = localStorage.getItem('woocommerce_settings');
-    if (savedWooSettings) {
-      const parsed = JSON.parse(savedWooSettings);
-      setWooSettings({
-        ...parsed,
+    // Load only non-sensitive preferences from localStorage
+    const savedPrefs = localStorage.getItem('woocommerce_preferences');
+    if (savedPrefs) {
+      const parsed = JSON.parse(savedPrefs);
+      setWooSettings(prev => ({
+        ...prev,
+        autoSync: parsed.autoSync ?? true,
+        syncInterval: parsed.syncInterval ?? 15,
         lastSync: parsed.lastSync ? new Date(parsed.lastSync) : null,
-      });
+      }));
     }
+
+    // Check if credentials are configured on the server
+    checkWooCommerceConfig();
   }, []);
+
+  const checkWooCommerceConfig = async () => {
+    setCheckingConfig(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('woocommerce', {
+        body: { action: 'check-config' },
+      });
+
+      if (error) throw error;
+
+      setWooSettings(prev => ({
+        ...prev,
+        isConnected: data.configured,
+        storeUrlMasked: data.storeUrl,
+      }));
+    } catch (error) {
+      console.error('Failed to check WooCommerce config:', error);
+    } finally {
+      setCheckingConfig(false);
+    }
+  };
 
   const handleSave = () => {
     toast({
@@ -110,40 +137,45 @@ export default function Settings() {
     });
   };
 
-  const handleSaveWooCommerce = () => {
-    localStorage.setItem('woocommerce_settings', JSON.stringify(wooSettings));
+  const handleSaveWooCommercePrefs = () => {
+    // Only save non-sensitive preferences
+    localStorage.setItem('woocommerce_preferences', JSON.stringify({
+      autoSync: wooSettings.autoSync,
+      syncInterval: wooSettings.syncInterval,
+      lastSync: wooSettings.lastSync?.toISOString() || null,
+    }));
     toast({
-      title: "WooCommerce Settings Saved",
-      description: "Your WooCommerce integration settings have been saved",
+      title: "Preferences Saved",
+      description: "Your WooCommerce sync preferences have been saved",
     });
   };
 
   const handleTestConnection = async () => {
-    if (!wooSettings.storeUrl || !wooSettings.consumerKey || !wooSettings.consumerSecret) {
-      toast({
-        title: "Error",
-        description: "Please fill in all WooCommerce credentials",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setTestingConnection(true);
     try {
-      // Simulate connection test
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      setWooSettings(prev => ({ ...prev, isConnected: true }));
-      localStorage.setItem('woocommerce_settings', JSON.stringify({ ...wooSettings, isConnected: true }));
-      
-      toast({
-        title: "Connection Successful",
-        description: "Successfully connected to your WooCommerce store",
+      const { data, error } = await supabase.functions.invoke('woocommerce', {
+        body: { action: 'test-connection' },
       });
-    } catch (error) {
+
+      if (error) throw error;
+
+      if (data.success) {
+        setWooSettings(prev => ({ ...prev, isConnected: true }));
+        toast({
+          title: "Connection Successful",
+          description: "Successfully connected to your WooCommerce store",
+        });
+      } else {
+        toast({
+          title: "Connection Failed",
+          description: data.error || "Could not connect to WooCommerce",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
       toast({
         title: "Connection Failed",
-        description: "Could not connect to WooCommerce. Please check your credentials.",
+        description: error.message || "Could not connect to WooCommerce. Please check backend secrets.",
         variant: "destructive",
       });
     } finally {
@@ -155,7 +187,7 @@ export default function Settings() {
     if (!wooSettings.isConnected) {
       toast({
         title: "Error",
-        description: "Please connect to WooCommerce first",
+        description: "Please configure WooCommerce credentials first",
         variant: "destructive",
       });
       return;
@@ -163,21 +195,36 @@ export default function Settings() {
 
     setSyncLoading(true);
     try {
-      // Simulate sync process
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      const now = new Date();
-      setWooSettings(prev => ({ ...prev, lastSync: now }));
-      localStorage.setItem('woocommerce_settings', JSON.stringify({ ...wooSettings, lastSync: now.toISOString() }));
-      
-      toast({
-        title: "Sync Complete",
-        description: "Successfully synced processing orders from WooCommerce",
+      const { data, error } = await supabase.functions.invoke('woocommerce', {
+        body: { action: 'sync-orders' },
       });
-    } catch (error) {
+
+      if (error) throw error;
+
+      if (data.success) {
+        const now = new Date();
+        setWooSettings(prev => ({ ...prev, lastSync: now }));
+        localStorage.setItem('woocommerce_preferences', JSON.stringify({
+          autoSync: wooSettings.autoSync,
+          syncInterval: wooSettings.syncInterval,
+          lastSync: now.toISOString(),
+        }));
+        
+        toast({
+          title: "Sync Complete",
+          description: `Imported ${data.imported} orders, ${data.skipped} already existed`,
+        });
+      } else {
+        toast({
+          title: "Sync Failed",
+          description: data.error || "Could not sync orders",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
       toast({
         title: "Sync Failed",
-        description: "Could not sync orders. Please try again.",
+        description: error.message || "Could not sync orders. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -328,68 +375,71 @@ export default function Settings() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="storeUrl">Store URL *</Label>
-                      <Input
-                        id="storeUrl"
-                        placeholder="https://yourstore.com"
-                        value={wooSettings.storeUrl}
-                        onChange={(e) => setWooSettings({...wooSettings, storeUrl: e.target.value})}
-                      />
-                      <p className="text-xs text-muted-foreground">Your WooCommerce store URL</p>
+                  {checkingConfig ? (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                      Checking configuration...
                     </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="bg-secondary/50 rounded-lg p-4">
+                        <h4 className="font-medium text-foreground mb-2">Credentials Configuration</h4>
+                        {wooSettings.isConnected ? (
+                          <div className="space-y-2">
+                            <p className="text-sm text-muted-foreground">
+                              ✓ WooCommerce credentials are configured securely on the server.
+                            </p>
+                            {wooSettings.storeUrlMasked && (
+                              <p className="text-sm text-muted-foreground">
+                                Store: <span className="font-mono">{wooSettings.storeUrlMasked}</span>
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <p className="text-sm text-muted-foreground">
+                              WooCommerce credentials need to be configured in the backend secrets.
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Required secrets: WOOCOMMERCE_STORE_URL, WOOCOMMERCE_CONSUMER_KEY, WOOCOMMERCE_CONSUMER_SECRET
+                            </p>
+                          </div>
+                        )}
+                      </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="consumerKey">Consumer Key *</Label>
-                      <Input
-                        id="consumerKey"
-                        type="password"
-                        placeholder="ck_xxxxxxxxxxxxx"
-                        value={wooSettings.consumerKey}
-                        onChange={(e) => setWooSettings({...wooSettings, consumerKey: e.target.value})}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Found in WooCommerce → Settings → Advanced → REST API
-                      </p>
+                      <div className="flex gap-2">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              variant="outline"
+                              onClick={handleTestConnection}
+                              disabled={testingConnection || !wooSettings.isConnected}
+                            >
+                              {testingConnection ? 'Testing...' : 'Test Connection'}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {wooSettings.isConnected 
+                              ? 'Test WooCommerce API connection' 
+                              : 'Configure credentials first'}
+                          </TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              variant="outline"
+                              onClick={checkWooCommerceConfig}
+                            >
+                              <RefreshCw className="h-4 w-4 mr-2" />
+                              Refresh Status
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Check if credentials are configured</TooltipContent>
+                        </Tooltip>
+                      </div>
                     </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="consumerSecret">Consumer Secret *</Label>
-                      <Input
-                        id="consumerSecret"
-                        type="password"
-                        placeholder="cs_xxxxxxxxxxxxx"
-                        value={wooSettings.consumerSecret}
-                        onChange={(e) => setWooSettings({...wooSettings, consumerSecret: e.target.value})}
-                      />
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button 
-                            variant="outline"
-                            onClick={handleTestConnection}
-                            disabled={testingConnection}
-                          >
-                            {testingConnection ? 'Testing...' : 'Test Connection'}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Test WooCommerce API connection</TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button onClick={handleSaveWooCommerce}>
-                            <Save className="h-4 w-4 mr-2" />
-                            Save Credentials
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Save WooCommerce settings</TooltipContent>
-                      </Tooltip>
-                    </div>
-                  </div>
+                  )}
 
                   <Separator />
 
