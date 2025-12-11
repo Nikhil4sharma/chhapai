@@ -19,6 +19,8 @@ interface OrderContextType {
   updateOrder: (orderId: string, updates: Partial<Order>) => void;
   completeSubstage: (orderId: string, itemId: string) => void;
   startSubstage: (orderId: string, itemId: string, substage: SubStage) => void;
+  markAsDispatched: (orderId: string, itemId: string) => void;
+  sendToProduction: (orderId: string, itemId: string) => void;
 }
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
@@ -179,6 +181,47 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     updateItemSubstage(orderId, itemId, substage);
   }, [updateItemSubstage]);
 
+  const markAsDispatched = useCallback((orderId: string, itemId: string) => {
+    updateItemStage(orderId, itemId, 'completed');
+    
+    addTimelineEntry({
+      order_id: orderId,
+      item_id: itemId,
+      stage: 'dispatch',
+      action: 'dispatched',
+      performed_by: user?.id || '',
+      performed_by_name: profile?.full_name || 'Unknown',
+      notes: 'Item dispatched',
+      is_public: true,
+    });
+
+    toast({
+      title: "Item Dispatched",
+      description: "Item has been marked as dispatched and completed",
+    });
+  }, [user, profile, updateItemStage, addTimelineEntry]);
+
+  const sendToProduction = useCallback((orderId: string, itemId: string) => {
+    updateItemStage(orderId, itemId, 'production', 'foiling');
+    
+    addTimelineEntry({
+      order_id: orderId,
+      item_id: itemId,
+      stage: 'production',
+      substage: 'foiling',
+      action: 'sent_to_production',
+      performed_by: user?.id || '',
+      performed_by_name: profile?.full_name || 'Unknown',
+      notes: 'Item sent to production',
+      is_public: true,
+    });
+
+    toast({
+      title: "Sent to Production",
+      description: "Item has been sent to production - Foiling stage",
+    });
+  }, [user, profile, updateItemStage, addTimelineEntry]);
+
   const assignToDepartment = useCallback((orderId: string, itemId: string, department: string) => {
     const stageMap: Record<string, Stage> = {
       sales: 'sales',
@@ -297,6 +340,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       updateOrder,
       completeSubstage,
       startSubstage,
+      markAsDispatched,
+      sendToProduction,
     }}>
       {children}
     </OrderContext.Provider>
