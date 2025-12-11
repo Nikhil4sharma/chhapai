@@ -7,17 +7,17 @@ import {
   Factory,
   Truck,
   Settings,
-  Search,
   Users,
   BarChart3,
-  Menu,
   X,
   ChevronLeft,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { useOrders } from '@/contexts/OrderContext';
+import { useMemo } from 'react';
 
 interface NavItem {
   label: string;
@@ -25,22 +25,8 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   badge?: number;
   badgeVariant?: 'priority-red' | 'priority-yellow' | 'default';
+  roles?: string[]; // roles that can see this item
 }
-
-const navItems: NavItem[] = [
-  { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-  { label: 'Sales', path: '/sales', icon: ShoppingCart, badge: 3, badgeVariant: 'priority-red' },
-  { label: 'Design', path: '/design', icon: Palette, badge: 2 },
-  { label: 'Prepress', path: '/prepress', icon: FileCheck, badge: 1 },
-  { label: 'Production', path: '/production', icon: Factory, badge: 4, badgeVariant: 'priority-yellow' },
-  { label: 'Dispatch', path: '/dispatch', icon: Truck },
-];
-
-const adminItems: NavItem[] = [
-  { label: 'Team', path: '/team', icon: Users },
-  { label: 'Reports', path: '/reports', icon: BarChart3 },
-  { label: 'Settings', path: '/settings', icon: Settings },
-];
 
 interface AppSidebarProps {
   isOpen: boolean;
@@ -49,8 +35,105 @@ interface AppSidebarProps {
 
 export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   const location = useLocation();
+  const { isAdmin, role, profile } = useAuth();
+  const { orders } = useOrders();
 
-  const NavItem = ({ item }: { item: NavItem }) => {
+  // Calculate real-time badges from orders
+  const badges = useMemo(() => {
+    const counts = {
+      sales: 0,
+      design: 0,
+      prepress: 0,
+      production: 0,
+      dispatch: 0,
+    };
+    
+    const urgentCounts = {
+      sales: 0,
+      design: 0,
+      prepress: 0,
+      production: 0,
+      dispatch: 0,
+    };
+
+    orders.forEach(order => {
+      if (order.is_completed) return;
+      order.items.forEach(item => {
+        const stage = item.current_stage as keyof typeof counts;
+        if (counts[stage] !== undefined) {
+          counts[stage]++;
+          if (item.priority_computed === 'red') {
+            urgentCounts[stage]++;
+          }
+        }
+      });
+    });
+
+    return { counts, urgentCounts };
+  }, [orders]);
+
+  // Define nav items with role-based visibility
+  const navItems: NavItem[] = useMemo(() => {
+    const items: NavItem[] = [
+      { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+      { 
+        label: 'Sales', 
+        path: '/sales', 
+        icon: ShoppingCart, 
+        badge: badges.counts.sales,
+        badgeVariant: badges.urgentCounts.sales > 0 ? 'priority-red' : undefined,
+        roles: ['admin', 'sales']
+      },
+      { 
+        label: 'Design', 
+        path: '/design', 
+        icon: Palette, 
+        badge: badges.counts.design,
+        badgeVariant: badges.urgentCounts.design > 0 ? 'priority-red' : undefined,
+        roles: ['admin', 'design']
+      },
+      { 
+        label: 'Prepress', 
+        path: '/prepress', 
+        icon: FileCheck, 
+        badge: badges.counts.prepress,
+        badgeVariant: badges.urgentCounts.prepress > 0 ? 'priority-red' : undefined,
+        roles: ['admin', 'prepress']
+      },
+      { 
+        label: 'Production', 
+        path: '/production', 
+        icon: Factory, 
+        badge: badges.counts.production,
+        badgeVariant: badges.urgentCounts.production > 0 ? 'priority-red' : badges.urgentCounts.production > 0 ? 'priority-yellow' : undefined,
+        roles: ['admin', 'production']
+      },
+      { 
+        label: 'Dispatch', 
+        path: '/dispatch', 
+        icon: Truck, 
+        badge: badges.counts.dispatch,
+        roles: ['admin', 'production']
+      },
+    ];
+
+    return items;
+  }, [badges]);
+
+  const adminItems: NavItem[] = [
+    { label: 'Team', path: '/team', icon: Users },
+    { label: 'Reports', path: '/reports', icon: BarChart3 },
+    { label: 'Settings', path: '/settings', icon: Settings },
+  ];
+
+  // Filter nav items based on role
+  const visibleNavItems = navItems.filter(item => {
+    if (!item.roles) return true; // Dashboard is visible to all
+    if (isAdmin) return true;
+    return item.roles.includes(role || '');
+  });
+
+  const NavItemComponent = ({ item }: { item: NavItem }) => {
     const isActive = location.pathname === item.path;
     
     return (
@@ -66,7 +149,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
       >
         <item.icon className="h-5 w-5 shrink-0" />
         <span className={cn("flex-1", !isOpen && "lg:hidden")}>{item.label}</span>
-        {item.badge && isOpen && (
+        {item.badge !== undefined && item.badge > 0 && isOpen && (
           <Badge variant={item.badgeVariant || 'default'} className="ml-auto">
             {item.badge}
           </Badge>
@@ -126,19 +209,20 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
           <div className="space-y-1">
-            {navItems.map((item) => (
-              <NavItem key={item.path} item={item} />
+            {visibleNavItems.map((item) => (
+              <NavItemComponent key={item.path} item={item} />
             ))}
           </div>
           
-          {isOpen && (
+          {/* Admin section - only visible to admins */}
+          {isAdmin && isOpen && (
             <div className="pt-4 mt-4 border-t border-sidebar-border">
               <p className="px-3 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider mb-2">
                 Admin
               </p>
               <div className="space-y-1">
                 {adminItems.map((item) => (
-                  <NavItem key={item.path} item={item} />
+                  <NavItemComponent key={item.path} item={item} />
                 ))}
               </div>
             </div>
@@ -146,15 +230,21 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         </nav>
 
         {/* Footer */}
-        {isOpen && (
+        {isOpen && profile && (
           <div className="p-4 border-t border-sidebar-border">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-full bg-sidebar-accent flex items-center justify-center">
-                <span className="text-sm font-medium text-sidebar-foreground">RK</span>
+                <span className="text-sm font-medium text-sidebar-foreground">
+                  {profile.full_name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
+                </span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-sidebar-foreground truncate">Rajesh Kumar</p>
-                <p className="text-xs text-sidebar-foreground/60 truncate">Sales • Admin</p>
+                <p className="text-sm font-medium text-sidebar-foreground truncate">
+                  {profile.full_name || 'User'}
+                </p>
+                <p className="text-xs text-sidebar-foreground/60 truncate">
+                  {role?.charAt(0).toUpperCase()}{role?.slice(1)} {isAdmin && '• Admin'}
+                </p>
               </div>
             </div>
           </div>

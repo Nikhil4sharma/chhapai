@@ -10,10 +10,11 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useNavigate } from 'react-router-dom';
-import { mockOrders } from '@/data/mockData';
+import { useOrders } from '@/contexts/OrderContext';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
+import { Order } from '@/types/order';
 
 interface SearchBarProps {
   className?: string;
@@ -23,9 +24,10 @@ interface SearchBarProps {
 export function SearchBar({ className, isMobile }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [isOpen, setIsOpen] = useState(false);
-  const [results, setResults] = useState<typeof mockOrders>([]);
+  const [results, setResults] = useState<Order[]>([]);
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
+  const { orders } = useOrders();
 
   useEffect(() => {
     if (query.length < 2) {
@@ -33,16 +35,16 @@ export function SearchBar({ className, isMobile }: SearchBarProps) {
       return;
     }
 
-    const filtered = mockOrders.filter(order => 
+    const filtered = orders.filter(order => 
       order.order_id.toLowerCase().includes(query.toLowerCase()) ||
       order.customer.name.toLowerCase().includes(query.toLowerCase()) ||
-      order.customer.phone.includes(query) ||
+      order.customer.phone?.includes(query) ||
       order.items.some(item => 
         item.product_name.toLowerCase().includes(query.toLowerCase())
       )
     );
-    setResults(filtered);
-  }, [query]);
+    setResults(filtered.slice(0, 10)); // Limit to 10 results
+  }, [query, orders]);
 
   const handleSelect = (orderId: string) => {
     navigate(`/orders/${orderId}`);
