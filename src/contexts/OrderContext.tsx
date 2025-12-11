@@ -59,8 +59,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true);
       
       // Fetch orders
+      // Use orders_secure view to mask sensitive customer data for non-sales/admin users
       const { data: ordersData, error: ordersError } = await supabase
-        .from('orders')
+        .from('orders_secure')
         .select('*')
         .order('created_at', { ascending: false });
 
