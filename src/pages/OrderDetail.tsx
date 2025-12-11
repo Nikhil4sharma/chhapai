@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useState } from 'react';
 import { 
@@ -18,7 +18,9 @@ import {
   CheckCircle,
   Factory,
   Truck,
-  Send,
+  Trash2,
+  UserCircle,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,10 +42,21 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
 import { AssignDepartmentDialog } from '@/components/dialogs/AssignDepartmentDialog';
+import { AssignUserDialog } from '@/components/dialogs/AssignUserDialog';
 import { AddNoteDialog } from '@/components/dialogs/AddNoteDialog';
 import { EditOrderDialog } from '@/components/dialogs/EditOrderDialog';
 import { ChangeStageDialog } from '@/components/dialogs/ChangeStageDialog';
@@ -51,7 +64,22 @@ import { PRODUCTION_STEPS, STAGE_LABELS, Stage, SubStage } from '@/types/order';
 
 export default function OrderDetail() {
   const { orderId } = useParams();
-  const { getOrderById, getTimelineForOrder, uploadFile, assignToDepartment, addNote, updateOrder, updateItemStage, completeSubstage, sendToProduction, markAsDispatched } = useOrders();
+  const navigate = useNavigate();
+  const { 
+    getOrderById, 
+    getTimelineForOrder, 
+    uploadFile, 
+    assignToDepartment, 
+    assignToUser,
+    addNote, 
+    updateOrder, 
+    updateItemStage, 
+    completeSubstage, 
+    sendToProduction, 
+    markAsDispatched,
+    deleteOrder,
+    isLoading,
+  } = useOrders();
   const { isAdmin, role } = useAuth();
   
   const order = getOrderById(orderId || '');
@@ -60,10 +88,22 @@ export default function OrderDetail() {
   // Dialog states
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [assignDialogOpen, setAssignDialogOpen] = useState(false);
+  const [assignUserDialogOpen, setAssignUserDialogOpen] = useState(false);
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [stageDialogOpen, setStageDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+
+  const canDelete = isAdmin || role === 'sales';
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (!order) {
     return (
@@ -88,16 +128,23 @@ export default function OrderDetail() {
   }
 
   const mainItem = order.items[0];
+  const selectedItem = order.items.find(i => i.item_id === selectedItemId);
 
-  const handleUpload = async (file: File) => {
+  const handleUpload = async (file: File, replaceExisting: boolean) => {
     if (selectedItemId) {
-      await uploadFile(orderId!, selectedItemId, file);
+      await uploadFile(orderId!, selectedItemId, file, replaceExisting);
     }
   };
 
-  const handleAssign = (department: string) => {
+  const handleAssign = async (department: string) => {
     if (selectedItemId) {
-      assignToDepartment(orderId!, selectedItemId, department);
+      await assignToDepartment(orderId!, selectedItemId, department);
+    }
+  };
+
+  const handleAssignUser = async (userId: string, userName: string) => {
+    if (selectedItemId) {
+      await assignToUser(orderId!, selectedItemId, userId, userName);
     }
   };
 
@@ -109,20 +156,26 @@ export default function OrderDetail() {
     updateOrder(orderId!, updates);
   };
 
-  const handleStageChange = (stage: Stage, substage?: SubStage) => {
+  const handleStageChange = async (stage: Stage, substage?: SubStage) => {
     if (selectedItemId) {
-      updateItemStage(orderId!, selectedItemId, stage, substage);
+      await updateItemStage(orderId!, selectedItemId, stage, substage);
     }
   };
 
-  const handleNextStage = (itemId: string) => {
-    completeSubstage(orderId!, itemId);
+  const handleNextStage = async (itemId: string) => {
+    await completeSubstage(orderId!, itemId);
   };
 
-  const openDialogForItem = (dialog: 'upload' | 'assign' | 'stage', itemId: string) => {
+  const handleDelete = async () => {
+    await deleteOrder(orderId!);
+    navigate('/dashboard');
+  };
+
+  const openDialogForItem = (dialog: 'upload' | 'assign' | 'assignUser' | 'stage', itemId: string) => {
     setSelectedItemId(itemId);
     if (dialog === 'upload') setUploadDialogOpen(true);
     if (dialog === 'assign') setAssignDialogOpen(true);
+    if (dialog === 'assignUser') setAssignUserDialogOpen(true);
     if (dialog === 'stage') setStageDialogOpen(true);
   };
 
@@ -150,6 +203,9 @@ export default function OrderDetail() {
               <PriorityBadge priority={order.priority_computed} showLabel />
               {order.source === 'wordpress' && (
                 <Badge variant="outline">WooCommerce</Badge>
+              )}
+              {order.is_completed && (
+                <Badge className="bg-green-500">Completed</Badge>
               )}
             </div>
             <p className="text-muted-foreground">
@@ -187,10 +243,18 @@ export default function OrderDetail() {
                 <DropdownMenuItem>
                   Duplicate Order
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-destructive">
-                  Cancel Order
-                </DropdownMenuItem>
+                {canDelete && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem 
+                      className="text-destructive"
+                      onClick={() => setDeleteDialogOpen(true)}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete Order
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -224,6 +288,14 @@ export default function OrderDetail() {
                               </Badge>
                             )}
                           </div>
+
+                          {/* Assigned user */}
+                          {item.assigned_to_name && (
+                            <div className="flex items-center gap-2 mb-2 text-sm text-primary">
+                              <UserCircle className="h-4 w-4" />
+                              <span>Assigned to: <strong>{item.assigned_to_name}</strong></span>
+                            </div>
+                          )}
                           
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
                             <div>
@@ -258,19 +330,22 @@ export default function OrderDetail() {
 
                           {/* Files */}
                           {item.files.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {item.files.map((file) => (
-                                <a
-                                  key={file.file_id}
-                                  href={file.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-1 text-sm text-primary hover:underline bg-primary/5 px-2 py-1 rounded"
-                                >
-                                  <FileText className="h-3 w-3" />
-                                  View File
-                                </a>
-                              ))}
+                            <div className="mt-3">
+                              <p className="text-xs text-muted-foreground mb-2">Files ({item.files.length})</p>
+                              <div className="flex flex-wrap gap-2">
+                                {item.files.map((file) => (
+                                  <a
+                                    key={file.file_id}
+                                    href={file.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1 text-sm text-primary hover:underline bg-primary/5 px-2 py-1 rounded"
+                                  >
+                                    <FileText className="h-3 w-3" />
+                                    {file.file_name || 'View File'}
+                                  </a>
+                                ))}
+                              </div>
                             </div>
                           )}
                         </div>
@@ -320,10 +395,24 @@ export default function OrderDetail() {
                               onClick={() => openDialogForItem('assign', item.item_id)}
                             >
                               <Users className="h-4 w-4 mr-1" />
-                              Assign
+                              Assign Dept
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>Assign to department</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => openDialogForItem('assignUser', item.item_id)}
+                            >
+                              <UserCircle className="h-4 w-4 mr-1" />
+                              Assign User
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Assign to team member</TooltipContent>
                         </Tooltip>
 
                         <Tooltip>
@@ -349,7 +438,7 @@ export default function OrderDetail() {
             {/* Timeline */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg font-display">Timeline</CardTitle>
+                <CardTitle className="text-lg font-display">Timeline ({timeline.length})</CardTitle>
               </CardHeader>
               <CardContent>
                 <OrderTimeline entries={timeline} />
@@ -370,24 +459,30 @@ export default function OrderDetail() {
                 </div>
                 
                 <div className="space-y-2 text-sm">
-                  <a 
-                    href={`tel:${order.customer.phone}`}
-                    className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <Phone className="h-4 w-4" />
-                    {order.customer.phone}
-                  </a>
-                  <a 
-                    href={`mailto:${order.customer.email}`}
-                    className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <Mail className="h-4 w-4" />
-                    {order.customer.email}
-                  </a>
-                  <div className="flex items-start gap-2 text-muted-foreground">
-                    <MapPin className="h-4 w-4 mt-0.5" />
-                    <span>{order.customer.address}</span>
-                  </div>
+                  {order.customer.phone && (
+                    <a 
+                      href={`tel:${order.customer.phone}`}
+                      className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Phone className="h-4 w-4" />
+                      {order.customer.phone}
+                    </a>
+                  )}
+                  {order.customer.email && (
+                    <a 
+                      href={`mailto:${order.customer.email}`}
+                      className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      <Mail className="h-4 w-4" />
+                      {order.customer.email}
+                    </a>
+                  )}
+                  {order.customer.address && (
+                    <div className="flex items-start gap-2 text-muted-foreground">
+                      <MapPin className="h-4 w-4 mt-0.5" />
+                      <span>{order.customer.address}</span>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -535,6 +630,26 @@ export default function OrderDetail() {
                   </TooltipTrigger>
                   <TooltipContent>Add a note to this order</TooltipContent>
                 </Tooltip>
+
+                {canDelete && (
+                  <>
+                    <Separator className="my-2" />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button 
+                          variant="destructive"
+                          className="w-full" 
+                          size="sm"
+                          onClick={() => setDeleteDialogOpen(true)}
+                        >
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Delete Order
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Permanently delete this order</TooltipContent>
+                    </Tooltip>
+                  </>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -544,7 +659,7 @@ export default function OrderDetail() {
         <UploadFileDialog
           open={uploadDialogOpen}
           onOpenChange={setUploadDialogOpen}
-          onUpload={handleUpload}
+          onUpload={(file) => handleUpload(file, false)}
           orderId={orderId!}
           itemId={selectedItemId || undefined}
         />
@@ -553,7 +668,15 @@ export default function OrderDetail() {
           open={assignDialogOpen}
           onOpenChange={setAssignDialogOpen}
           onAssign={handleAssign}
-          currentDepartment={mainItem?.assigned_department}
+          currentDepartment={selectedItem?.assigned_department}
+        />
+
+        <AssignUserDialog
+          open={assignUserDialogOpen}
+          onOpenChange={setAssignUserDialogOpen}
+          onAssign={handleAssignUser}
+          department={selectedItem?.assigned_department || 'sales'}
+          currentUserId={selectedItem?.assigned_to}
         />
 
         <AddNoteDialog
@@ -578,6 +701,29 @@ export default function OrderDetail() {
             currentSubstage={order.items.find(i => i.item_id === selectedItemId)?.current_substage}
           />
         )}
+
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Order</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete order <strong>{order.order_id}</strong>? 
+                This action cannot be undone and will permanently remove all associated items, 
+                files, and timeline entries.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </TooltipProvider>
   );

@@ -1,5 +1,5 @@
 import { format } from 'date-fns';
-import { ChevronRight, Package, Calendar, User, MapPin, FileText } from 'lucide-react';
+import { ChevronRight, Package, Calendar, User, MapPin, UserCircle } from 'lucide-react';
 import { Order } from '@/types/order';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -12,9 +12,10 @@ import { Link } from 'react-router-dom';
 interface OrderCardProps {
   order: Order;
   className?: string;
+  showAssignedUser?: boolean;
 }
 
-export function OrderCard({ order, className }: OrderCardProps) {
+export function OrderCard({ order, className, showAssignedUser = true }: OrderCardProps) {
   const mainItem = order.items[0];
   const additionalItems = order.items.length - 1;
 
@@ -50,10 +51,12 @@ export function OrderCard({ order, className }: OrderCardProps) {
               <User className="h-4 w-4 text-muted-foreground" />
               <span className="font-medium text-foreground">{order.customer.name}</span>
             </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <MapPin className="h-4 w-4" />
-              <span className="truncate">{order.customer.address}</span>
-            </div>
+            {order.customer.address && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <MapPin className="h-4 w-4" />
+                <span className="truncate">{order.customer.address}</span>
+              </div>
+            )}
           </div>
 
           {/* Main item */}
@@ -65,6 +68,18 @@ export function OrderCard({ order, className }: OrderCardProps) {
               </div>
               {mainItem.specifications.paper && (
                 <p className="text-xs text-muted-foreground">{mainItem.specifications.paper}</p>
+              )}
+              {/* Show assigned user */}
+              {showAssignedUser && mainItem.assigned_to_name && (
+                <div className="flex items-center gap-1 mt-2 text-xs text-primary">
+                  <UserCircle className="h-3 w-3" />
+                  <span>Assigned to: {mainItem.assigned_to_name}</span>
+                </div>
+              )}
+              {mainItem.current_substage && (
+                <Badge variant="outline" className="mt-2 text-xs">
+                  {mainItem.current_substage}
+                </Badge>
               )}
               {additionalItems > 0 && (
                 <p className="text-xs text-primary mt-1">+{additionalItems} more item{additionalItems > 1 ? 's' : ''}</p>
