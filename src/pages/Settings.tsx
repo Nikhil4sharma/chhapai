@@ -245,28 +245,28 @@ export default function Settings() {
         </div>
 
         <Tabs defaultValue="notifications" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5">
-            <TabsTrigger value="notifications">
-              <Bell className="h-4 w-4 mr-2" />
-              Notifications
+          <TabsList className="flex flex-wrap h-auto gap-1 p-1">
+            <TabsTrigger value="notifications" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
+              <Bell className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Notifications</span>
             </TabsTrigger>
-            <TabsTrigger value="appearance">
-              <Palette className="h-4 w-4 mr-2" />
-              Appearance
+            <TabsTrigger value="appearance" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
+              <Palette className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Appearance</span>
             </TabsTrigger>
             {isAdmin && (
               <>
-                <TabsTrigger value="woocommerce">
-                  <ShoppingCart className="h-4 w-4 mr-2" />
-                  WooCommerce
+                <TabsTrigger value="woocommerce" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
+                  <ShoppingCart className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">WooCommerce</span>
                 </TabsTrigger>
-                <TabsTrigger value="stages">
-                  <Database className="h-4 w-4 mr-2" />
-                  Stages
+                <TabsTrigger value="stages" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
+                  <Database className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Stages</span>
                 </TabsTrigger>
-                <TabsTrigger value="security">
-                  <Shield className="h-4 w-4 mr-2" />
-                  Security
+                <TabsTrigger value="security" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
+                  <Shield className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Security</span>
                 </TabsTrigger>
               </>
             )}
@@ -279,11 +279,11 @@ export default function Settings() {
                 <CardTitle>Notification Preferences</CardTitle>
                 <CardDescription>Choose how you want to be notified</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Email Notifications</Label>
-                    <p className="text-sm text-muted-foreground">Receive notifications via email</p>
+              <CardContent className="space-y-4 sm:space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5 min-w-0">
+                    <Label className="text-sm">Email Notifications</Label>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Receive notifications via email</p>
                   </div>
                   <Switch 
                     checked={notifications.email}
@@ -291,10 +291,10 @@ export default function Settings() {
                   />
                 </div>
                 <Separator />
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Push Notifications</Label>
-                    <p className="text-sm text-muted-foreground">Receive push notifications in browser</p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5 min-w-0">
+                    <Label className="text-sm">Push Notifications</Label>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Receive push notifications in browser</p>
                   </div>
                   <Switch 
                     checked={notifications.push}
@@ -302,10 +302,10 @@ export default function Settings() {
                   />
                 </div>
                 <Separator />
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Order Updates</Label>
-                    <p className="text-sm text-muted-foreground">Get notified when orders change status</p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5 min-w-0">
+                    <Label className="text-sm">Order Updates</Label>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Get notified when orders change status</p>
                   </div>
                   <Switch 
                     checked={notifications.orderUpdates}
@@ -313,10 +313,10 @@ export default function Settings() {
                   />
                 </div>
                 <Separator />
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Urgent Alerts</Label>
-                    <p className="text-sm text-muted-foreground">Get alerts for high-priority items</p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5 min-w-0">
+                    <Label className="text-sm">Urgent Alerts</Label>
+                    <p className="text-xs sm:text-sm text-muted-foreground">Get alerts for high-priority items</p>
                   </div>
                   <Switch 
                     checked={notifications.urgentAlerts}
@@ -446,10 +446,10 @@ export default function Settings() {
                   <div className="space-y-4">
                     <h4 className="font-medium text-foreground">Sync Settings</h4>
                     
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label>Auto Sync</Label>
-                        <p className="text-sm text-muted-foreground">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="space-y-0.5 min-w-0">
+                        <Label className="text-sm">Auto Sync</Label>
+                        <p className="text-xs sm:text-sm text-muted-foreground">
                           Automatically sync orders every {wooSettings.syncInterval} minutes
                         </p>
                       </div>
@@ -471,11 +471,11 @@ export default function Settings() {
                       />
                     </div>
 
-                    <div className="bg-secondary/50 rounded-lg p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-medium text-foreground">Manual Sync</p>
-                          <p className="text-sm text-muted-foreground">
+                    <div className="bg-secondary/50 rounded-lg p-3 sm:p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium text-foreground text-sm">Manual Sync</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground">
                             Sync "Processing" orders from WooCommerce now
                           </p>
                           {wooSettings.lastSync && (
@@ -489,6 +489,7 @@ export default function Settings() {
                             <Button 
                               onClick={handleManualSync}
                               disabled={syncLoading || !wooSettings.isConnected}
+                              className="w-full sm:w-auto"
                             >
                               <RefreshCw className={`h-4 w-4 mr-2 ${syncLoading ? 'animate-spin' : ''}`} />
                               {syncLoading ? 'Syncing...' : 'Sync Now'}
@@ -521,17 +522,18 @@ export default function Settings() {
                   <CardTitle>Production Stages</CardTitle>
                   <CardDescription>Manage production workflow stages</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="flex gap-2">
+                <CardContent className="space-y-4 sm:space-y-6">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Input 
                       placeholder="New stage name..."
                       value={newStageName}
                       onChange={(e) => setNewStageName(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleAddStage()}
+                      className="flex-1"
                     />
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button onClick={handleAddStage}>
+                        <Button onClick={handleAddStage} className="w-full sm:w-auto">
                           <Plus className="h-4 w-4 mr-2" />
                           Add Stage
                         </Button>
@@ -578,19 +580,19 @@ export default function Settings() {
                   <CardTitle>Security Settings</CardTitle>
                   <CardDescription>Manage security preferences</CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Two-Factor Authentication</Label>
-                      <p className="text-sm text-muted-foreground">Add an extra layer of security</p>
+                <CardContent className="space-y-4 sm:space-y-6">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-0.5 min-w-0">
+                      <Label className="text-sm">Two-Factor Authentication</Label>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Add an extra layer of security</p>
                     </div>
                     <Switch />
                   </div>
                   <Separator />
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-0.5">
-                      <Label>Session Timeout</Label>
-                      <p className="text-sm text-muted-foreground">Automatically log out after inactivity</p>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="space-y-0.5 min-w-0">
+                      <Label className="text-sm">Session Timeout</Label>
+                      <p className="text-xs sm:text-sm text-muted-foreground">Automatically log out after inactivity</p>
                     </div>
                     <Switch defaultChecked />
                   </div>
