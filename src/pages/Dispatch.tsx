@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
+import { FilePreview } from '@/components/orders/FilePreview';
 import { format } from 'date-fns';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -173,6 +174,9 @@ export default function Dispatch() {
                           <p className="text-muted-foreground">{customer.address}</p>
                           <p className="text-muted-foreground">{customer.phone}</p>
                         </div>
+                        {item.files && item.files.length > 0 && (
+                          <FilePreview files={item.files} compact />
+                        )}
                       </div>
 
                       {/* Delivery info */}

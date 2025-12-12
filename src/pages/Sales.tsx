@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { OrderCard } from '@/components/orders/OrderCard';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
+import { FilePreview } from '@/components/orders/FilePreview';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -257,6 +258,9 @@ export default function Sales() {
                                 <Badge variant="outline" className="text-xs">{item.specifications.size}</Badge>
                               )}
                             </div>
+                            {item.files && item.files.length > 0 && (
+                              <FilePreview files={item.files} compact />
+                            )}
                           </div>
 
                           <div className="text-sm text-muted-foreground">
