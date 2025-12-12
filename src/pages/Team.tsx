@@ -132,26 +132,38 @@ export default function Team() {
       if (authError) throw authError;
 
       if (authData.user) {
+        // Wait a moment for the trigger to create the profile
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         // Update profile
         const { error: profileError } = await supabase
           .from('profiles')
           .update({
             full_name: member.name,
             phone: member.phone || null,
+            department: member.role,
           })
           .eq('user_id', authData.user.id);
 
         if (profileError) console.error('Profile update error:', profileError);
 
-        // Add role
-        const { error: roleError } = await supabase
+        // Add role - check if role already exists first
+        const { data: existingRole } = await supabase
           .from('user_roles')
-          .insert({
-            user_id: authData.user.id,
-            role: member.role as any,
-          });
+          .select('id')
+          .eq('user_id', authData.user.id)
+          .maybeSingle();
 
-        if (roleError) console.error('Role insert error:', roleError);
+        if (!existingRole) {
+          const { error: roleError } = await supabase
+            .from('user_roles')
+            .insert({
+              user_id: authData.user.id,
+              role: member.role as any,
+            });
+
+          if (roleError) console.error('Role insert error:', roleError);
+        }
       }
 
       toast({
@@ -179,25 +191,38 @@ export default function Team() {
         .update({
           full_name: updates.name,
           phone: updates.phone || null,
+          department: updates.role,
         })
         .eq('user_id', memberId);
 
       if (profileError) throw profileError;
 
-      // Update role - first delete existing, then insert new
-      await supabase
+      // Update role - first check if exists
+      const { data: existingRole } = await supabase
         .from('user_roles')
-        .delete()
-        .eq('user_id', memberId);
+        .select('id')
+        .eq('user_id', memberId)
+        .maybeSingle();
 
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .insert({
-          user_id: memberId,
-          role: updates.role as any,
-        });
+      if (existingRole) {
+        // Update existing role
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .update({ role: updates.role as any })
+          .eq('user_id', memberId);
 
-      if (roleError) throw roleError;
+        if (roleError) throw roleError;
+      } else {
+        // Insert new role
+        const { error: roleError } = await supabase
+          .from('user_roles')
+          .insert({
+            user_id: memberId,
+            role: updates.role as any,
+          });
+
+        if (roleError) throw roleError;
+      }
 
       toast({
         title: "Success",

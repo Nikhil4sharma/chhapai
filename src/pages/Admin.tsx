@@ -93,31 +93,53 @@ export default function Admin() {
     }
 
     setIsCreating(true);
-    const { error } = await signUp(newEmail, newPassword, newFullName, newRole);
-
-    if (error) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create user",
-        variant: "destructive",
-      });
-    } else {
-      // Update department in profile after user creation
-      // The profile is created by trigger, so we need to wait a moment
-      setTimeout(async () => {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('user_id')
-          .eq('full_name', newFullName)
-          .limit(1);
-        
-        if (profiles && profiles[0]) {
-          await supabase
-            .from('profiles')
-            .update({ department: newDepartment })
-            .eq('user_id', profiles[0].user_id);
+    try {
+      // Create user via Supabase auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newEmail,
+        password: newPassword,
+        options: {
+          emailRedirectTo: `${window.location.origin}/`,
+          data: { full_name: newFullName }
         }
-      }, 1000);
+      });
+
+      if (authError) throw authError;
+
+      if (authData.user) {
+        // Wait for trigger to create profile
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Update profile with department
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({ 
+            department: newDepartment, 
+            full_name: newFullName 
+          })
+          .eq('user_id', authData.user.id);
+
+        if (profileError) console.error('Profile update error:', profileError);
+
+        // Check if role exists
+        const { data: existingRole } = await supabase
+          .from('user_roles')
+          .select('id')
+          .eq('user_id', authData.user.id)
+          .maybeSingle();
+
+        if (!existingRole) {
+          // Insert role
+          const { error: roleError } = await supabase
+            .from('user_roles')
+            .insert({ 
+              user_id: authData.user.id, 
+              role: newRole 
+            });
+
+          if (roleError) console.error('Role insert error:', roleError);
+        }
+      }
 
       toast({
         title: "Success",
@@ -130,27 +152,75 @@ export default function Admin() {
       setNewRole('sales');
       setNewDepartment('sales');
       fetchUsers();
+    } catch (error: any) {
+      console.error('Error creating user:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to create user",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreating(false);
     }
-    
-    setIsCreating(false);
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    // In a real app, you'd call an edge function to delete the user
-    toast({
-      title: "Info",
-      description: "User deletion requires admin API access",
-    });
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    try {
+      // Delete user role first
+      await supabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', userId);
+
+      // Delete profile
+      const { error } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('user_id', userId);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: `${userName || 'User'} has been removed`,
+      });
+
+      fetchUsers();
+    } catch (error: any) {
+      console.error('Error deleting user:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete user",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleUpdateRole = async (userId: string, newRole: AppRole) => {
     try {
-      const { error } = await supabase
+      // Check if role exists
+      const { data: existingRole } = await supabase
         .from('user_roles')
-        .update({ role: newRole })
-        .eq('user_id', userId);
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle();
 
-      if (error) throw error;
+      if (existingRole) {
+        // Update existing role
+        const { error } = await supabase
+          .from('user_roles')
+          .update({ role: newRole })
+          .eq('user_id', userId);
+
+        if (error) throw error;
+      } else {
+        // Insert new role
+        const { error } = await supabase
+          .from('user_roles')
+          .insert({ user_id: userId, role: newRole });
+
+        if (error) throw error;
+      }
 
       toast({
         title: "Success",
@@ -399,7 +469,7 @@ export default function Admin() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleDeleteUser(user.user_id)}
+                          onClick={() => handleDeleteUser(user.user_id, user.full_name || 'User')}
                         >
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>

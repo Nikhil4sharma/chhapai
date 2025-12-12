@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Edit } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Edit, Calendar } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Calendar as CalendarPicker } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { Order } from '@/types/order';
+import { format } from 'date-fns';
+import { cn } from '@/lib/utils';
 
 interface EditOrderDialogProps {
   open: boolean;
@@ -34,6 +42,22 @@ export function EditOrderDialog({
     customer_address: order.customer.address,
     global_notes: order.global_notes || '',
   });
+  const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(
+    order.order_level_delivery_date || order.items[0]?.delivery_date
+  );
+
+  useEffect(() => {
+    if (open) {
+      setFormData({
+        customer_name: order.customer.name,
+        customer_phone: order.customer.phone,
+        customer_email: order.customer.email,
+        customer_address: order.customer.address,
+        global_notes: order.global_notes || '',
+      });
+      setDeliveryDate(order.order_level_delivery_date || order.items[0]?.delivery_date);
+    }
+  }, [open, order]);
 
   const handleSave = () => {
     onSave({
@@ -44,6 +68,7 @@ export function EditOrderDialog({
         address: formData.customer_address,
       },
       global_notes: formData.global_notes,
+      order_level_delivery_date: deliveryDate,
     });
     onOpenChange(false);
   };
@@ -57,7 +82,7 @@ export function EditOrderDialog({
             Edit Order - {order.order_id}
           </DialogTitle>
           <DialogDescription>
-            Update customer details and order notes
+            Update customer details, delivery date and order notes
           </DialogDescription>
         </DialogHeader>
 
@@ -98,6 +123,33 @@ export function EditOrderDialog({
               value={formData.customer_address}
               onChange={(e) => setFormData({...formData, customer_address: e.target.value})}
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Delivery Date</Label>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className={cn(
+                    "w-full justify-start text-left font-normal",
+                    !deliveryDate && "text-muted-foreground"
+                  )}
+                >
+                  <Calendar className="mr-2 h-4 w-4" />
+                  {deliveryDate ? format(deliveryDate, "PPP") : "Select date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <CalendarPicker
+                  mode="single"
+                  selected={deliveryDate}
+                  onSelect={setDeliveryDate}
+                  initialFocus
+                  className="pointer-events-auto"
+                />
+              </PopoverContent>
+            </Popover>
           </div>
 
           <div className="space-y-2">

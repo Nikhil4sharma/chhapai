@@ -1,13 +1,14 @@
-import { useState } from 'react';
-import { User, Mail, Phone, Building, Shield, Lock, Save, Loader2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { User, Mail, Phone, Building, Shield, Lock, Save, Loader2, Camera, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function Profile() {
   const { user, profile, role, updatePassword, updateProfile } = useAuth();
@@ -17,6 +18,8 @@ export default function Profile() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,6 +88,70 @@ export default function Profile() {
     setIsUpdatingPassword(false);
   };
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Error",
+        description: "Please upload an image file",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "Error",
+        description: "Image must be less than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/avatar.${fileExt}`;
+
+      // Upload to storage
+      const { error: uploadError } = await supabase.storage
+        .from('order-files')
+        .upload(fileName, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('order-files')
+        .getPublicUrl(fileName);
+
+      // Update profile with avatar URL
+      const { error: updateError } = await updateProfile({
+        avatar_url: urlData.publicUrl + '?t=' + Date.now(), // Add timestamp to bust cache
+      });
+
+      if (updateError) throw updateError;
+
+      toast({
+        title: "Success",
+        description: "Profile picture updated successfully",
+      });
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      toast({
+        title: "Error",
+        description: "Failed to upload profile picture",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
   const getRoleBadgeVariant = () => {
     switch (role) {
       case 'admin': return 'destructive';
@@ -96,6 +163,11 @@ export default function Profile() {
     }
   };
 
+  const getInitials = () => {
+    if (!profile?.full_name) return 'U';
+    return profile.full_name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <div>
@@ -103,7 +175,7 @@ export default function Profile() {
         <p className="text-muted-foreground">Manage your account settings</p>
       </div>
 
-      {/* Account Info */}
+      {/* Account Info with Avatar Upload */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg font-display flex items-center gap-2">
@@ -114,8 +186,31 @@ export default function Profile() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-4 p-4 bg-secondary/50 rounded-lg">
-            <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-              <User className="h-8 w-8 text-primary" />
+            <div className="relative group">
+              <Avatar className="h-20 w-20 border-2 border-border">
+                <AvatarImage src={profile?.avatar_url || undefined} alt={profile?.full_name || 'User'} />
+                <AvatarFallback className="bg-primary/10 text-primary text-xl">
+                  {getInitials()}
+                </AvatarFallback>
+              </Avatar>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingAvatar}
+                className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+              >
+                {isUploadingAvatar ? (
+                  <Loader2 className="h-6 w-6 text-white animate-spin" />
+                ) : (
+                  <Camera className="h-6 w-6 text-white" />
+                )}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarUpload}
+                className="hidden"
+              />
             </div>
             <div className="flex-1">
               <h3 className="font-semibold text-lg">{profile?.full_name || 'User'}</h3>
@@ -134,6 +229,9 @@ export default function Profile() {
               </div>
             </div>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Hover over your avatar and click to upload a new profile picture
+          </p>
         </CardContent>
       </Card>
 

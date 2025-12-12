@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileCheck, CheckCircle, Clock, ArrowRight, Upload } from 'lucide-react';
+import { FileCheck, CheckCircle, Clock, ArrowRight, Upload, Eye, FileText, Image as ImageIcon, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,12 +20,19 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
 
 export default function Prepress() {
   const { orders, updateItemStage, uploadFile, sendToProduction } = useOrders();
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<{ orderId: string; itemId: string } | null>(null);
+  const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type: string } | null>(null);
 
   // Get items in prepress stage
   const prepressItems = orders.flatMap(order => 
@@ -58,6 +65,18 @@ export default function Prepress() {
     if (selectedItem) {
       await uploadFile(selectedItem.orderId, selectedItem.itemId, file);
     }
+  };
+
+  const openFilePreview = (file: { url: string; file_name: string; type: string }) => {
+    setPreviewFile({ url: file.url, name: file.file_name, type: file.type });
+  };
+
+  const isImageFile = (type: string) => {
+    return type === 'image' || type.includes('image');
+  };
+
+  const isPdfFile = (name: string) => {
+    return name.toLowerCase().endsWith('.pdf');
   };
 
   return (
@@ -121,21 +140,67 @@ export default function Prepress() {
                           )}
                         </div>
 
-                        {/* Files */}
+                        {/* Files with Preview */}
                         {item.files.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {item.files.map((file) => (
-                              <a
-                                key={file.file_id}
-                                href={file.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1 text-xs text-primary hover:underline bg-primary/5 px-2 py-1 rounded"
-                              >
-                                <FileCheck className="h-3 w-3" />
-                                View File
-                              </a>
-                            ))}
+                          <div className="mt-3">
+                            <p className="text-xs text-muted-foreground mb-2">Files ({item.files.length})</p>
+                            <div className="flex flex-wrap gap-2">
+                              {item.files.map((file) => (
+                                <div
+                                  key={file.file_id}
+                                  className="group relative"
+                                >
+                                  {isImageFile(file.type) ? (
+                                    <button
+                                      onClick={() => openFilePreview({ url: file.url, file_name: file.file_name || 'Image', type: file.type })}
+                                      className="flex items-center gap-2 bg-primary/5 hover:bg-primary/10 border border-primary/20 rounded-lg p-2 transition-colors"
+                                    >
+                                      <div className="w-12 h-12 rounded overflow-hidden bg-muted flex items-center justify-center">
+                                        <img 
+                                          src={file.url} 
+                                          alt={file.file_name || 'Preview'}
+                                          className="w-full h-full object-cover"
+                                          onError={(e) => {
+                                            e.currentTarget.style.display = 'none';
+                                            e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                                          }}
+                                        />
+                                        <ImageIcon className="h-6 w-6 text-muted-foreground hidden" />
+                                      </div>
+                                      <div className="text-left">
+                                        <p className="text-xs font-medium text-foreground truncate max-w-[100px]">
+                                          {file.file_name || 'Image'}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                                          <Eye className="h-3 w-3" />
+                                          Preview
+                                        </p>
+                                      </div>
+                                    </button>
+                                  ) : (
+                                    <a
+                                      href={file.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center gap-2 bg-primary/5 hover:bg-primary/10 border border-primary/20 rounded-lg p-2 transition-colors"
+                                    >
+                                      <div className="w-12 h-12 rounded overflow-hidden bg-muted flex items-center justify-center">
+                                        <FileText className="h-6 w-6 text-primary" />
+                                      </div>
+                                      <div className="text-left">
+                                        <p className="text-xs font-medium text-foreground truncate max-w-[100px]">
+                                          {file.file_name || 'Document'}
+                                        </p>
+                                        <p className="text-xs text-primary flex items-center gap-1">
+                                          <Eye className="h-3 w-3" />
+                                          Open
+                                        </p>
+                                      </div>
+                                    </a>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -214,6 +279,40 @@ export default function Prepress() {
             itemId={selectedItem.itemId}
           />
         )}
+
+        {/* File Preview Dialog */}
+        <Dialog open={!!previewFile} onOpenChange={() => setPreviewFile(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Eye className="h-5 w-5" />
+                {previewFile?.name}
+              </DialogTitle>
+            </DialogHeader>
+            {previewFile && (
+              <div className="flex items-center justify-center bg-muted/50 rounded-lg p-4 min-h-[400px]">
+                {isImageFile(previewFile.type) ? (
+                  <img 
+                    src={previewFile.url} 
+                    alt={previewFile.name}
+                    className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-lg"
+                  />
+                ) : (
+                  <div className="text-center">
+                    <FileText className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground mb-4">Preview not available for this file type</p>
+                    <Button asChild>
+                      <a href={previewFile.url} target="_blank" rel="noopener noreferrer">
+                        <Eye className="h-4 w-4 mr-2" />
+                        Open in New Tab
+                      </a>
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
   );
