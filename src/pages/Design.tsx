@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
+import { FilePreview } from '@/components/orders/FilePreview';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -129,6 +130,9 @@ export default function Design() {
                             <Badge variant="outline" className="text-xs">{item.specifications.finishing}</Badge>
                           )}
                         </div>
+                        {item.files && item.files.length > 0 && (
+                          <FilePreview files={item.files} compact />
+                        )}
                       </div>
 
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">

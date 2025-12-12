@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
+import { FilePreview } from '@/components/orders/FilePreview';
 import { PRODUCTION_STEPS, SubStage } from '@/types/order';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
@@ -177,6 +178,9 @@ export default function Production() {
                                   <Badge variant="outline" className="text-xs">{item.specifications.finishing}</Badge>
                                 )}
                               </div>
+                              {item.files && item.files.length > 0 && (
+                                <FilePreview files={item.files} compact />
+                              )}
 
                               {/* Progress indicator */}
                               <div className="mt-3 flex items-center gap-1">
