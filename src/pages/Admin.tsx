@@ -412,72 +412,73 @@ export default function Admin() {
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Department</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {users.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{user.full_name || 'Unnamed'}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Select 
-                          value={user.department || 'sales'} 
-                          onValueChange={(v) => handleUpdateDepartment(user.user_id, v)}
-                        >
-                          <SelectTrigger className="w-32">
-                            <SelectValue>{user.department || 'Select'}</SelectValue>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="sales">Sales</SelectItem>
-                            <SelectItem value="design">Design</SelectItem>
-                            <SelectItem value="prepress">Prepress</SelectItem>
-                            <SelectItem value="production">Production</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell>
-                        <Select 
-                          value={user.role} 
-                          onValueChange={(v) => handleUpdateRole(user.user_id, v as AppRole)}
-                        >
-                          <SelectTrigger className="w-32">
-                            <Badge variant={getRoleBadgeVariant(user.role) as any}>
-                              {user.role}
-                            </Badge>
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="admin">Admin</SelectItem>
-                            <SelectItem value="sales">Sales</SelectItem>
-                            <SelectItem value="design">Design</SelectItem>
-                            <SelectItem value="prepress">Prepress</SelectItem>
-                            <SelectItem value="production">Production</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleDeleteUser(user.user_id, user.full_name || 'User')}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </TableCell>
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <div className="min-w-[600px] px-4 sm:px-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[180px]">Name</TableHead>
+                      <TableHead className="w-[140px]">Department</TableHead>
+                      <TableHead className="w-[140px]">Role</TableHead>
+                      <TableHead className="text-right w-[80px]">Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell>
+                          <p className="font-medium text-sm truncate max-w-[160px]">{user.full_name || 'Unnamed'}</p>
+                        </TableCell>
+                        <TableCell>
+                          <Select 
+                            value={user.department || 'sales'} 
+                            onValueChange={(v) => handleUpdateDepartment(user.user_id, v)}
+                          >
+                            <SelectTrigger className="w-28 h-8 text-xs">
+                              <SelectValue>{user.department || 'Select'}</SelectValue>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="sales">Sales</SelectItem>
+                              <SelectItem value="design">Design</SelectItem>
+                              <SelectItem value="prepress">Prepress</SelectItem>
+                              <SelectItem value="production">Production</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          <Select 
+                            value={user.role} 
+                            onValueChange={(v) => handleUpdateRole(user.user_id, v as AppRole)}
+                          >
+                            <SelectTrigger className="w-28 h-8 text-xs">
+                              <Badge variant={getRoleBadgeVariant(user.role) as any} className="text-xs">
+                                {user.role}
+                              </Badge>
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="admin">Admin</SelectItem>
+                              <SelectItem value="sales">Sales</SelectItem>
+                              <SelectItem value="design">Design</SelectItem>
+                              <SelectItem value="prepress">Prepress</SelectItem>
+                              <SelectItem value="production">Production</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => handleDeleteUser(user.user_id, user.full_name || 'User')}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
           )}
         </CardContent>
