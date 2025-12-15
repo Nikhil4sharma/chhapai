@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Calendar, Package, User } from 'lucide-react';
+import { Plus, Calendar, Package, User, Trash2, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -25,17 +25,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 
+interface ProductItem {
+  id: string;
+  name: string;
+  quantity: number;
+  specifications: Record<string, string>;
+}
+
 interface CreateOrderDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOrderCreated?: () => void;
 }
+
+const DEFAULT_SPEC_KEYS = ['Size', 'Material', 'Finish', 'Color', 'Printing', 'Quantity Details'];
 
 export function CreateOrderDialog({ 
   open, 
@@ -55,14 +68,15 @@ export function CreateOrderDialog({
     pincode: '',
   });
 
-  const [productData, setProductData] = useState({
-    name: '',
-    quantity: 1,
-    sku: '',
-    notes: '',
-  });
+  const [products, setProducts] = useState<ProductItem[]>([
+    { id: crypto.randomUUID(), name: '', quantity: 1, specifications: {} }
+  ]);
 
+  const [globalNotes, setGlobalNotes] = useState('');
   const [priority, setPriority] = useState<string>('blue');
+  const [newSpecKey, setNewSpecKey] = useState('');
+  const [newSpecValue, setNewSpecValue] = useState('');
+  const [activeProductIndex, setActiveProductIndex] = useState<number | null>(null);
 
   const resetForm = () => {
     setCustomerData({
@@ -74,14 +88,13 @@ export function CreateOrderDialog({
       state: '',
       pincode: '',
     });
-    setProductData({
-      name: '',
-      quantity: 1,
-      sku: '',
-      notes: '',
-    });
+    setProducts([{ id: crypto.randomUUID(), name: '', quantity: 1, specifications: {} }]);
     setDeliveryDate(undefined);
     setPriority('blue');
+    setGlobalNotes('');
+    setNewSpecKey('');
+    setNewSpecValue('');
+    setActiveProductIndex(null);
   };
 
   const generateOrderId = () => {
@@ -90,29 +103,65 @@ export function CreateOrderDialog({
     return `MAN-${timestamp}${random}`;
   };
 
-  const handleCreate = async () => {
-    if (!customerData.name.trim()) {
-      toast({
-        title: "Error",
-        description: "Customer name is required",
-        variant: "destructive",
-      });
-      return;
-    }
+  const addProduct = () => {
+    setProducts([...products, { id: crypto.randomUUID(), name: '', quantity: 1, specifications: {} }]);
+  };
 
-    if (!productData.name.trim()) {
-      toast({
-        title: "Error",
-        description: "Product name is required",
-        variant: "destructive",
-      });
-      return;
+  const removeProduct = (index: number) => {
+    if (products.length > 1) {
+      const newProducts = products.filter((_, i) => i !== index);
+      setProducts(newProducts);
+    }
+  };
+
+  const updateProduct = (index: number, field: keyof ProductItem, value: any) => {
+    const newProducts = [...products];
+    newProducts[index] = { ...newProducts[index], [field]: value };
+    setProducts(newProducts);
+  };
+
+  const addSpecification = (productIndex: number, key: string, value: string) => {
+    if (!key.trim() || !value.trim()) return;
+    const newProducts = [...products];
+    newProducts[productIndex].specifications[key] = value;
+    setProducts(newProducts);
+    setNewSpecKey('');
+    setNewSpecValue('');
+  };
+
+  const removeSpecification = (productIndex: number, key: string) => {
+    const newProducts = [...products];
+    delete newProducts[productIndex].specifications[key];
+    setProducts(newProducts);
+  };
+
+  const validateForm = (): string | null => {
+    if (!customerData.name.trim()) {
+      return "Customer name is required";
     }
 
     if (!deliveryDate) {
+      return "Delivery date is required";
+    }
+
+    for (let i = 0; i < products.length; i++) {
+      if (!products[i].name.trim()) {
+        return `Product ${i + 1} name is required`;
+      }
+      if (Object.keys(products[i].specifications).length === 0) {
+        return `Product ${i + 1} requires at least one specification`;
+      }
+    }
+
+    return null;
+  };
+
+  const handleCreate = async () => {
+    const error = validateForm();
+    if (error) {
       toast({
-        title: "Error",
-        description: "Delivery date is required",
+        title: "Validation Error",
+        description: error,
         variant: "destructive",
       });
       return;
@@ -143,10 +192,10 @@ export function CreateOrderDialog({
           shipping_city: customerData.city,
           shipping_state: customerData.state,
           shipping_pincode: customerData.pincode,
-          delivery_date: deliveryDate.toISOString(),
+          delivery_date: deliveryDate!.toISOString(),
           priority: priority,
           source: 'manual',
-          global_notes: productData.notes,
+          global_notes: globalNotes,
           created_by: user?.id,
         })
         .select()
@@ -154,21 +203,23 @@ export function CreateOrderDialog({
 
       if (orderError) throw orderError;
 
-      // Create order item
-      const { error: itemError } = await supabase
-        .from('order_items')
-        .insert({
-          order_id: orderData.id,
-          product_name: productData.name,
-          quantity: productData.quantity,
-          sku: productData.sku || null,
-          priority: priority,
-          current_stage: 'sales',
-          assigned_department: 'sales',
-          delivery_date: deliveryDate.toISOString(),
-        });
+      // Create order items for each product
+      for (const product of products) {
+        const { error: itemError } = await supabase
+          .from('order_items')
+          .insert({
+            order_id: orderData.id,
+            product_name: product.name,
+            quantity: product.quantity,
+            specifications: product.specifications,
+            priority: priority,
+            current_stage: 'sales',
+            assigned_department: 'sales',
+            delivery_date: deliveryDate!.toISOString(),
+          });
 
-      if (itemError) throw itemError;
+        if (itemError) throw itemError;
+      }
 
       // Create timeline entry
       await supabase
@@ -176,14 +227,14 @@ export function CreateOrderDialog({
         .insert({
           order_id: orderData.id,
           stage: 'sales',
-          action: 'Order created manually',
+          action: `Order created manually with ${products.length} product(s)`,
           performed_by: user?.id,
           is_public: true,
         });
 
       toast({
         title: "Order Created",
-        description: `Order ${orderId} has been created successfully`,
+        description: `Order ${orderId} has been created with ${products.length} product(s)`,
       });
 
       resetForm();
@@ -206,136 +257,129 @@ export function CreateOrderDialog({
       if (!value) resetForm();
       onOpenChange(value);
     }}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-6 py-4 border-b">
           <DialogTitle className="flex items-center gap-2">
             <Plus className="h-5 w-5" />
             Create New Order
           </DialogTitle>
           <DialogDescription>
-            Create a new manual order with customer and product details
+            Create a new manual order with customer details and multiple products
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
-          {/* Customer Details Section */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <User className="h-4 w-4" />
-              Customer Details
+        <ScrollArea className="max-h-[calc(90vh-180px)]">
+          <div className="p-6 space-y-6">
+            {/* Customer Details Section */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <User className="h-4 w-4" />
+                Customer Details
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="customer_name">Customer Name *</Label>
+                  <Input
+                    id="customer_name"
+                    placeholder="Enter customer name"
+                    value={customerData.name}
+                    onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="customer_phone">Phone</Label>
+                  <Input
+                    id="customer_phone"
+                    placeholder="Enter phone number"
+                    value={customerData.phone}
+                    onChange={(e) => setCustomerData({...customerData, phone: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="customer_email">Email</Label>
+                <Input
+                  id="customer_email"
+                  type="email"
+                  placeholder="Enter email address"
+                  value={customerData.email}
+                  onChange={(e) => setCustomerData({...customerData, email: e.target.value})}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="customer_address">Address</Label>
+                <Input
+                  id="customer_address"
+                  placeholder="Enter full address"
+                  value={customerData.address}
+                  onChange={(e) => setCustomerData({...customerData, address: e.target.value})}
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="city">City</Label>
+                  <Input
+                    id="city"
+                    placeholder="City"
+                    value={customerData.city}
+                    onChange={(e) => setCustomerData({...customerData, city: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="state">State</Label>
+                  <Input
+                    id="state"
+                    placeholder="State"
+                    value={customerData.state}
+                    onChange={(e) => setCustomerData({...customerData, state: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pincode">Pincode</Label>
+                  <Input
+                    id="pincode"
+                    placeholder="Pincode"
+                    value={customerData.pincode}
+                    onChange={(e) => setCustomerData({...customerData, pincode: e.target.value})}
+                  />
+                </div>
+              </div>
             </div>
-            
+
+            <Separator />
+
+            {/* Order Settings */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="customer_name">Customer Name *</Label>
-                <Input
-                  id="customer_name"
-                  placeholder="Enter customer name"
-                  value={customerData.name}
-                  onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="customer_phone">Phone</Label>
-                <Input
-                  id="customer_phone"
-                  placeholder="Enter phone number"
-                  value={customerData.phone}
-                  onChange={(e) => setCustomerData({...customerData, phone: e.target.value})}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="customer_email">Email</Label>
-              <Input
-                id="customer_email"
-                type="email"
-                placeholder="Enter email address"
-                value={customerData.email}
-                onChange={(e) => setCustomerData({...customerData, email: e.target.value})}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="customer_address">Address</Label>
-              <Input
-                id="customer_address"
-                placeholder="Enter full address"
-                value={customerData.address}
-                onChange={(e) => setCustomerData({...customerData, address: e.target.value})}
-              />
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="city">City</Label>
-                <Input
-                  id="city"
-                  placeholder="City"
-                  value={customerData.city}
-                  onChange={(e) => setCustomerData({...customerData, city: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="state">State</Label>
-                <Input
-                  id="state"
-                  placeholder="State"
-                  value={customerData.state}
-                  onChange={(e) => setCustomerData({...customerData, state: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="pincode">Pincode</Label>
-                <Input
-                  id="pincode"
-                  placeholder="Pincode"
-                  value={customerData.pincode}
-                  onChange={(e) => setCustomerData({...customerData, pincode: e.target.value})}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Product Details Section */}
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              <Package className="h-4 w-4" />
-              Product Details
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="product_name">Product Name *</Label>
-                <Input
-                  id="product_name"
-                  placeholder="Enter product name"
-                  value={productData.name}
-                  onChange={(e) => setProductData({...productData, name: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="quantity">Quantity</Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  min="1"
-                  value={productData.quantity}
-                  onChange={(e) => setProductData({...productData, quantity: parseInt(e.target.value) || 1})}
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="sku">SKU (Optional)</Label>
-                <Input
-                  id="sku"
-                  placeholder="Enter SKU"
-                  value={productData.sku}
-                  onChange={(e) => setProductData({...productData, sku: e.target.value})}
-                />
+                <Label>Delivery Date *</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className={cn(
+                        "w-full justify-start text-left font-normal",
+                        !deliveryDate && "text-muted-foreground"
+                      )}
+                    >
+                      <Calendar className="mr-2 h-4 w-4" />
+                      {deliveryDate ? format(deliveryDate, "PPP") : "Select delivery date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarPicker
+                      mode="single"
+                      selected={deliveryDate}
+                      onSelect={setDeliveryDate}
+                      initialFocus
+                      disabled={(date) => date < new Date()}
+                      className="pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
               <div className="space-y-2">
                 <Label>Priority</Label>
@@ -352,48 +396,171 @@ export function CreateOrderDialog({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label>Delivery Date *</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-left font-normal",
-                      !deliveryDate && "text-muted-foreground"
-                    )}
-                  >
-                    <Calendar className="mr-2 h-4 w-4" />
-                    {deliveryDate ? format(deliveryDate, "PPP") : "Select delivery date"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <CalendarPicker
-                    mode="single"
-                    selected={deliveryDate}
-                    onSelect={setDeliveryDate}
-                    initialFocus
-                    disabled={(date) => date < new Date()}
-                    className="pointer-events-auto"
-                  />
-                </PopoverContent>
-              </Popover>
+            <Separator />
+
+            {/* Products Section */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                  <Package className="h-4 w-4" />
+                  Products ({products.length})
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={addProduct}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Product
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                {products.map((product, index) => (
+                  <Card key={product.id} className="relative">
+                    <CardHeader className="pb-3 pt-4 px-4">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                          Product {index + 1}
+                          {Object.keys(product.specifications).length > 0 && (
+                            <Badge variant="secondary" className="text-xs">
+                              {Object.keys(product.specifications).length} specs
+                            </Badge>
+                          )}
+                        </CardTitle>
+                        {products.length > 1 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => removeProduct(index)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4 px-4 pb-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Product Name *</Label>
+                          <Input
+                            placeholder="Enter product name"
+                            value={product.name}
+                            onChange={(e) => updateProduct(index, 'name', e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Quantity</Label>
+                          <Input
+                            type="number"
+                            min="1"
+                            value={product.quantity}
+                            onChange={(e) => updateProduct(index, 'quantity', parseInt(e.target.value) || 1)}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Specifications */}
+                      <div className="space-y-2">
+                        <Label className="text-sm">Specifications * (at least 1 required)</Label>
+                        
+                        {/* Existing specs */}
+                        {Object.keys(product.specifications).length > 0 && (
+                          <div className="flex flex-wrap gap-2 mb-2">
+                            {Object.entries(product.specifications).map(([key, value]) => (
+                              <Badge key={key} variant="secondary" className="py-1 px-2">
+                                <span className="font-medium">{key}:</span> {value}
+                                <button
+                                  type="button"
+                                  className="ml-1 hover:text-destructive"
+                                  onClick={() => removeSpecification(index, key)}
+                                >
+                                  <X className="h-3 w-3" />
+                                </button>
+                              </Badge>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Quick add specs */}
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {DEFAULT_SPEC_KEYS.filter(key => !product.specifications[key]).map(key => (
+                            <Button
+                              key={key}
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs"
+                              onClick={() => {
+                                setActiveProductIndex(index);
+                                setNewSpecKey(key);
+                              }}
+                            >
+                              + {key}
+                            </Button>
+                          ))}
+                        </div>
+
+                        {/* Add spec form */}
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="Spec name (e.g., Size)"
+                            value={activeProductIndex === index ? newSpecKey : ''}
+                            onChange={(e) => {
+                              setActiveProductIndex(index);
+                              setNewSpecKey(e.target.value);
+                            }}
+                            onFocus={() => setActiveProductIndex(index)}
+                            className="flex-1"
+                          />
+                          <Input
+                            placeholder="Value (e.g., A4)"
+                            value={activeProductIndex === index ? newSpecValue : ''}
+                            onChange={(e) => {
+                              setActiveProductIndex(index);
+                              setNewSpecValue(e.target.value);
+                            }}
+                            onFocus={() => setActiveProductIndex(index)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                addSpecification(index, newSpecKey, newSpecValue);
+                              }
+                            }}
+                            className="flex-1"
+                          />
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => addSpecification(index, newSpecKey, newSpecValue)}
+                            disabled={!newSpecKey.trim() || !newSpecValue.trim() || activeProductIndex !== index}
+                          >
+                            Add
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
             </div>
 
+            <Separator />
+
+            {/* Order Notes */}
             <div className="space-y-2">
               <Label htmlFor="notes">Order Notes</Label>
               <Textarea
                 id="notes"
                 placeholder="Enter any special instructions or notes..."
-                value={productData.notes}
-                onChange={(e) => setProductData({...productData, notes: e.target.value})}
+                value={globalNotes}
+                onChange={(e) => setGlobalNotes(e.target.value)}
                 rows={3}
               />
             </div>
           </div>
-        </div>
+        </ScrollArea>
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="px-6 py-4 border-t gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isCreating}>
             Cancel
           </Button>
@@ -406,7 +573,7 @@ export function CreateOrderDialog({
             ) : (
               <>
                 <Plus className="h-4 w-4 mr-2" />
-                Create Order
+                Create Order ({products.length} product{products.length > 1 ? 's' : ''})
               </>
             )}
           </Button>

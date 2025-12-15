@@ -146,6 +146,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { user, profile, role, isAdmin } = useAuth();
+  
+  // Check if user can view financial data
+  const canViewFinancials = isAdmin || role === 'sales';
 
   // Fetch orders from Supabase
   const fetchOrders = useCallback(async () => {
@@ -199,9 +202,10 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
               item_id: item.id,
               order_id: item.order_id,
               product_name: item.product_name,
-              sku: item.sku,
+              // SKU is hidden - not included in the mapped item
               quantity: item.quantity,
-              line_total: (item as any).line_total || undefined,
+              // Only include line_total for admin/sales
+              line_total: canViewFinancials ? ((item as any).line_total || undefined) : undefined,
               specifications: item.specifications || {},
               woo_meta: (item as any).woo_meta || undefined,
               need_design: item.need_design,
@@ -243,12 +247,13 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
             state: (order as any).shipping_state || undefined,
             pincode: (order as any).shipping_pincode || undefined,
           } : undefined,
-          financials: {
+          // Only include financial data for admin/sales users
+          financials: canViewFinancials ? {
             total: (order as any).order_total || undefined,
             tax_cgst: (order as any).tax_cgst || undefined,
             tax_sgst: (order as any).tax_sgst || undefined,
             payment_status: (order as any).payment_status || undefined,
-          },
+          } : undefined,
           woo_order_id: (order as any).woo_order_id || undefined,
           order_status: (order as any).order_status || undefined,
           created_by: order.created_by || '',

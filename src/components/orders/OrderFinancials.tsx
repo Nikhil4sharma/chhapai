@@ -2,12 +2,20 @@ import { Order } from '@/types/order';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { IndianRupee, CreditCard } from 'lucide-react';
+import { useFinancialAccess } from '@/hooks/useFinancialAccess';
 
 interface OrderFinancialsProps {
   order: Order;
 }
 
 export function OrderFinancials({ order }: OrderFinancialsProps) {
+  const { canViewFinancials } = useFinancialAccess();
+  
+  // Only render for admin and sales users
+  if (!canViewFinancials) {
+    return null;
+  }
+  
   const financials = order.financials;
   
   // If no financial data, don't render
