@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, Eye, ExternalLink, FileImage } from 'lucide-react';
+import { FileText, Eye, ExternalLink, FileImage, Trash2, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -18,16 +18,32 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from '@/components/ui/hover-card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { OrderFile } from '@/types/order';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
 
 interface FilePreviewProps {
   files: OrderFile[];
   compact?: boolean;
+  onFileDeleted?: () => void;
+  canDelete?: boolean;
 }
 
-export function FilePreview({ files, compact = false }: FilePreviewProps) {
+export function FilePreview({ files, compact = false, onFileDeleted, canDelete = true }: FilePreviewProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<OrderFile | null>(null);
+  const [deleteFileId, setDeleteFileId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   if (!files || files.length === 0) return null;
 
@@ -46,6 +62,39 @@ export function FilePreview({ files, compact = false }: FilePreviewProps) {
   const handlePreview = (file: OrderFile) => {
     setSelectedFile(file);
     setPreviewOpen(true);
+  };
+
+  const handleDeleteFile = async () => {
+    if (!deleteFileId) return;
+    
+    setIsDeleting(true);
+    try {
+      const { error } = await supabase
+        .from('order_files')
+        .delete()
+        .eq('id', deleteFileId);
+
+      if (error) throw error;
+
+      toast({
+        title: "File deleted",
+        description: "The file has been removed successfully.",
+      });
+
+      setPreviewOpen(false);
+      setSelectedFile(null);
+      onFileDeleted?.();
+    } catch (error: any) {
+      console.error('Error deleting file:', error);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete file",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+      setDeleteFileId(null);
+    }
   };
 
   const renderPreviewContent = () => {
@@ -76,7 +125,6 @@ export function FilePreview({ files, compact = false }: FilePreviewProps) {
       );
     }
 
-    // For other files, show a message
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <FileText className="h-16 w-16 text-muted-foreground mb-4" />
@@ -102,7 +150,7 @@ export function FilePreview({ files, compact = false }: FilePreviewProps) {
         onClick={() => handlePreview(file)}
       >
         {fileIsImage ? (
-          <div className="relative h-12 w-12 rounded-md overflow-hidden border border-border group">
+          <div className="relative h-14 w-14 rounded-md overflow-hidden border border-border group">
             <img 
               src={file.url} 
               alt={fileName}
@@ -126,7 +174,6 @@ export function FilePreview({ files, compact = false }: FilePreviewProps) {
       </Button>
     );
 
-    // Add hover preview for images
     if (fileIsImage) {
       return (
         <HoverCard openDelay={200} closeDelay={100}>
@@ -145,7 +192,6 @@ export function FilePreview({ files, compact = false }: FilePreviewProps) {
       );
     }
 
-    // Add hover preview info for PDFs
     if (fileIsPdf) {
       return (
         <HoverCard openDelay={200} closeDelay={100}>
@@ -171,6 +217,73 @@ export function FilePreview({ files, compact = false }: FilePreviewProps) {
     );
   };
 
+  const PreviewDialog = () => (
+    <>
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-5xl max-h-[90vh] w-[95vw]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between gap-2 pr-8">
+              <span className="truncate text-sm sm:text-base">{selectedFile && getFileName(selectedFile)}</span>
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  asChild
+                >
+                  <a href={selectedFile?.url} download target="_blank" rel="noopener noreferrer">
+                    <Download className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Download</span>
+                  </a>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(selectedFile?.url, '_blank')}
+                >
+                  <ExternalLink className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Open</span>
+                </Button>
+                {canDelete && selectedFile && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-destructive hover:text-destructive"
+                    onClick={() => setDeleteFileId(selectedFile.file_id)}
+                  >
+                    <Trash2 className="h-4 w-4 sm:mr-2" />
+                    <span className="hidden sm:inline">Delete</span>
+                  </Button>
+                )}
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+          {renderPreviewContent()}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteFileId} onOpenChange={() => setDeleteFileId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete File</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this file? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteFile}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+
   if (compact) {
     return (
       <>
@@ -184,26 +297,7 @@ export function FilePreview({ files, compact = false }: FilePreviewProps) {
             </Badge>
           )}
         </div>
-
-        <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-          <DialogContent className="max-w-5xl max-h-[90vh] w-[95vw]">
-            <DialogHeader>
-              <DialogTitle className="flex items-center justify-between gap-2 pr-8">
-                <span className="truncate text-sm sm:text-base">{selectedFile && getFileName(selectedFile)}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  onClick={() => window.open(selectedFile?.url, '_blank')}
-                >
-                  <ExternalLink className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Open Full</span>
-                </Button>
-              </DialogTitle>
-            </DialogHeader>
-            {renderPreviewContent()}
-          </DialogContent>
-        </Dialog>
+        <PreviewDialog />
       </>
     );
   }
@@ -215,26 +309,7 @@ export function FilePreview({ files, compact = false }: FilePreviewProps) {
           <FileButton key={file.file_id} file={file} />
         ))}
       </div>
-
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] w-[95vw]">
-          <DialogHeader>
-            <DialogTitle className="flex items-center justify-between gap-2 pr-8">
-              <span className="truncate text-sm sm:text-base">{selectedFile && getFileName(selectedFile)}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                onClick={() => window.open(selectedFile?.url, '_blank')}
-              >
-                <ExternalLink className="h-4 w-4 sm:mr-2" />
-                <span className="hidden sm:inline">Open Full</span>
-              </Button>
-            </DialogTitle>
-          </DialogHeader>
-          {renderPreviewContent()}
-        </DialogContent>
-      </Dialog>
+      <PreviewDialog />
     </>
   );
 }

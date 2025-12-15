@@ -1,9 +1,8 @@
 import { format } from 'date-fns';
-import { ChevronRight, Package, Calendar, User, MapPin, UserCircle } from 'lucide-react';
+import { ChevronRight, Calendar } from 'lucide-react';
 import { Order } from '@/types/order';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { PriorityBadge } from './PriorityBadge';
 import { StageBadge } from './StageBadge';
 import { cn } from '@/lib/utils';
@@ -15,7 +14,7 @@ interface OrderCardProps {
   showAssignedUser?: boolean;
 }
 
-export function OrderCard({ order, className, showAssignedUser = true }: OrderCardProps) {
+export function OrderCard({ order, className }: OrderCardProps) {
   const mainItem = order.items[0];
   const additionalItems = order.items.length - 1;
 
@@ -33,77 +32,43 @@ export function OrderCard({ order, className, showAssignedUser = true }: OrderCa
         />
         
         <div className="p-4">
-          {/* Header */}
-          <div className="flex items-start justify-between gap-2 mb-3">
+          {/* Header - Order ID, Priority, Stage */}
+          <div className="flex items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-foreground">{order.order_id}</h3>
               <PriorityBadge priority={order.priority_computed} />
-              {order.source === 'wordpress' && (
-                <Badge variant="outline" className="text-xs">WP</Badge>
-              )}
             </div>
             {mainItem && <StageBadge stage={mainItem.current_stage} />}
           </div>
 
-          {/* Customer info */}
-          <div className="space-y-1.5 mb-4">
-            <div className="flex items-center gap-2 text-sm">
-              <User className="h-4 w-4 text-muted-foreground" />
-              <span className="font-medium text-foreground">{order.customer.name}</span>
-            </div>
-            {order.customer.address && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <MapPin className="h-4 w-4" />
-                <span className="truncate">{order.customer.address}</span>
-              </div>
+          {/* Customer Name */}
+          <p className="text-sm text-muted-foreground mb-2">
+            {order.customer.name}
+          </p>
+
+          {/* Delivery Date */}
+          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+            <Calendar className="h-4 w-4" />
+            <span>
+              {order.order_level_delivery_date 
+                ? format(order.order_level_delivery_date, 'MMM d, yyyy')
+                : 'No date set'
+              }
+            </span>
+            {additionalItems > 0 && (
+              <span className="text-xs text-primary ml-auto">
+                +{additionalItems} item{additionalItems > 1 ? 's' : ''}
+              </span>
             )}
           </div>
 
-          {/* Main item */}
-          {mainItem && (
-            <div className="bg-secondary/50 rounded-lg p-3 mb-3">
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-medium text-sm">{mainItem.product_name}</span>
-                <span className="text-sm text-muted-foreground">×{mainItem.quantity}</span>
-              </div>
-              {mainItem.specifications.paper && (
-                <p className="text-xs text-muted-foreground">{mainItem.specifications.paper}</p>
-              )}
-              {/* Show assigned user */}
-              {showAssignedUser && mainItem.assigned_to_name && (
-                <div className="flex items-center gap-1 mt-2 text-xs text-primary">
-                  <UserCircle className="h-3 w-3" />
-                  <span>Assigned to: {mainItem.assigned_to_name}</span>
-                </div>
-              )}
-              {mainItem.current_substage && (
-                <Badge variant="outline" className="mt-2 text-xs">
-                  {mainItem.current_substage}
-                </Badge>
-              )}
-              {additionalItems > 0 && (
-                <p className="text-xs text-primary mt-1">+{additionalItems} more item{additionalItems > 1 ? 's' : ''}</p>
-              )}
-            </div>
-          )}
-
-          {/* Footer */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Calendar className="h-4 w-4" />
-              <span>
-                {order.order_level_delivery_date 
-                  ? format(order.order_level_delivery_date, 'MMM d, yyyy')
-                  : 'No date set'
-                }
-              </span>
-            </div>
-            <Button variant="ghost" size="sm" asChild>
-              <Link to={`/orders/${order.order_id}`}>
-                View <ChevronRight className="h-4 w-4 ml-1" />
-              </Link>
-            </Button>
-          </div>
+          {/* View Button */}
+          <Button variant="ghost" size="sm" className="w-full justify-between" asChild>
+            <Link to={`/orders/${order.order_id}`}>
+              View Details
+              <ChevronRight className="h-4 w-4" />
+            </Link>
+          </Button>
         </div>
       </CardContent>
     </Card>

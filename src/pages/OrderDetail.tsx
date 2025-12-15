@@ -21,6 +21,8 @@ import {
   Trash2,
   UserCircle,
   Loader2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -29,6 +31,7 @@ import { Separator } from '@/components/ui/separator';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
 import { StageBadge } from '@/components/orders/StageBadge';
 import { OrderTimeline } from '@/components/orders/OrderTimeline';
+import { FilePreview } from '@/components/orders/FilePreview';
 import {
   Tooltip,
   TooltipContent,
@@ -52,6 +55,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
@@ -94,6 +102,11 @@ export default function OrderDetail() {
   const [stageDialogOpen, setStageDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  
+  // Collapsible states
+  const [itemsOpen, setItemsOpen] = useState(true);
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [customerOpen, setCustomerOpen] = useState(true);
 
   const canDelete = isAdmin || role === 'sales';
 
