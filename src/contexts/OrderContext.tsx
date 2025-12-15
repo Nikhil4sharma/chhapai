@@ -24,7 +24,8 @@ interface OrderContextType {
   completeSubstage: (orderId: string, itemId: string) => Promise<void>;
   startSubstage: (orderId: string, itemId: string, substage: SubStage) => Promise<void>;
   markAsDispatched: (orderId: string, itemId: string) => Promise<void>;
-  sendToProduction: (orderId: string, itemId: string) => Promise<void>;
+  sendToProduction: (orderId: string, itemId: string, stageSequence?: string[]) => Promise<void>;
+  setProductionStageSequence: (orderId: string, itemId: string, sequence: string[]) => Promise<void>;
   refreshOrders: () => Promise<void>;
   getCompletedOrders: () => Order[];
 }
@@ -47,6 +48,99 @@ const computePriority = (deliveryDate: Date | null): Priority => {
   return 'red';
 };
 
+// Helper to create notifications
+const createNotification = async (
+  userId: string,
+  title: string,
+  message: string,
+  type: string,
+  orderId?: string,
+  itemId?: string
+) => {
+  try {
+    await supabase
+      .from('notifications')
+      .insert({
+        user_id: userId,
+        title,
+        message,
+        type,
+        order_id: orderId,
+        item_id: itemId,
+      });
+  } catch (error) {
+    console.error('Error creating notification:', error);
+  }
+};
+
+// Helper to notify admins and relevant users
+const notifyStageChange = async (
+  orderId: string,
+  itemId: string,
+  productName: string,
+  newStage: Stage,
+  performerId: string
+) => {
+  try {
+    // Get admins
+    const { data: admins } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('role', 'admin');
+
+    // Get users in the target department
+    const deptRole = newStage === 'dispatch' || newStage === 'completed' ? 'production' : newStage;
+    const { data: deptUsers } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('role', deptRole);
+
+    const notifyUsers = new Set<string>();
+    admins?.forEach(a => notifyUsers.add(a.user_id));
+    deptUsers?.forEach(u => notifyUsers.add(u.user_id));
+    notifyUsers.delete(performerId); // Don't notify performer
+
+    const title = `Order moved to ${newStage.charAt(0).toUpperCase() + newStage.slice(1)}`;
+    const message = `${productName} (${orderId}) is now in ${newStage}`;
+
+    for (const userId of notifyUsers) {
+      await createNotification(userId, title, message, 'info', orderId, itemId);
+    }
+  } catch (error) {
+    console.error('Error notifying stage change:', error);
+  }
+};
+
+// Helper to check and notify urgent/delayed orders
+const checkAndNotifyPriority = async (
+  orderId: string,
+  itemId: string,
+  productName: string,
+  priority: Priority,
+  previousPriority?: Priority
+) => {
+  if (priority === previousPriority) return;
+
+  try {
+    // Get admins
+    const { data: admins } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('role', 'admin');
+
+    if (priority === 'red') {
+      const title = 'Urgent Order Alert';
+      const message = `${productName} (${orderId}) is now URGENT - delivery approaching!`;
+      
+      for (const admin of admins || []) {
+        await createNotification(admin.user_id, title, message, 'urgent', orderId, itemId);
+      }
+    }
+  } catch (error) {
+    console.error('Error checking priority notifications:', error);
+  }
+};
+
 export function OrderProvider({ children }: { children: React.ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
@@ -58,8 +152,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     try {
       setIsLoading(true);
       
-      // Fetch orders
-      // Use orders_secure view to mask sensitive customer data for non-sales/admin users
       const { data: ordersData, error: ordersError } = await supabase
         .from('orders_secure')
         .select('*')
@@ -67,28 +159,24 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       if (ordersError) throw ordersError;
 
-      // Fetch order items
       const { data: itemsData, error: itemsError } = await supabase
         .from('order_items')
         .select('*');
 
       if (itemsError) throw itemsError;
 
-      // Fetch files
       const { data: filesData, error: filesError } = await supabase
         .from('order_files')
         .select('*');
 
       if (filesError) throw filesError;
 
-      // Fetch profiles for assigned user names (using secure view)
       const { data: profilesData } = await supabase
         .from('profiles_secure')
         .select('user_id, full_name');
 
       const profilesMap = new Map(profilesData?.map(p => [p.user_id, p.full_name]) || []);
 
-      // Map data to Order type
       const mappedOrders: Order[] = (ordersData || []).map(order => {
         const orderItems = (itemsData || [])
           .filter(item => item.order_id === order.id)
@@ -127,6 +215,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
               is_dispatched: item.is_dispatched,
               created_at: new Date(item.created_at),
               updated_at: new Date(item.updated_at),
+              production_stage_sequence: item.production_stage_sequence || null,
             } as OrderItem;
           });
 
@@ -164,7 +253,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Fetch timeline from Supabase
   const fetchTimeline = useCallback(async () => {
     try {
       const { data, error } = await supabase
@@ -197,12 +285,30 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Initial fetch
+  // Real-time subscription for orders
   useEffect(() => {
-    if (user) {
-      fetchOrders();
-      fetchTimeline();
-    }
+    if (!user) return;
+
+    fetchOrders();
+    fetchTimeline();
+
+    // Subscribe to real-time changes
+    const ordersChannel = supabase
+      .channel('orders-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        fetchOrders();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
+        fetchOrders();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'timeline' }, () => {
+        fetchTimeline();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ordersChannel);
+    };
   }, [user, fetchOrders, fetchTimeline]);
 
   const refreshOrders = useCallback(async () => {
@@ -245,7 +351,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   }, [orders, role, isAdmin]);
 
   const getTimelineForOrder = useCallback((orderId: string, itemId?: string) => {
-    // Find order by order_id to get the UUID
     const order = orders.find(o => o.order_id === orderId);
     const orderUUID = order?.id || orderId;
     
@@ -286,6 +391,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const item = order?.items.find(i => i.item_id === itemId);
       if (!order || !item) return;
 
+      const previousPriority = item.priority_computed;
+
       const deptMap: Record<Stage, 'sales' | 'design' | 'prepress' | 'production'> = {
         sales: 'sales',
         design: 'design', 
@@ -320,7 +427,18 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         is_public: true,
       });
 
+      // Send notifications for stage change
+      if (user?.id) {
+        await notifyStageChange(order.order_id, itemId, item.product_name, newStage, user.id);
+      }
+
       await fetchOrders();
+
+      // Check for priority changes
+      const newPriority = computePriority(item.delivery_date);
+      if (newPriority !== previousPriority) {
+        await checkAndNotifyPriority(order.order_id, itemId, item.product_name, newPriority, previousPriority);
+      }
 
       toast({
         title: "Stage Updated",
@@ -385,10 +503,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     
     if (!item || !item.current_substage) return;
 
-    const currentIndex = PRODUCTION_SUBSTAGES.indexOf(item.current_substage);
-    const isLastSubstage = currentIndex === PRODUCTION_SUBSTAGES.length - 1;
+    // Use custom sequence if defined, otherwise default
+    const sequence = (item as any).production_stage_sequence || PRODUCTION_SUBSTAGES;
+    const currentIndex = sequence.indexOf(item.current_substage);
+    const isLastSubstage = currentIndex === sequence.length - 1;
 
-    // Add completion timeline entry
     await addTimelineEntry({
       order_id: order!.id!,
       item_id: itemId,
@@ -403,8 +522,27 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
     if (isLastSubstage) {
       await updateItemStage(orderId, itemId, 'dispatch');
+      
+      // Notify about ready for dispatch
+      if (user?.id) {
+        const { data: admins } = await supabase
+          .from('user_roles')
+          .select('user_id')
+          .eq('role', 'admin');
+        
+        for (const admin of admins || []) {
+          await createNotification(
+            admin.user_id,
+            'Ready for Dispatch',
+            `${item.product_name} (${orderId}) is ready for dispatch`,
+            'success',
+            orderId,
+            itemId
+          );
+        }
+      }
     } else {
-      const nextSubstage = PRODUCTION_SUBSTAGES[currentIndex + 1];
+      const nextSubstage = sequence[currentIndex + 1];
       await updateItemSubstage(orderId, itemId, nextSubstage);
     }
   }, [orders, user, profile, updateItemStage, updateItemSubstage, addTimelineEntry]);
@@ -417,6 +555,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     try {
       const order = orders.find(o => o.order_id === orderId);
       if (!order) return;
+
+      const item = order.items.find(i => i.item_id === itemId);
 
       const { error } = await supabase
         .from('order_items')
@@ -440,7 +580,27 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         is_public: true,
       });
 
-      // Check if all items are completed
+      // Notify about dispatch
+      if (user?.id && item) {
+        const { data: admins } = await supabase
+          .from('user_roles')
+          .select('user_id')
+          .eq('role', 'admin');
+        
+        for (const admin of admins || []) {
+          if (admin.user_id !== user.id) {
+            await createNotification(
+              admin.user_id,
+              'Order Dispatched',
+              `${item.product_name} (${orderId}) has been dispatched`,
+              'success',
+              orderId,
+              itemId
+            );
+          }
+        }
+      }
+
       const updatedItems = order.items.map(i => 
         i.item_id === itemId ? { ...i, current_stage: 'completed' as Stage, is_dispatched: true } : i
       );
@@ -469,24 +629,77 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
   }, [orders, user, profile, addTimelineEntry, fetchOrders]);
 
-  const sendToProduction = useCallback(async (orderId: string, itemId: string) => {
-    await updateItemStage(orderId, itemId, 'production', 'foiling');
-    
+  const setProductionStageSequence = useCallback(async (orderId: string, itemId: string, sequence: string[]) => {
+    try {
+      const order = orders.find(o => o.order_id === orderId);
+      if (!order) return;
+
+      const { error } = await supabase
+        .from('order_items')
+        .update({
+          production_stage_sequence: sequence,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (error) throw error;
+
+      await addTimelineEntry({
+        order_id: order.id!,
+        item_id: itemId,
+        stage: 'prepress',
+        action: 'assigned',
+        performed_by: user?.id || '',
+        performed_by_name: profile?.full_name || 'Unknown',
+        notes: `Production sequence set: ${sequence.join(' → ')}`,
+        is_public: true,
+      });
+
+      await fetchOrders();
+
+      toast({
+        title: "Stage Sequence Saved",
+        description: `Production stages: ${sequence.join(' → ')}`,
+      });
+    } catch (error) {
+      console.error('Error setting stage sequence:', error);
+      toast({
+        title: "Error",
+        description: "Failed to save stage sequence",
+        variant: "destructive",
+      });
+    }
+  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
+
+  const sendToProduction = useCallback(async (orderId: string, itemId: string, stageSequence?: string[]) => {
     const order = orders.find(o => o.order_id === orderId);
-    if (order) {
+    const item = order?.items.find(i => i.item_id === itemId);
+    
+    // Use custom sequence if provided or saved, otherwise default
+    const sequence = stageSequence || (item as any)?.production_stage_sequence || PRODUCTION_SUBSTAGES;
+    const firstStage = sequence[0] as SubStage;
+
+    // Save sequence if provided
+    if (stageSequence && stageSequence.length > 0) {
+      await setProductionStageSequence(orderId, itemId, stageSequence);
+    }
+
+    await updateItemStage(orderId, itemId, 'production', firstStage);
+    
+    if (order && item) {
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
         stage: 'production',
-        substage: 'foiling',
+        substage: firstStage,
         action: 'sent_to_production',
         performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
-        notes: 'Item sent to production',
+        notes: `Sent to production with sequence: ${sequence.join(' → ')}`,
         is_public: true,
       });
     }
-  }, [orders, user, profile, updateItemStage, addTimelineEntry]);
+  }, [orders, user, profile, updateItemStage, addTimelineEntry, setProductionStageSequence]);
 
   const assignToDepartment = useCallback(async (orderId: string, itemId: string, department: string) => {
     const stageMap: Record<string, Stage> = {
@@ -505,6 +718,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const order = orders.find(o => o.order_id === orderId);
       if (!order) return;
 
+      const item = order.items.find(i => i.item_id === itemId);
+
       const { error } = await supabase
         .from('order_items')
         .update({
@@ -518,13 +733,25 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
-        stage: order.items.find(i => i.item_id === itemId)?.current_stage || 'sales',
+        stage: item?.current_stage || 'sales',
         action: 'assigned',
         performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Assigned to ${userName}`,
         is_public: true,
       });
+
+      // Notify the assigned user
+      if (item) {
+        await createNotification(
+          userId,
+          'Order Assigned to You',
+          `${item.product_name} (${orderId}) has been assigned to you`,
+          'info',
+          orderId,
+          itemId
+        );
+      }
 
       await fetchOrders();
 
@@ -547,7 +774,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const order = orders.find(o => o.order_id === orderId);
       if (!order) return;
 
-      // Upload to Supabase storage
       const fileExt = file.name.split('.').pop();
       const fileName = `${orderId}/${itemId}/${Date.now()}.${fileExt}`;
       
@@ -564,7 +790,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const fileType = file.type.includes('pdf') ? 'proof' : 
                        file.type.includes('image') ? 'image' : 'other';
 
-      // If replace existing, delete old files first
       if (replaceExisting) {
         await supabase
           .from('order_files')
@@ -572,7 +797,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           .eq('item_id', itemId);
       }
 
-      // Insert file record
       const { error: insertError } = await supabase
         .from('order_files')
         .insert({
@@ -704,7 +928,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const order = orders.find(o => o.order_id === orderId);
       if (!order) return;
 
-      // Check permission
       if (!isAdmin && role !== 'sales') {
         toast({
           title: "Permission Denied",
@@ -714,7 +937,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Delete related records first
       await supabase.from('timeline').delete().eq('order_id', order.id);
       await supabase.from('order_files').delete().eq('order_id', order.id);
       await supabase.from('order_items').delete().eq('order_id', order.id);
@@ -764,6 +986,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       startSubstage,
       markAsDispatched,
       sendToProduction,
+      setProductionStageSequence,
       refreshOrders,
       getCompletedOrders,
     }}>

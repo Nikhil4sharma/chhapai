@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileCheck, CheckCircle, Clock, ArrowRight, Upload, Eye, FileText, Image as ImageIcon, X } from 'lucide-react';
+import { FileCheck, CheckCircle, Clock, ArrowRight, Upload, Eye, FileText, Image as ImageIcon, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,11 +27,18 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
+import { ProductionStageSequenceDialog } from '@/components/dialogs/ProductionStageSequenceDialog';
 
 export default function Prepress() {
   const { orders, updateItemStage, uploadFile, sendToProduction } = useOrders();
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<{ orderId: string; itemId: string } | null>(null);
+  const [stageSequenceDialogOpen, setStageSequenceDialogOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<{ 
+    orderId: string; 
+    itemId: string; 
+    productName: string;
+    currentSequence?: string[] | null;
+  } | null>(null);
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type: string } | null>(null);
 
   // Get items in prepress stage
@@ -44,8 +51,15 @@ export default function Prepress() {
       }))
   );
 
-  const handleSendToProduction = (orderId: string, itemId: string) => {
-    sendToProduction(orderId, itemId);
+  const handleSendToProduction = (orderId: string, itemId: string, productName: string, currentSequence?: string[] | null) => {
+    setSelectedItem({ orderId, itemId, productName, currentSequence });
+    setStageSequenceDialogOpen(true);
+  };
+
+  const handleConfirmProduction = (sequence: string[]) => {
+    if (selectedItem) {
+      sendToProduction(selectedItem.orderId, selectedItem.itemId, sequence);
+    }
   };
 
   const handleSendBackToDesign = (orderId: string, itemId: string) => {
@@ -56,8 +70,8 @@ export default function Prepress() {
     });
   };
 
-  const handleUploadClick = (orderId: string, itemId: string) => {
-    setSelectedItem({ orderId, itemId });
+  const handleUploadClick = (orderId: string, itemId: string, productName: string) => {
+    setSelectedItem({ orderId, itemId, productName });
     setUploadDialogOpen(true);
   };
 
@@ -73,10 +87,6 @@ export default function Prepress() {
 
   const isImageFile = (type: string) => {
     return type === 'image' || type.includes('image');
-  };
-
-  const isPdfFile = (name: string) => {
-    return name.toLowerCase().endsWith('.pdf');
   };
 
   return (
@@ -117,15 +127,21 @@ export default function Prepress() {
                   <div className="p-4">
                     <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                       <div className="flex-1 min-w-0">
+                        {/* Order ID - Always visible */}
                         <Link 
                           to={`/orders/${order.order_id}`}
-                          className="flex items-center gap-2 mb-1 hover:underline"
+                          className="text-sm font-bold text-primary hover:underline"
                         >
-                          <h3 className="font-semibold truncate text-foreground">{item.product_name}</h3>
-                          <PriorityBadge priority={item.priority_computed} showLabel />
+                          {order.order_id}
                         </Link>
+                        
+                        <div className="flex items-center gap-2 mb-1 flex-wrap mt-1">
+                          <h3 className="font-semibold truncate text-foreground">{item.product_name}</h3>
+                          <span className="text-sm text-muted-foreground">— Qty {item.quantity}</span>
+                          <PriorityBadge priority={item.priority_computed} showLabel />
+                        </div>
                         <p className="text-sm text-muted-foreground mb-2">
-                          {order.order_id} • {order.customer.name} • Qty: {item.quantity}
+                          {order.customer.name}
                         </p>
                         
                         <div className="flex flex-wrap gap-2">
@@ -217,7 +233,7 @@ export default function Prepress() {
                             <Button 
                               variant="outline" 
                               size="sm"
-                              onClick={() => handleUploadClick(order.order_id, item.item_id)}
+                              onClick={() => handleUploadClick(order.order_id, item.item_id, item.product_name)}
                             >
                               <Upload className="h-4 w-4 mr-2" />
                               Upload Final
@@ -231,17 +247,22 @@ export default function Prepress() {
                             <TooltipTrigger asChild>
                               <DropdownMenuTrigger asChild>
                                 <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                                  <CheckCircle className="h-4 w-4 mr-2" />
-                                  Approve
+                                  <Settings className="h-4 w-4 mr-2" />
+                                  Send to Production
                                 </Button>
                               </DropdownMenuTrigger>
                             </TooltipTrigger>
-                            <TooltipContent>Approve and send to production</TooltipContent>
+                            <TooltipContent>Define stages and send to production</TooltipContent>
                           </Tooltip>
                           <DropdownMenuContent align="end" className="bg-popover">
-                            <DropdownMenuItem onClick={() => handleSendToProduction(order.order_id, item.item_id)}>
-                              <ArrowRight className="h-4 w-4 mr-2" />
-                              Send to Production
+                            <DropdownMenuItem onClick={() => handleSendToProduction(
+                              order.order_id, 
+                              item.item_id, 
+                              item.product_name,
+                              (item as any).production_stage_sequence
+                            )}>
+                              <Settings className="h-4 w-4 mr-2" />
+                              Define Stages & Send
                             </DropdownMenuItem>
                             <DropdownMenuItem 
                               onClick={() => handleSendBackToDesign(order.order_id, item.item_id)}
@@ -277,6 +298,18 @@ export default function Prepress() {
             onUpload={handleUpload}
             orderId={selectedItem.orderId}
             itemId={selectedItem.itemId}
+          />
+        )}
+
+        {/* Production Stage Sequence Dialog */}
+        {selectedItem && (
+          <ProductionStageSequenceDialog
+            open={stageSequenceDialogOpen}
+            onOpenChange={setStageSequenceDialogOpen}
+            productName={selectedItem.productName}
+            orderId={selectedItem.orderId}
+            currentSequence={selectedItem.currentSequence}
+            onConfirm={handleConfirmProduction}
           />
         )}
 
