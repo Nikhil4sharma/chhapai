@@ -418,6 +418,7 @@ export default function Settings() {
                         )}
                       </div>
 
+                      <div className="flex flex-wrap gap-2">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button 
