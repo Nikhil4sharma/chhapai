@@ -11,6 +11,26 @@ export interface Customer {
   phone: string;
   email: string;
   address: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+}
+
+export interface ShippingDetails {
+  name: string;
+  email?: string;
+  phone?: string;
+  address: string;
+  city?: string;
+  state?: string;
+  pincode?: string;
+}
+
+export interface OrderFinancials {
+  total?: number;
+  tax_cgst?: number;
+  tax_sgst?: number;
+  payment_status?: string;
 }
 
 export interface OrderFile {
@@ -32,18 +52,28 @@ export interface OrderFile {
   is_public?: boolean;
 }
 
+export interface ProductSpecifications {
+  paper?: string;
+  size?: string;
+  finishing?: string;
+  notes?: string;
+  [key: string]: string | undefined; // Allow dynamic WooCommerce meta keys
+}
+
 export interface OrderItem {
   item_id: string;
   order_id: string;
   product_name: string;
   sku?: string;
   quantity: number;
-  specifications: {
-    paper?: string;
-    size?: string;
-    finishing?: string;
-    notes?: string;
-  };
+  line_total?: number;
+  specifications: ProductSpecifications;
+  woo_meta?: Array<{
+    key: string;
+    display_key: string;
+    value: string;
+    display_value: string;
+  }>;
   need_design: boolean;
   current_stage: Stage;
   current_substage: SubStage;
@@ -57,13 +87,18 @@ export interface OrderItem {
   is_dispatched: boolean;
   created_at: Date;
   updated_at: Date;
+  production_stage_sequence?: string[];
 }
 
 export interface Order {
   id?: string; // UUID from Supabase
   order_id: string;
-  source: 'wordpress' | 'manual';
+  source: 'wordpress' | 'manual' | 'woocommerce';
   customer: Customer;
+  shipping?: ShippingDetails;
+  financials?: OrderFinancials;
+  woo_order_id?: number;
+  order_status?: string;
   created_by: string;
   created_at: Date;
   updated_at: Date;

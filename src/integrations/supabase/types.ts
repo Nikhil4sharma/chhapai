@@ -120,6 +120,7 @@ export type Database = {
           id: string
           is_dispatched: boolean
           is_ready_for_production: boolean
+          line_total: number | null
           need_design: boolean
           order_id: string
           priority: string
@@ -129,6 +130,7 @@ export type Database = {
           sku: string | null
           specifications: Json | null
           updated_at: string
+          woo_meta: Json | null
         }
         Insert: {
           assigned_department?: string
@@ -141,6 +143,7 @@ export type Database = {
           id?: string
           is_dispatched?: boolean
           is_ready_for_production?: boolean
+          line_total?: number | null
           need_design?: boolean
           order_id: string
           priority?: string
@@ -150,6 +153,7 @@ export type Database = {
           sku?: string | null
           specifications?: Json | null
           updated_at?: string
+          woo_meta?: Json | null
         }
         Update: {
           assigned_department?: string
@@ -162,6 +166,7 @@ export type Database = {
           id?: string
           is_dispatched?: boolean
           is_ready_for_production?: boolean
+          line_total?: number | null
           need_design?: boolean
           order_id?: string
           priority?: string
@@ -171,6 +176,7 @@ export type Database = {
           sku?: string | null
           specifications?: Json | null
           updated_at?: string
+          woo_meta?: Json | null
         }
         Relationships: [
           {
@@ -191,6 +197,9 @@ export type Database = {
       }
       orders: {
         Row: {
+          billing_city: string | null
+          billing_pincode: string | null
+          billing_state: string | null
           created_at: string
           created_by: string | null
           customer_address: string | null
@@ -202,11 +211,27 @@ export type Database = {
           id: string
           is_completed: boolean
           order_id: string
+          order_status: string | null
+          order_total: number | null
+          payment_status: string | null
           priority: string
+          shipping_address: string | null
+          shipping_city: string | null
+          shipping_email: string | null
+          shipping_name: string | null
+          shipping_phone: string | null
+          shipping_pincode: string | null
+          shipping_state: string | null
           source: string
+          tax_cgst: number | null
+          tax_sgst: number | null
           updated_at: string
+          woo_order_id: number | null
         }
         Insert: {
+          billing_city?: string | null
+          billing_pincode?: string | null
+          billing_state?: string | null
           created_at?: string
           created_by?: string | null
           customer_address?: string | null
@@ -218,11 +243,27 @@ export type Database = {
           id?: string
           is_completed?: boolean
           order_id: string
+          order_status?: string | null
+          order_total?: number | null
+          payment_status?: string | null
           priority?: string
+          shipping_address?: string | null
+          shipping_city?: string | null
+          shipping_email?: string | null
+          shipping_name?: string | null
+          shipping_phone?: string | null
+          shipping_pincode?: string | null
+          shipping_state?: string | null
           source?: string
+          tax_cgst?: number | null
+          tax_sgst?: number | null
           updated_at?: string
+          woo_order_id?: number | null
         }
         Update: {
+          billing_city?: string | null
+          billing_pincode?: string | null
+          billing_state?: string | null
           created_at?: string
           created_by?: string | null
           customer_address?: string | null
@@ -234,9 +275,22 @@ export type Database = {
           id?: string
           is_completed?: boolean
           order_id?: string
+          order_status?: string | null
+          order_total?: number | null
+          payment_status?: string | null
           priority?: string
+          shipping_address?: string | null
+          shipping_city?: string | null
+          shipping_email?: string | null
+          shipping_name?: string | null
+          shipping_phone?: string | null
+          shipping_pincode?: string | null
+          shipping_state?: string | null
           source?: string
+          tax_cgst?: number | null
+          tax_sgst?: number | null
           updated_at?: string
+          woo_order_id?: number | null
         }
         Relationships: []
       }
