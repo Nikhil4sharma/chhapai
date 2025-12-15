@@ -32,6 +32,9 @@ import { PriorityBadge } from '@/components/orders/PriorityBadge';
 import { StageBadge } from '@/components/orders/StageBadge';
 import { OrderTimeline } from '@/components/orders/OrderTimeline';
 import { FilePreview } from '@/components/orders/FilePreview';
+import { ProductSpecifications } from '@/components/orders/ProductSpecifications';
+import { ShippingDetails } from '@/components/orders/ShippingDetails';
+import { OrderFinancials } from '@/components/orders/OrderFinancials';
 import {
   Tooltip,
   TooltipContent,
@@ -318,36 +321,27 @@ export default function OrderDetail() {
                                 </div>
                               )}
                               
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
                                 <div>
                                   <span className="text-muted-foreground">Quantity</span>
                                   <p className="font-medium">{item.quantity}</p>
                                 </div>
-                                {item.specifications.paper && (
+                                {item.sku && (
                                   <div>
-                                    <span className="text-muted-foreground">Paper</span>
-                                    <p className="font-medium">{item.specifications.paper}</p>
+                                    <span className="text-muted-foreground">SKU</span>
+                                    <p className="font-medium">{item.sku}</p>
                                   </div>
                                 )}
-                                {item.specifications.size && (
+                                {item.line_total && (
                                   <div>
-                                    <span className="text-muted-foreground">Size</span>
-                                    <p className="font-medium">{item.specifications.size}</p>
-                                  </div>
-                                )}
-                                {item.specifications.finishing && (
-                                  <div>
-                                    <span className="text-muted-foreground">Finishing</span>
-                                    <p className="font-medium">{item.specifications.finishing}</p>
+                                    <span className="text-muted-foreground">Line Total</span>
+                                    <p className="font-medium">₹{item.line_total.toFixed(2)}</p>
                                   </div>
                                 )}
                               </div>
                               
-                              {item.specifications.notes && (
-                                <p className="mt-3 text-sm text-muted-foreground bg-secondary/50 p-2 rounded">
-                                  {item.specifications.notes}
-                                </p>
-                              )}
+                              {/* Product Specifications from WooCommerce */}
+                              <ProductSpecifications item={item} />
 
                               {/* Files with FilePreview component */}
                               {item.files.length > 0 && (
@@ -530,6 +524,12 @@ export default function OrderDetail() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Shipping Details */}
+            <ShippingDetails order={order} />
+
+            {/* Order Financials (for WooCommerce orders) */}
+            <OrderFinancials order={order} />
 
             {/* Notes */}
             {order.global_notes && (
