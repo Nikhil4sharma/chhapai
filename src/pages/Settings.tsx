@@ -218,16 +218,27 @@ export default function Settings() {
           description: `Imported ${data.imported} orders, ${data.skipped} already existed`,
         });
       } else {
+        // Check for 401 authentication error
+        const errorMessage = data.error || "Could not sync orders";
+        const is401Error = errorMessage.includes('401') || errorMessage.includes('cannot_view') || errorMessage.includes('cannot list');
+        
         toast({
           title: "Sync Failed",
-          description: data.error || "Could not sync orders",
+          description: is401Error 
+            ? "Failed to fetch orders: 401 - Your WooCommerce API key does not have Read/Write permissions. Please regenerate your API key in WooCommerce → Settings → Advanced → REST API with Read/Write access."
+            : errorMessage,
           variant: "destructive",
         });
       }
     } catch (error: any) {
+      const errorMsg = error.message || "";
+      const is401Error = errorMsg.includes('401') || errorMsg.includes('cannot_view');
+      
       toast({
         title: "Sync Failed",
-        description: error.message || "Could not sync orders. Please try again.",
+        description: is401Error 
+          ? "Your WooCommerce API key needs Read/Write permissions. Please update your API key in WooCommerce settings."
+          : (errorMsg || "Could not sync orders. Please try again."),
         variant: "destructive",
       });
     } finally {
@@ -537,8 +548,13 @@ export default function Settings() {
                     </div>
 
                     <div className="text-sm text-muted-foreground bg-primary/5 rounded-lg p-3">
-                      <p className="font-medium text-foreground mb-1">Note:</p>
-                      <p>Only orders with "Processing" status will be imported. Orders will be created in the Sales stage.</p>
+                      <p className="font-medium text-foreground mb-1">Important Notes:</p>
+                      <ul className="list-disc list-inside space-y-1 text-xs sm:text-sm">
+                        <li>Only orders with "Processing" status will be imported</li>
+                        <li>Orders will be created in the Sales stage</li>
+                        <li><strong>WooCommerce API key must have Read/Write permissions</strong></li>
+                        <li>If you get 401 errors, regenerate your API key with proper permissions</li>
+                      </ul>
                     </div>
                   </div>
                 </CardContent>

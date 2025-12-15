@@ -56,13 +56,14 @@ export function useNotifications() {
         .from('user_settings')
         .select('sound_enabled')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
 
       if (data) {
         setSoundEnabled(data.sound_enabled);
       }
     } catch (error) {
       // Settings don't exist yet, use defaults
+      console.log('User settings not found, using defaults');
     }
   }, [user]);
 
