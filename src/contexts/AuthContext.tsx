@@ -57,7 +57,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        // Handle invalid refresh token by signing out
+        console.log('Session error, signing out:', error.message);
+        supabase.auth.signOut();
+        setIsLoading(false);
+        return;
+      }
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -77,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .from('profiles_secure')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (profileData) {
         setProfile(profileData);
@@ -88,7 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .from('user_roles')
         .select('role')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
       if (roleData) {
         setRole(roleData.role as AppRole);
