@@ -12,6 +12,7 @@ import {
   RefreshCw,
   CheckCircle,
   AlertCircle,
+  Edit,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { PRODUCTION_STEPS } from '@/types/order';
 import { supabase } from '@/integrations/supabase/client';
+import { WooCommerceCredentialsDialog } from '@/components/dialogs/WooCommerceCredentialsDialog';
 
 export default function Settings() {
   const { isAdmin } = useAuth();
@@ -57,6 +59,7 @@ export default function Settings() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [checkingConfig, setCheckingConfig] = useState(true);
+  const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
 
   // Load saved non-sensitive settings and check server config
   useEffect(() => {
@@ -415,7 +418,19 @@ export default function Settings() {
                         )}
                       </div>
 
-                      <div className="flex gap-2">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button 
+                              variant="outline"
+                              onClick={() => setCredentialsDialogOpen(true)}
+                            >
+                              <Edit className="h-4 w-4 mr-2" />
+                              Update Credentials
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Update WooCommerce API credentials</TooltipContent>
+                        </Tooltip>
+
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button 
@@ -446,6 +461,14 @@ export default function Settings() {
                           <TooltipContent>Check if credentials are configured</TooltipContent>
                         </Tooltip>
                       </div>
+
+                      {/* Credentials Dialog */}
+                      <WooCommerceCredentialsDialog
+                        open={credentialsDialogOpen}
+                        onOpenChange={setCredentialsDialogOpen}
+                        currentStoreUrl={wooSettings.storeUrlMasked}
+                        onSuccess={checkWooCommerceConfig}
+                      />
                     </div>
                   )}
 
