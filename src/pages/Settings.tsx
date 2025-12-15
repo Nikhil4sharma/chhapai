@@ -396,13 +396,21 @@ export default function Settings() {
                             )}
                           </div>
                         ) : (
-                          <div className="space-y-2">
+                          <div className="space-y-3">
                             <p className="text-sm text-muted-foreground">
-                              WooCommerce credentials need to be configured in the backend secrets.
+                              WooCommerce credentials are configured via backend secrets for security.
                             </p>
-                            <p className="text-xs text-muted-foreground">
-                              Required secrets: WOOCOMMERCE_STORE_URL, WOOCOMMERCE_CONSUMER_KEY, WOOCOMMERCE_CONSUMER_SECRET
-                            </p>
+                            <div className="bg-primary/5 rounded-lg p-3 text-sm">
+                              <p className="font-medium text-foreground mb-2">Required Secrets:</p>
+                              <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                                <li><code className="text-xs bg-muted px-1 rounded">WOOCOMMERCE_STORE_URL</code> - Your store URL</li>
+                                <li><code className="text-xs bg-muted px-1 rounded">WOOCOMMERCE_CONSUMER_KEY</code> - API Key</li>
+                                <li><code className="text-xs bg-muted px-1 rounded">WOOCOMMERCE_CONSUMER_SECRET</code> - API Secret</li>
+                              </ul>
+                              <p className="mt-3 text-xs">
+                                These secrets are already configured in your backend. Click "Refresh Status" to verify.
+                              </p>
+                            </div>
                           </div>
                         )}
                       </div>

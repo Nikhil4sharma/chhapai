@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowRight, CheckCircle, Factory, Truck, Send } from 'lucide-react';
+import { ArrowRight, CheckCircle, Factory, Truck, Send, Lock, AlertTriangle } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -20,6 +20,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAuth } from '@/contexts/AuthContext';
+import { Badge } from '@/components/ui/badge';
 
 interface ChangeStageDialogProps {
   open: boolean;
@@ -30,6 +32,14 @@ interface ChangeStageDialogProps {
 }
 
 const stages: Stage[] = ['sales', 'design', 'prepress', 'production', 'dispatch', 'completed'];
+const stageOrder: Record<Stage, number> = {
+  sales: 0,
+  design: 1,
+  prepress: 2,
+  production: 3,
+  dispatch: 4,
+  completed: 5,
+};
 
 const stageIcons: Record<Stage, React.ReactNode> = {
   sales: null,
@@ -47,11 +57,35 @@ export function ChangeStageDialog({
   currentStage,
   currentSubstage
 }: ChangeStageDialogProps) {
+  const { isAdmin, role } = useAuth();
   const [selectedStage, setSelectedStage] = useState<Stage>(currentStage);
   const [selectedSubstage, setSelectedSubstage] = useState<SubStage | null>(
     currentStage === 'production' ? (currentSubstage || 'foiling') : null
   );
   const [activeTab, setActiveTab] = useState<'stages' | 'quick'>('quick');
+
+  // Production team can only move forward
+  const isProductionRole = role === 'production';
+  const canMoveBackward = isAdmin || role === 'sales';
+
+  // Check if a stage is allowed based on role
+  const isStageAllowed = (stage: Stage): boolean => {
+    if (isAdmin || role === 'sales') return true;
+    // Production can only move forward
+    if (isProductionRole) {
+      return stageOrder[stage] >= stageOrder[currentStage];
+    }
+    // Other roles can move within their allowed stages
+    return true;
+  };
+
+  // Check if substage is allowed (production can only move forward)
+  const isSubstageAllowed = (substage: SubStage): boolean => {
+    if (!isProductionRole || !currentSubstage) return true;
+    const currentIndex = PRODUCTION_STEPS.findIndex(s => s.key === currentSubstage);
+    const targetIndex = PRODUCTION_STEPS.findIndex(s => s.key === substage);
+    return targetIndex >= currentIndex;
+  };
 
   // Reset state when dialog opens
   useEffect(() => {
@@ -62,6 +96,12 @@ export function ChangeStageDialog({
   }, [open, currentStage, currentSubstage]);
 
   const handleChange = () => {
+    if (!isStageAllowed(selectedStage)) {
+      return;
+    }
+    if (selectedStage === 'production' && selectedSubstage && !isSubstageAllowed(selectedSubstage)) {
+      return;
+    }
     onChangeStage(
       selectedStage, 
       selectedStage === 'production' ? selectedSubstage : undefined
@@ -70,6 +110,8 @@ export function ChangeStageDialog({
   };
 
   const handleQuickAction = (stage: Stage, substage?: SubStage) => {
+    if (!isStageAllowed(stage)) return;
+    if (substage && !isSubstageAllowed(substage)) return;
     onChangeStage(stage, substage);
     onOpenChange(false);
   };
@@ -109,6 +151,17 @@ export function ChangeStageDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {/* Production role warning */}
+        {isProductionRole && !isAdmin && (
+          <div className="bg-priority-yellow/10 border border-priority-yellow/30 rounded-lg p-3 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-priority-yellow shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-medium text-foreground">Forward-only workflow</p>
+              <p className="text-muted-foreground text-xs">Production team can only move orders forward. Contact admin to move backward.</p>
+            </div>
+          </div>
+        )}
+
         <TooltipProvider>
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'stages' | 'quick')}>
             <TabsList className="grid w-full grid-cols-2">
@@ -141,7 +194,7 @@ export function ChangeStageDialog({
               )}
 
               {/* Send to Production */}
-              {currentStage !== 'production' && currentStage !== 'dispatch' && currentStage !== 'completed' && (
+              {currentStage !== 'production' && currentStage !== 'dispatch' && currentStage !== 'completed' && isStageAllowed('production') && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button 
@@ -161,7 +214,7 @@ export function ChangeStageDialog({
               )}
 
               {/* Send to Dispatch */}
-              {currentStage !== 'dispatch' && currentStage !== 'completed' && (
+              {currentStage !== 'dispatch' && currentStage !== 'completed' && isStageAllowed('dispatch') && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button 
@@ -181,7 +234,7 @@ export function ChangeStageDialog({
               )}
 
               {/* Mark Complete */}
-              {currentStage !== 'completed' && (
+              {currentStage !== 'completed' && isStageAllowed('completed') && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button 
@@ -209,7 +262,9 @@ export function ChangeStageDialog({
                 <RadioGroup 
                   value={selectedStage} 
                   onValueChange={(v) => {
-                    setSelectedStage(v as Stage);
+                    const stage = v as Stage;
+                    if (!isStageAllowed(stage)) return;
+                    setSelectedStage(stage);
                     if (v === 'production') {
                       setSelectedSubstage('foiling');
                     } else {
@@ -218,34 +273,46 @@ export function ChangeStageDialog({
                   }}
                   className="grid grid-cols-2 gap-2"
                 >
-                  {stages.map((stage) => (
-                    <Tooltip key={stage}>
-                      <TooltipTrigger asChild>
-                        <div className="relative">
-                          <RadioGroupItem
-                            value={stage}
-                            id={`stage-${stage}`}
-                            className="peer sr-only"
-                          />
-                          <Label
-                            htmlFor={`stage-${stage}`}
-                            className={cn(
-                              "flex items-center justify-center gap-2 p-3 rounded-lg border border-border cursor-pointer transition-all hover:bg-secondary/50",
-                              "peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5",
-                              currentStage === stage && "ring-2 ring-primary/20"
-                            )}
-                          >
-                            {currentStage === stage && (
-                              <CheckCircle className="h-4 w-4 text-primary" />
-                            )}
-                            {stageIcons[stage]}
-                            <span className="font-medium text-foreground">{STAGE_LABELS[stage]}</span>
-                          </Label>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent>Move to {STAGE_LABELS[stage]}</TooltipContent>
-                    </Tooltip>
-                  ))}
+                  {stages.map((stage) => {
+                    const allowed = isStageAllowed(stage);
+                    const isBackward = stageOrder[stage] < stageOrder[currentStage];
+                    
+                    return (
+                      <Tooltip key={stage}>
+                        <TooltipTrigger asChild>
+                          <div className="relative">
+                            <RadioGroupItem
+                              value={stage}
+                              id={`stage-${stage}`}
+                              className="peer sr-only"
+                              disabled={!allowed}
+                            />
+                            <Label
+                              htmlFor={`stage-${stage}`}
+                              className={cn(
+                                "flex items-center justify-center gap-2 p-3 rounded-lg border border-border cursor-pointer transition-all hover:bg-secondary/50",
+                                "peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5",
+                                currentStage === stage && "ring-2 ring-primary/20",
+                                !allowed && "opacity-50 cursor-not-allowed hover:bg-transparent"
+                              )}
+                            >
+                              {!allowed && isBackward && (
+                                <Lock className="h-3 w-3 text-muted-foreground" />
+                              )}
+                              {currentStage === stage && (
+                                <CheckCircle className="h-4 w-4 text-primary" />
+                              )}
+                              {stageIcons[stage]}
+                              <span className="font-medium text-foreground">{STAGE_LABELS[stage]}</span>
+                            </Label>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {allowed ? `Move to ${STAGE_LABELS[stage]}` : 'Admin required to move backward'}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
                 </RadioGroup>
               </div>
 
@@ -255,33 +322,46 @@ export function ChangeStageDialog({
                   <Label>Production Substage</Label>
                   <RadioGroup 
                     value={selectedSubstage || 'foiling'} 
-                    onValueChange={(v) => setSelectedSubstage(v as SubStage)}
+                    onValueChange={(v) => {
+                      const substage = v as SubStage;
+                      if (!isSubstageAllowed(substage)) return;
+                      setSelectedSubstage(substage);
+                    }}
                     className="grid grid-cols-3 sm:grid-cols-4 gap-2"
                   >
-                    {PRODUCTION_STEPS.map((step) => (
-                      <Tooltip key={step.key}>
-                        <TooltipTrigger asChild>
-                          <div className="relative">
-                            <RadioGroupItem
-                              value={step.key}
-                              id={`substage-${step.key}`}
-                              className="peer sr-only"
-                            />
-                            <Label
-                              htmlFor={`substage-${step.key}`}
-                              className={cn(
-                                "flex items-center justify-center p-2 rounded-lg border border-border cursor-pointer transition-all hover:bg-secondary/50 text-sm",
-                                "peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5",
-                                currentSubstage === step.key && "ring-2 ring-primary/20"
-                              )}
-                            >
-                              {step.label}
-                            </Label>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent>Start {step.label} process</TooltipContent>
-                      </Tooltip>
-                    ))}
+                    {PRODUCTION_STEPS.map((step) => {
+                      const allowed = isSubstageAllowed(step.key as SubStage);
+                      
+                      return (
+                        <Tooltip key={step.key}>
+                          <TooltipTrigger asChild>
+                            <div className="relative">
+                              <RadioGroupItem
+                                value={step.key}
+                                id={`substage-${step.key}`}
+                                className="peer sr-only"
+                                disabled={!allowed}
+                              />
+                              <Label
+                                htmlFor={`substage-${step.key}`}
+                                className={cn(
+                                  "flex items-center justify-center p-2 rounded-lg border border-border cursor-pointer transition-all hover:bg-secondary/50 text-sm",
+                                  "peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5",
+                                  currentSubstage === step.key && "ring-2 ring-primary/20",
+                                  !allowed && "opacity-50 cursor-not-allowed hover:bg-transparent"
+                                )}
+                              >
+                                {!allowed && <Lock className="h-3 w-3 mr-1 text-muted-foreground" />}
+                                {step.label}
+                              </Label>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {allowed ? `Start ${step.label} process` : 'Cannot move backward'}
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
                   </RadioGroup>
                 </div>
               )}
@@ -290,7 +370,10 @@ export function ChangeStageDialog({
                 <Button variant="outline" onClick={() => onOpenChange(false)}>
                   Cancel
                 </Button>
-                <Button onClick={handleChange}>
+                <Button 
+                  onClick={handleChange}
+                  disabled={!isStageAllowed(selectedStage) || (selectedStage === 'production' && selectedSubstage && !isSubstageAllowed(selectedSubstage))}
+                >
                   Update Stage
                 </Button>
               </DialogFooter>
