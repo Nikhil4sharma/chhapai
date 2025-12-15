@@ -1,39 +1,39 @@
 import { useState } from 'react';
-import { Truck, Package, CheckCircle, Search, Filter } from 'lucide-react';
+import { Truck, Package, CheckCircle, Search } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
 import { FilePreview } from '@/components/orders/FilePreview';
+import { DispatchValidationDialog } from '@/components/dialogs/DispatchValidationDialog';
 import { format } from 'date-fns';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { Link } from 'react-router-dom';
+
+interface DispatchInfo {
+  courier_company: string;
+  tracking_number: string;
+  dispatch_date: string;
+}
 
 export default function Dispatch() {
-  const { orders, updateItemStage, addTimelineEntry } = useOrders();
+  const { orders, updateItemStage, addTimelineEntry, refreshOrders } = useOrders();
   const { user, profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [validationDialogOpen, setValidationDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<{
     orderId: string;
+    orderUUID: string;
     itemId: string;
     productName: string;
   } | null>(null);
@@ -47,6 +47,7 @@ export default function Dispatch() {
       )
       .map(item => ({
         order_id: order.order_id,
+        order_uuid: order.id,
         customer: order.customer,
         item,
       }))
@@ -58,40 +59,76 @@ export default function Dispatch() {
     customer.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleMarkDispatched = (orderId: string, itemId: string, productName: string) => {
-    setSelectedItem({ orderId, itemId, productName });
-    setConfirmDialogOpen(true);
+  const handleMarkDispatched = (orderId: string, orderUUID: string, itemId: string, productName: string) => {
+    setSelectedItem({ orderId, orderUUID: orderUUID || '', itemId, productName });
+    setValidationDialogOpen(true);
   };
 
-  const confirmDispatch = () => {
+  const confirmDispatch = async (dispatchInfo: DispatchInfo) => {
     if (!selectedItem) return;
 
-    // Update item to completed
-    updateItemStage(selectedItem.orderId, selectedItem.itemId, 'completed');
+    try {
+      // Save dispatch info to the order item
+      const { error: updateError } = await supabase
+        .from('order_items')
+        .update({
+          dispatch_info: JSON.parse(JSON.stringify(dispatchInfo)),
+          current_stage: 'completed',
+          is_dispatched: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', selectedItem.itemId);
 
-    // Add timeline entry for dispatch
-    addTimelineEntry({
-      order_id: selectedItem.orderId,
-      item_id: selectedItem.itemId,
-      stage: 'dispatch',
-      action: 'dispatched',
-      performed_by: user?.id || '',
-      performed_by_name: profile?.full_name || 'Unknown',
-      notes: `Item dispatched: ${selectedItem.productName}`,
-      is_public: true,
-    });
+      if (updateError) throw updateError;
 
-    toast({
-      title: "Item Dispatched",
-      description: `${selectedItem.productName} has been marked as dispatched`,
-    });
+      // Add timeline entry for dispatch with details
+      await addTimelineEntry({
+        order_id: selectedItem.orderUUID,
+        item_id: selectedItem.itemId,
+        stage: 'dispatch',
+        action: 'dispatched',
+        performed_by: user?.id || '',
+        performed_by_name: profile?.full_name || 'Unknown',
+        notes: `Dispatched via ${dispatchInfo.courier_company} | AWB: ${dispatchInfo.tracking_number} | Date: ${dispatchInfo.dispatch_date}`,
+        is_public: true,
+      });
 
-    setConfirmDialogOpen(false);
-    setSelectedItem(null);
+      // Check if all items are completed
+      const order = orders.find(o => o.order_id === selectedItem.orderId);
+      if (order) {
+        const updatedItems = order.items.map(i => 
+          i.item_id === selectedItem.itemId ? { ...i, current_stage: 'completed' as const, is_dispatched: true } : i
+        );
+        const allCompleted = updatedItems.every(i => i.current_stage === 'completed');
+
+        if (allCompleted && order.id) {
+          await supabase
+            .from('orders')
+            .update({ is_completed: true, updated_at: new Date().toISOString() })
+            .eq('id', order.id);
+        }
+      }
+
+      await refreshOrders();
+
+      toast({
+        title: "Item Dispatched",
+        description: `${selectedItem.productName} dispatched via ${dispatchInfo.courier_company}`,
+      });
+
+      setValidationDialogOpen(false);
+      setSelectedItem(null);
+    } catch (error) {
+      console.error('Error dispatching:', error);
+      toast({
+        title: "Error",
+        description: "Failed to mark as dispatched",
+        variant: "destructive",
+      });
+    }
   };
 
   const handlePrintSlip = (orderId: string, item: any) => {
-    // In production, this would generate a PDF
     toast({
       title: "Printing Dispatch Slip",
       description: `Generating slip for ${item.product_name}`,
@@ -139,7 +176,7 @@ export default function Dispatch() {
               </CardContent>
             </Card>
           ) : (
-            filteredItems.map(({ customer, order_id, item }) => (
+            filteredItems.map(({ customer, order_id, order_uuid, item }) => (
               <Card key={`${order_id}-${item.item_id}`} className="card-hover overflow-hidden">
                 <CardContent className="p-0">
                   {/* Priority bar */}
@@ -155,8 +192,17 @@ export default function Dispatch() {
                     <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                       {/* Item info */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        {/* Order ID - Always visible */}
+                        <Link 
+                          to={`/orders/${order_id}`}
+                          className="text-sm font-bold text-primary hover:underline"
+                        >
+                          {order_id}
+                        </Link>
+                        
+                        <div className="flex items-center gap-2 mb-1 flex-wrap mt-1">
                           <h3 className="font-semibold truncate text-foreground">{item.product_name}</h3>
+                          <span className="text-sm text-muted-foreground">— Qty {item.quantity}</span>
                           <PriorityBadge priority={item.priority_computed} showLabel />
                           <Badge 
                             variant={item.current_stage === 'dispatch' ? 'success' : 'stage-production'}
@@ -164,15 +210,12 @@ export default function Dispatch() {
                             {item.current_stage === 'dispatch' ? 'Ready to Ship' : 'Packing'}
                           </Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground mb-2">
-                          {order_id} • Qty: {item.quantity}
-                        </p>
                         
                         {/* Customer */}
                         <div className="text-sm">
                           <span className="font-medium text-foreground">{customer.name}</span>
-                          <p className="text-muted-foreground">{customer.address}</p>
-                          <p className="text-muted-foreground">{customer.phone}</p>
+                          {customer.address && <p className="text-muted-foreground">{customer.address}</p>}
+                          {customer.phone && <p className="text-muted-foreground">{customer.phone}</p>}
                         </div>
                         {item.files && item.files.length > 0 && (
                           <FilePreview files={item.files} compact />
@@ -208,13 +251,13 @@ export default function Dispatch() {
                             <Button 
                               size="sm" 
                               className="bg-green-600 hover:bg-green-700 text-white"
-                              onClick={() => handleMarkDispatched(order_id, item.item_id, item.product_name)}
+                              onClick={() => handleMarkDispatched(order_id, order_uuid || '', item.item_id, item.product_name)}
                             >
                               <Truck className="h-4 w-4 mr-2" />
                               Mark Dispatched
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>Mark this item as dispatched and complete</TooltipContent>
+                          <TooltipContent>Enter dispatch details and mark as shipped</TooltipContent>
                         </Tooltip>
                       </div>
                     </div>
@@ -225,24 +268,16 @@ export default function Dispatch() {
           )}
         </div>
 
-        {/* Confirm Dialog */}
-        <AlertDialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Confirm Dispatch</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to mark "{selectedItem?.productName}" as dispatched? 
-                This will complete the order item.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmDispatch} className="bg-green-600 hover:bg-green-700">
-                Confirm Dispatch
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {/* Dispatch Validation Dialog */}
+        {selectedItem && (
+          <DispatchValidationDialog
+            open={validationDialogOpen}
+            onOpenChange={setValidationDialogOpen}
+            productName={selectedItem.productName}
+            orderId={selectedItem.orderId}
+            onConfirm={confirmDispatch}
+          />
+        )}
       </div>
     </TooltipProvider>
   );

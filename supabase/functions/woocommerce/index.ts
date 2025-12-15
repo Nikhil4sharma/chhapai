@@ -6,6 +6,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// In-memory credential cache (for runtime updates within same instance)
+let runtimeCredentials: {
+  storeUrl?: string;
+  consumerKey?: string;
+  consumerSecret?: string;
+  updatedAt?: Date;
+} = {};
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -56,13 +64,91 @@ serve(async (req) => {
       });
     }
 
-    const { action } = await req.json();
+    const body = await req.json();
+    const { action } = body;
     console.log('WooCommerce action requested:', action);
 
-    // Get WooCommerce credentials from secrets
-    const storeUrl = Deno.env.get('WOOCOMMERCE_STORE_URL');
-    const consumerKey = Deno.env.get('WOOCOMMERCE_CONSUMER_KEY');
-    const consumerSecret = Deno.env.get('WOOCOMMERCE_CONSUMER_SECRET');
+    // Get WooCommerce credentials (prefer runtime if recently updated, else from env)
+    let storeUrl = runtimeCredentials.storeUrl || Deno.env.get('WOOCOMMERCE_STORE_URL');
+    let consumerKey = runtimeCredentials.consumerKey || Deno.env.get('WOOCOMMERCE_CONSUMER_KEY');
+    let consumerSecret = runtimeCredentials.consumerSecret || Deno.env.get('WOOCOMMERCE_CONSUMER_SECRET');
+
+    // Handle credential update from admin
+    if (action === 'update-credentials') {
+      const { store_url, consumer_key, consumer_secret } = body;
+      
+      if (!store_url || !consumer_key || !consumer_secret) {
+        return new Response(JSON.stringify({ 
+          error: 'All credentials are required: store_url, consumer_key, consumer_secret' 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Validate URL format
+      let normalizedUrl = store_url.trim();
+      if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+        normalizedUrl = 'https://' + normalizedUrl;
+      }
+      // Remove trailing slash
+      normalizedUrl = normalizedUrl.replace(/\/$/, '');
+
+      // Test the credentials before saving
+      console.log('Testing new WooCommerce credentials for:', normalizedUrl);
+      
+      const testAuth = btoa(`${consumer_key}:${consumer_secret}`);
+      const testUrl = `${normalizedUrl}/wp-json/wc/v3/system_status`;
+      
+      try {
+        const testResponse = await fetch(testUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Basic ${testAuth}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!testResponse.ok) {
+          const errorText = await testResponse.text();
+          console.error('Credential validation failed:', testResponse.status, errorText);
+          return new Response(JSON.stringify({ 
+            success: false, 
+            error: `Invalid credentials or store URL. Status: ${testResponse.status}` 
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Credentials are valid - store in runtime cache
+        runtimeCredentials = {
+          storeUrl: normalizedUrl,
+          consumerKey: consumer_key,
+          consumerSecret: consumer_secret,
+          updatedAt: new Date(),
+        };
+
+        console.log('WooCommerce credentials validated and cached');
+        
+        return new Response(JSON.stringify({ 
+          success: true,
+          message: 'Credentials validated and saved successfully',
+          storeUrl: normalizedUrl.replace(/^https?:\/\//, '').split('/')[0],
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+
+      } catch (error: unknown) {
+        console.error('Error testing credentials:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Connection failed';
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: `Could not connect to store: ${errorMessage}` 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
 
     if (action === 'check-config') {
       // Check if credentials are configured
@@ -71,7 +157,8 @@ serve(async (req) => {
       
       return new Response(JSON.stringify({ 
         configured: isConfigured,
-        storeUrl: storeUrl ? storeUrl.replace(/^https?:\/\//, '').split('/')[0] : null // Return masked URL
+        storeUrl: storeUrl ? storeUrl.replace(/^https?:\/\//, '').split('/')[0] : null,
+        canUpdate: true, // Admin can always update
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -80,7 +167,7 @@ serve(async (req) => {
     if (!storeUrl || !consumerKey || !consumerSecret) {
       console.error('WooCommerce credentials not configured');
       return new Response(JSON.stringify({ 
-        error: 'WooCommerce credentials not configured. Please add them in the backend secrets.' 
+        error: 'WooCommerce credentials not configured. Please update them in Settings.' 
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
