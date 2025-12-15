@@ -150,11 +150,11 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
         onClick={() => handlePreview(file)}
       >
         {fileIsImage ? (
-          <div className="relative h-14 w-14 rounded-md overflow-hidden border border-border group">
+          <div className="relative h-16 w-20 rounded-md overflow-hidden border border-border group flex-shrink-0">
             <img 
               src={file.url} 
               alt={fileName}
-              className="h-full w-full object-cover transition-transform group-hover:scale-110"
+              className="h-full w-full object-contain bg-muted/50 transition-transform group-hover:scale-105"
             />
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
               <Eye className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />

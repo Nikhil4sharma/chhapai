@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { Menu, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { UserMenu } from './UserMenu';
 import { ThemeToggle } from './ThemeToggle';
 import { NotificationsDropdown } from './NotificationsDropdown';
 import { SearchBar } from './SearchBar';
+import { CreateOrderDialog } from '@/components/dialogs/CreateOrderDialog';
 import {
   Tooltip,
   TooltipContent,
@@ -11,7 +13,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useNavigate } from 'react-router-dom';
-import { toast } from '@/hooks/use-toast';
+import { useOrders } from '@/contexts/OrderContext';
 
 interface AppHeaderProps {
   onMenuClick: () => void;
@@ -20,12 +22,11 @@ interface AppHeaderProps {
 
 export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) {
   const navigate = useNavigate();
+  const { refreshOrders } = useOrders();
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
 
-  const handleNewOrder = () => {
-    toast({
-      title: "New Order",
-      description: "Create order feature coming soon",
-    });
+  const handleOrderCreated = () => {
+    refreshOrders();
   };
 
   return (
@@ -70,7 +71,7 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="sm" className="hidden sm:flex gap-2" onClick={handleNewOrder}>
+                <Button size="sm" className="hidden sm:flex gap-2" onClick={() => setCreateOrderOpen(true)}>
                   <Plus className="h-4 w-4" />
                   New Order
                 </Button>
@@ -80,7 +81,7 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
             
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="icon" className="sm:hidden" onClick={handleNewOrder}>
+                <Button size="icon" className="sm:hidden" onClick={() => setCreateOrderOpen(true)}>
                   <Plus className="h-5 w-5" />
                 </Button>
               </TooltipTrigger>
@@ -91,6 +92,12 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
           </div>
         </div>
       </header>
+
+      <CreateOrderDialog 
+        open={createOrderOpen} 
+        onOpenChange={setCreateOrderOpen}
+        onOrderCreated={handleOrderCreated}
+      />
     </TooltipProvider>
   );
 }

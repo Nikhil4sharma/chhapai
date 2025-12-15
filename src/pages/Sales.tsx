@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { OrderCard } from '@/components/orders/OrderCard';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
 import { FilePreview } from '@/components/orders/FilePreview';
+import { CreateOrderDialog } from '@/components/dialogs/CreateOrderDialog';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -53,6 +54,7 @@ export default function Sales() {
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
+  const [createOrderOpen, setCreateOrderOpen] = useState(false);
 
   const canDelete = isAdmin || role === 'sales';
 
@@ -145,7 +147,7 @@ export default function Sales() {
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="sm">
+                <Button size="sm" onClick={() => setCreateOrderOpen(true)}>
                   <Plus className="h-4 w-4 mr-2" />
                   New Order
                 </Button>
@@ -379,6 +381,13 @@ export default function Sales() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Create Order Dialog */}
+        <CreateOrderDialog 
+          open={createOrderOpen} 
+          onOpenChange={setCreateOrderOpen}
+          onOrderCreated={() => refreshOrders()}
+        />
       </div>
     </TooltipProvider>
   );
