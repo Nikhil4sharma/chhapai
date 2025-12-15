@@ -27,13 +27,14 @@ interface TeamMember {
   phone?: string;
   roles: string[];
   team: string;
+  department?: string;
 }
 
 interface EditTeamMemberDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   member: TeamMember | null;
-  onSave: (memberId: string, updates: { name: string; phone: string; role: string }) => void;
+  onSave: (memberId: string, updates: { name: string; phone: string; role: string; department: string }) => void;
 }
 
 const roles = [
@@ -44,17 +45,26 @@ const roles = [
   { value: 'admin', label: 'Admin' },
 ];
 
+const departments = [
+  { value: 'sales', label: 'Sales' },
+  { value: 'design', label: 'Design' },
+  { value: 'prepress', label: 'Prepress' },
+  { value: 'production', label: 'Production' },
+];
+
 export function EditTeamMemberDialog({ open, onOpenChange, member, onSave }: EditTeamMemberDialogProps) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState('');
+  const [department, setDepartment] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (member) {
       setName(member.name);
       setPhone(member.phone || '');
-      setRole(member.roles[0] || '');
+      setRole(member.roles[0] || 'sales');
+      setDepartment(member.department || member.team.toLowerCase() || 'sales');
     }
   }, [member]);
 
@@ -63,7 +73,7 @@ export function EditTeamMemberDialog({ open, onOpenChange, member, onSave }: Edi
     
     if (!member) return;
     
-    if (!name || !role) {
+    if (!name || !role || !department) {
       toast({
         title: "Error",
         description: "Please fill in all required fields",
@@ -74,7 +84,7 @@ export function EditTeamMemberDialog({ open, onOpenChange, member, onSave }: Edi
 
     setLoading(true);
     try {
-      await onSave(member.user_id, { name, phone, role });
+      await onSave(member.user_id, { name, phone, role, department });
       onOpenChange(false);
     } catch (error) {
       console.error('Error updating member:', error);
@@ -111,18 +121,6 @@ export function EditTeamMemberDialog({ open, onOpenChange, member, onSave }: Edi
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-email">Email</Label>
-            <Input
-              id="edit-email"
-              type="email"
-              value={member.email}
-              disabled
-              className="bg-muted"
-            />
-            <p className="text-xs text-muted-foreground">Email cannot be changed</p>
-          </div>
-
-          <div className="space-y-2">
             <Label htmlFor="edit-phone">Phone</Label>
             <Input
               id="edit-phone"
@@ -133,7 +131,7 @@ export function EditTeamMemberDialog({ open, onOpenChange, member, onSave }: Edi
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-role">Role *</Label>
+            <Label htmlFor="edit-role">Role (Permissions) *</Label>
             <Select value={role} onValueChange={setRole}>
               <SelectTrigger>
                 <SelectValue placeholder="Select a role" />
@@ -146,6 +144,24 @@ export function EditTeamMemberDialog({ open, onOpenChange, member, onSave }: Edi
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">Controls user permissions</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="edit-department">Department *</Label>
+            <Select value={department} onValueChange={setDepartment}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select department" />
+              </SelectTrigger>
+              <SelectContent>
+                {departments.map((d) => (
+                  <SelectItem key={d.value} value={d.value}>
+                    {d.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Which orders they can see</p>
           </div>
 
           <DialogFooter>

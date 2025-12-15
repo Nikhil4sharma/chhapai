@@ -31,6 +31,7 @@ interface TeamMember {
   phone?: string;
   roles: string[];
   team: string;
+  department?: string;
 }
 
 const roleColors: Record<string, string> = {
@@ -57,9 +58,9 @@ export default function Team() {
   const fetchTeamMembers = async () => {
     setLoading(true);
     try {
-      // Fetch profiles with their roles (using secure view)
+      // Fetch profiles
       const { data: profiles, error: profilesError } = await supabase
-        .from('profiles_secure')
+        .from('profiles')
         .select('*');
 
       if (profilesError) throw profilesError;
@@ -83,6 +84,7 @@ export default function Team() {
           phone: profile.phone || undefined,
           roles: userRoles,
           team,
+          department: profile.department || undefined,
         };
       });
 
@@ -135,13 +137,13 @@ export default function Team() {
         // Wait a moment for the trigger to create the profile
         await new Promise(resolve => setTimeout(resolve, 500));
 
-        // Update profile
+        // Update profile with department
         const { error: profileError } = await supabase
           .from('profiles')
           .update({
             full_name: member.name,
             phone: member.phone || null,
-            department: member.role,
+            department: member.role, // Use role as department
           })
           .eq('user_id', authData.user.id);
 
@@ -183,15 +185,15 @@ export default function Team() {
     }
   };
 
-  const handleEditMember = async (memberId: string, updates: { name: string; phone: string; role: string }) => {
+  const handleEditMember = async (memberId: string, updates: { name: string; phone: string; role: string; department: string }) => {
     try {
-      // Update profile
+      // Update profile with both department and name
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
           full_name: updates.name,
           phone: updates.phone || null,
-          department: updates.role,
+          department: updates.department,
         })
         .eq('user_id', memberId);
 
@@ -247,12 +249,17 @@ export default function Team() {
     setDeleteLoading(true);
     try {
       // Delete user role first
-      await supabase
+      const { error: roleError } = await supabase
         .from('user_roles')
         .delete()
         .eq('user_id', selectedMember.user_id);
 
-      // Delete profile
+      if (roleError) {
+        console.error('Role delete error:', roleError);
+        // Continue even if role delete fails
+      }
+
+      // Delete profile (trigger will clear order_items.assigned_to)
       const { error } = await supabase
         .from('profiles')
         .delete()
@@ -272,7 +279,7 @@ export default function Team() {
       console.error('Error deleting member:', error);
       toast({
         title: "Error",
-        description: error.message || "Failed to delete team member",
+        description: error.message || "Failed to delete team member. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -345,7 +352,9 @@ export default function Team() {
                       </Avatar>
                       <div>
                         <h3 className="font-semibold text-foreground">{user.name}</h3>
-                        <p className="text-sm text-muted-foreground">{user.team}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {user.department ? user.department.charAt(0).toUpperCase() + user.department.slice(1) : user.team}
+                        </p>
                       </div>
                     </div>
                     {isAdmin && (
@@ -360,7 +369,7 @@ export default function Team() {
                           </TooltipTrigger>
                           <TooltipContent>More actions</TooltipContent>
                         </Tooltip>
-                        <DropdownMenuContent align="end">
+                        <DropdownMenuContent align="end" className="bg-popover">
                           <DropdownMenuItem onClick={() => openEditDialog(user)}>
                             Edit
                           </DropdownMenuItem>
@@ -376,10 +385,6 @@ export default function Team() {
                   </div>
 
                   <div className="mt-4 space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Mail className="h-4 w-4" />
-                      <span className="truncate">{user.email}</span>
-                    </div>
                     {user.phone && (
                       <a 
                         href={`tel:${user.phone}`}
@@ -437,7 +442,7 @@ export default function Team() {
           open={deleteDialogOpen}
           onOpenChange={setDeleteDialogOpen}
           title="Delete Team Member"
-          description={`Are you sure you want to delete ${selectedMember?.name}? This action cannot be undone.`}
+          description={`Are you sure you want to delete ${selectedMember?.name}? This action cannot be undone. Their order assignments will be cleared.`}
           onConfirm={handleDeleteMember}
           loading={deleteLoading}
         />
