@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      notifications: {
+        Row: {
+          created_at: string
+          id: string
+          item_id: string | null
+          message: string
+          order_id: string | null
+          read: boolean
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          item_id?: string | null
+          message: string
+          order_id?: string | null
+          read?: boolean
+          title: string
+          type?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          item_id?: string | null
+          message?: string
+          order_id?: string | null
+          read?: boolean
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       order_files: {
         Row: {
           created_at: string
@@ -80,6 +116,7 @@ export type Database = {
           current_stage: string
           current_substage: string | null
           delivery_date: string | null
+          dispatch_info: Json | null
           id: string
           is_dispatched: boolean
           is_ready_for_production: boolean
@@ -87,6 +124,7 @@ export type Database = {
           order_id: string
           priority: string
           product_name: string
+          production_stage_sequence: string[] | null
           quantity: number
           sku: string | null
           specifications: Json | null
@@ -99,6 +137,7 @@ export type Database = {
           current_stage?: string
           current_substage?: string | null
           delivery_date?: string | null
+          dispatch_info?: Json | null
           id?: string
           is_dispatched?: boolean
           is_ready_for_production?: boolean
@@ -106,6 +145,7 @@ export type Database = {
           order_id: string
           priority?: string
           product_name: string
+          production_stage_sequence?: string[] | null
           quantity?: number
           sku?: string | null
           specifications?: Json | null
@@ -118,6 +158,7 @@ export type Database = {
           current_stage?: string
           current_substage?: string | null
           delivery_date?: string | null
+          dispatch_info?: Json | null
           id?: string
           is_dispatched?: boolean
           is_ready_for_production?: boolean
@@ -125,6 +166,7 @@ export type Database = {
           order_id?: string
           priority?: string
           product_name?: string
+          production_stage_sequence?: string[] | null
           quantity?: number
           sku?: string | null
           specifications?: Json | null
@@ -321,6 +363,33 @@ export type Database = {
           created_at?: string
           id?: string
           role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_settings: {
+        Row: {
+          created_at: string
+          id: string
+          muted_until: string | null
+          sound_enabled: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          muted_until?: string | null
+          sound_enabled?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          muted_until?: string | null
+          sound_enabled?: boolean
+          updated_at?: string
           user_id?: string
         }
         Relationships: []

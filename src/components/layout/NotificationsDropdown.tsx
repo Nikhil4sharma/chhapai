@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Bell, Check, X, Clock, Package, AlertTriangle } from 'lucide-react';
+import { Bell, Check, X, Clock, Package, AlertTriangle, Volume2, VolumeX, Truck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -15,75 +14,26 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
-
-interface Notification {
-  id: string;
-  title: string;
-  message: string;
-  type: 'info' | 'warning' | 'success' | 'urgent';
-  read: boolean;
-  createdAt: Date;
-}
-
-const mockNotifications: Notification[] = [
-  {
-    id: '1',
-    title: 'Urgent Order',
-    message: 'ORD-2024-003 delivery date is approaching',
-    type: 'urgent',
-    read: false,
-    createdAt: new Date(Date.now() - 1000 * 60 * 30),
-  },
-  {
-    id: '2',
-    title: 'Order Updated',
-    message: 'ORD-2024-002 moved to production stage',
-    type: 'success',
-    read: false,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2),
-  },
-  {
-    id: '3',
-    title: 'New Order',
-    message: 'New order received from WooCommerce',
-    type: 'info',
-    read: false,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 5),
-  },
-  {
-    id: '4',
-    title: 'Design Approved',
-    message: 'Customer approved design for ORD-2024-001',
-    type: 'success',
-    read: true,
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24),
-  },
-];
+import { useNotifications, AppNotification } from '@/hooks/useNotifications';
+import { Link } from 'react-router-dom';
 
 export function NotificationsDropdown() {
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
-  const [open, setOpen] = useState(false);
+  const {
+    notifications,
+    unreadCount,
+    soundEnabled,
+    toggleSound,
+    markAsRead,
+    markAllAsRead,
+    removeNotification,
+  } = useNotifications();
 
-  const unreadCount = notifications.filter(n => !n.read).length;
-
-  const markAsRead = (id: string) => {
-    setNotifications(prev => 
-      prev.map(n => n.id === id ? { ...n, read: true } : n)
-    );
-  };
-
-  const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  };
-
-  const removeNotification = (id: string) => {
-    setNotifications(prev => prev.filter(n => n.id !== id));
-  };
-
-  const getIcon = (type: Notification['type']) => {
+  const getIcon = (type: AppNotification['type']) => {
     switch (type) {
       case 'urgent':
         return <AlertTriangle className="h-4 w-4 text-priority-red" />;
+      case 'delayed':
+        return <Clock className="h-4 w-4 text-priority-red" />;
       case 'warning':
         return <Clock className="h-4 w-4 text-priority-yellow" />;
       case 'success':
@@ -95,15 +45,15 @@ export function NotificationsDropdown() {
 
   return (
     <TooltipProvider>
-      <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative">
                 <Bell className="h-5 w-5" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-priority-red text-white text-[10px] font-medium rounded-full flex items-center justify-center">
-                    {unreadCount}
+                  <span className="absolute -top-0.5 -right-0.5 h-4 w-4 bg-priority-red text-white text-[10px] font-medium rounded-full flex items-center justify-center animate-pulse">
+                    {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
               </Button>
@@ -112,19 +62,39 @@ export function NotificationsDropdown() {
           <TooltipContent>Notifications</TooltipContent>
         </Tooltip>
         
-        <DropdownMenuContent align="end" className="w-80 p-0">
+        <DropdownMenuContent align="end" className="w-80 p-0 bg-popover border border-border">
           <div className="flex items-center justify-between p-3 border-b border-border">
             <h3 className="font-semibold text-foreground">Notifications</h3>
-            {unreadCount > 0 && (
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="text-xs"
-                onClick={markAllAsRead}
-              >
-                Mark all read
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button 
+                    variant="ghost" 
+                    size="icon-sm"
+                    onClick={toggleSound}
+                  >
+                    {soundEnabled ? (
+                      <Volume2 className="h-4 w-4" />
+                    ) : (
+                      <VolumeX className="h-4 w-4 text-muted-foreground" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {soundEnabled ? 'Mute sounds' : 'Enable sounds'}
+                </TooltipContent>
+              </Tooltip>
+              {unreadCount > 0 && (
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="text-xs"
+                  onClick={markAllAsRead}
+                >
+                  Mark all read
+                </Button>
+              )}
+            </div>
           </div>
 
           <ScrollArea className="h-[300px]">
@@ -139,7 +109,7 @@ export function NotificationsDropdown() {
                   <div
                     key={notification.id}
                     className={cn(
-                      "p-3 hover:bg-secondary/50 transition-colors cursor-pointer",
+                      "p-3 hover:bg-secondary/50 transition-colors cursor-pointer group",
                       !notification.read && "bg-primary/5"
                     )}
                     onClick={() => markAsRead(notification.id)}
@@ -158,38 +128,38 @@ export function NotificationsDropdown() {
                         <p className="text-sm text-muted-foreground truncate">
                           {notification.message}
                         </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {formatDistanceToNow(notification.createdAt, { addSuffix: true })}
-                        </p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-xs text-muted-foreground">
+                            {formatDistanceToNow(notification.created_at, { addSuffix: true })}
+                          </p>
+                          {notification.order_id && (
+                            <Link 
+                              to={`/orders/${notification.order_id}`}
+                              className="text-xs text-primary hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              View Order
+                            </Link>
+                          )}
+                        </div>
                       </div>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            className="opacity-0 group-hover:opacity-100"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeNotification(notification.id);
-                            }}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Dismiss</TooltipContent>
-                      </Tooltip>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeNotification(notification.id);
+                        }}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
           </ScrollArea>
-
-          <div className="p-2 border-t border-border">
-            <Button variant="ghost" className="w-full text-sm">
-              View all notifications
-            </Button>
-          </div>
         </DropdownMenuContent>
       </DropdownMenu>
     </TooltipProvider>
