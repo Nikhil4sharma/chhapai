@@ -89,13 +89,31 @@ export function useNotifications() {
     setSoundEnabled(newValue);
 
     try {
-      await supabase
+      // First check if settings exist
+      const { data: existing } = await supabase
         .from('user_settings')
-        .upsert({
-          user_id: user.id,
-          sound_enabled: newValue,
-          updated_at: new Date().toISOString(),
-        });
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      
+      if (existing) {
+        // Update existing
+        await supabase
+          .from('user_settings')
+          .update({
+            sound_enabled: newValue,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', user.id);
+      } else {
+        // Insert new
+        await supabase
+          .from('user_settings')
+          .insert({
+            user_id: user.id,
+            sound_enabled: newValue,
+          });
+      }
     } catch (error) {
       console.error('Error saving settings:', error);
     }
