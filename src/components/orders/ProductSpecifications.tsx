@@ -7,6 +7,9 @@ interface ProductSpecificationsProps {
   compact?: boolean;
 }
 
+// Keys to exclude from display (SKU and other internal fields)
+const EXCLUDED_KEYS = ['sku', 'SKU', 'notes', '_sku', 'product_sku'];
+
 export function ProductSpecifications({ item, compact = false }: ProductSpecificationsProps) {
   // Collect all specifications from both structured and woo_meta
   const allSpecs: { key: string; value: string }[] = [];
@@ -14,7 +17,8 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
   // Add structured specs first
   if (item.specifications) {
     Object.entries(item.specifications).forEach(([key, value]) => {
-      if (value && key !== 'notes') {
+      // Exclude SKU and notes
+      if (value && !EXCLUDED_KEYS.includes(key.toLowerCase())) {
         allSpecs.push({ key, value });
       }
     });
@@ -24,6 +28,11 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
   if (item.woo_meta && Array.isArray(item.woo_meta)) {
     for (const meta of item.woo_meta) {
       const displayValue = meta.display_value || meta.value;
+      const metaKey = (meta.key || '').toLowerCase();
+      
+      // Skip SKU-related fields
+      if (EXCLUDED_KEYS.some(k => metaKey.includes(k.toLowerCase()))) continue;
+      
       if (displayValue && !allSpecs.find(s => s.value === displayValue)) {
         allSpecs.push({
           key: meta.display_key || meta.key,
@@ -62,15 +71,16 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
 
   // Full view: show all specs in a readable block
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5 mt-3">
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
         <FileText className="h-3.5 w-3.5" />
         <span>Specifications</span>
       </div>
       <div className="bg-secondary/50 rounded-lg p-3 space-y-1">
         {allSpecs.map((spec, idx) => (
-          <div key={idx} className="text-sm">
-            <span className="text-foreground">{spec.value}</span>
+          <div key={idx} className="text-sm flex gap-2">
+            <span className="text-muted-foreground min-w-[80px]">{spec.key}:</span>
+            <span className="text-foreground font-medium">{spec.value}</span>
           </div>
         ))}
       </div>

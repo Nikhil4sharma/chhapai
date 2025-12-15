@@ -65,6 +65,7 @@ import {
 } from '@/components/ui/collapsible';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFinancialAccess } from '@/hooks/useFinancialAccess';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
 import { AssignDepartmentDialog } from '@/components/dialogs/AssignDepartmentDialog';
 import { AssignUserDialog } from '@/components/dialogs/AssignUserDialog';
@@ -93,6 +94,7 @@ export default function OrderDetail() {
     refreshOrders,
   } = useOrders();
   const { isAdmin, role } = useAuth();
+  const { canViewFinancials } = useFinancialAccess();
   
   const order = getOrderById(orderId || '');
   const timeline = orderId ? getTimelineForOrder(orderId) : [];
@@ -326,13 +328,8 @@ export default function OrderDetail() {
                                   <span className="text-muted-foreground">Quantity</span>
                                   <p className="font-medium">{item.quantity}</p>
                                 </div>
-                                {item.sku && (
-                                  <div>
-                                    <span className="text-muted-foreground">SKU</span>
-                                    <p className="font-medium">{item.sku}</p>
-                                  </div>
-                                )}
-                                {item.line_total && (
+                                {/* Financial data only for admin/sales */}
+                                {canViewFinancials && item.line_total && (
                                   <div>
                                     <span className="text-muted-foreground">Line Total</span>
                                     <p className="font-medium">₹{item.line_total.toFixed(2)}</p>
