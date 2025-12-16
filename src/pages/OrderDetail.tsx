@@ -288,22 +288,22 @@ export default function OrderDetail() {
           <div className="lg:col-span-2 flex flex-col gap-4 min-h-0">
             {/* Items - Scrollable Container */}
             <Card className="flex-1 flex flex-col min-h-0">
-              <CardHeader className="flex-shrink-0 pb-3">
-                <CollapsibleTrigger asChild>
-                  <div 
-                    onClick={() => setItemsOpen(!itemsOpen)}
-                    className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors"
-                  >
-                    <CardTitle className="text-lg font-display flex items-center gap-2">
-                      <Package className="h-5 w-5" />
-                      Order Items ({order.items.length})
-                    </CardTitle>
-                    {itemsOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
-                  </div>
-                </CollapsibleTrigger>
-              </CardHeader>
-              {itemsOpen && (
-                <CardContent className="flex-1 overflow-y-auto custom-scrollbar pt-0 space-y-4">
+              <Collapsible open={itemsOpen} onOpenChange={setItemsOpen}>
+                <CardHeader className="flex-shrink-0 pb-3">
+                  <CollapsibleTrigger asChild>
+                    <div 
+                      className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors"
+                    >
+                      <CardTitle className="text-lg font-display flex items-center gap-2">
+                        <Package className="h-5 w-5" />
+                        Order Items ({order.items.length})
+                      </CardTitle>
+                      {itemsOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
+                    </div>
+                  </CollapsibleTrigger>
+                </CardHeader>
+                <CollapsibleContent>
+                  <CardContent className="flex-1 overflow-y-auto custom-scrollbar pt-0 space-y-4">
                     {order.items.map((item, index) => (
                       <div key={item.item_id}>
                         {index > 0 && <Separator className="my-4" />}
@@ -441,26 +441,30 @@ export default function OrderDetail() {
                         </div>
                       </div>
                     ))}
-                </CardContent>
-              )}
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
             </Card>
 
             {/* Timeline - Separate Scrollable Container */}
             <Card className="flex flex-col min-h-0 max-h-80">
-              <CardHeader className="flex-shrink-0 pb-3">
-                <div 
-                  onClick={() => setTimelineOpen(!timelineOpen)}
-                  className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors"
-                >
-                  <CardTitle className="text-lg font-display">Timeline ({timeline.length})</CardTitle>
-                  {timelineOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
-                </div>
-              </CardHeader>
-              {timelineOpen && (
-                <CardContent className="flex-1 overflow-y-auto custom-scrollbar pt-0">
-                  <OrderTimeline entries={timeline} />
-                </CardContent>
-              )}
+              <Collapsible open={timelineOpen} onOpenChange={setTimelineOpen}>
+                <CardHeader className="flex-shrink-0 pb-3">
+                  <CollapsibleTrigger asChild>
+                    <div 
+                      className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors"
+                    >
+                      <CardTitle className="text-lg font-display">Timeline ({timeline.length})</CardTitle>
+                      {timelineOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
+                    </div>
+                  </CollapsibleTrigger>
+                </CardHeader>
+                <CollapsibleContent>
+                  <CardContent className="flex-1 overflow-y-auto custom-scrollbar pt-0">
+                    <OrderTimeline entries={timeline} />
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
             </Card>
           </div>
 

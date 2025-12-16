@@ -180,7 +180,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
           <HoverCardTrigger asChild>
             {buttonContent}
           </HoverCardTrigger>
-          <HoverCardContent className="w-64 p-2" side="top">
+          <HoverCardContent className="w-64 p-2 z-[100]" side="top" sideOffset={8}>
             <img
               src={file.url}
               alt={fileName}
@@ -198,7 +198,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
           <HoverCardTrigger asChild>
             {buttonContent}
           </HoverCardTrigger>
-          <HoverCardContent className="w-48 p-3" side="top">
+          <HoverCardContent className="w-48 p-3 z-[100]" side="top" sideOffset={8}>
             <div className="flex flex-col items-center text-center">
               <FileText className="h-8 w-8 text-red-500 mb-2" />
               <p className="text-sm font-medium truncate w-full">{fileName}</p>

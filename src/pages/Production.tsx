@@ -83,9 +83,21 @@ export default function Production() {
     }
   };
 
-  const getCurrentSubstageIndex = (substage: SubStage | null) => {
-    if (!substage) return -1;
-    return PRODUCTION_STEPS.findIndex(s => s.key === substage);
+  const getItemStages = (item: any) => {
+    // Use item's production_stage_sequence if defined, otherwise fallback to default
+    if (item.production_stage_sequence && item.production_stage_sequence.length > 0) {
+      return item.production_stage_sequence.map((key: string) => {
+        const defaultStep = PRODUCTION_STEPS.find(s => s.key === key);
+        return { key, label: defaultStep?.label || key };
+      });
+    }
+    return PRODUCTION_STEPS;
+  };
+
+  const getCurrentSubstageIndex = (item: any) => {
+    const stages = getItemStages(item);
+    if (!item.current_substage) return -1;
+    return stages.findIndex((s: any) => s.key === item.current_substage);
   };
 
   return (
@@ -183,10 +195,10 @@ export default function Production() {
                                 <FilePreview files={item.files} compact />
                               )}
 
-                              {/* Progress indicator */}
+                              {/* Progress indicator - uses item's stage sequence */}
                               <div className="mt-3 flex items-center gap-1">
-                                {PRODUCTION_STEPS.map((step, index) => {
-                                  const currentIndex = getCurrentSubstageIndex(item.current_substage);
+                                {getItemStages(item).map((step: any, index: number) => {
+                                  const currentIndex = getCurrentSubstageIndex(item);
                                   const isCompleted = index < currentIndex;
                                   const isCurrent = index === currentIndex;
                                   return (
@@ -247,7 +259,7 @@ export default function Production() {
                                       Complete & Next Stage
                                     </DropdownMenuItem>
                                     <DropdownMenuSeparator />
-                                    {PRODUCTION_STEPS.map((step) => (
+                                    {getItemStages(item).map((step: any) => (
                                       <DropdownMenuItem 
                                         key={step.key}
                                         onClick={() => handleStartStage(order.order_id, item.item_id, step.key as SubStage)}
@@ -277,7 +289,7 @@ export default function Production() {
                                     <TooltipContent>Select production stage to start</TooltipContent>
                                   </Tooltip>
                                   <DropdownMenuContent align="end" className="bg-popover">
-                                    {PRODUCTION_STEPS.map((step) => (
+                                    {getItemStages(item).map((step: any) => (
                                       <DropdownMenuItem 
                                         key={step.key}
                                         onClick={() => handleStartStage(order.order_id, item.item_id, step.key as SubStage)}
