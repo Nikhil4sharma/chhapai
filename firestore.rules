@@ -6,10 +6,16 @@ service cloud.firestore {
       return request.auth != null;
     }
     
-    // Profiles - authenticated users can read all, users can write their own
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return isAuthenticated() && 
+        exists(/databases/$(database)/documents/user_roles/$(request.auth.uid + '_admin'));
+    }
+    
+    // Profiles - authenticated users can read all, users can write their own, admins can write any
     match /profiles/{userId} {
       allow read: if isAuthenticated();
-      allow write: if isAuthenticated() && request.auth.uid == userId;
+      allow write: if isAuthenticated() && (request.auth.uid == userId || isAdmin());
     }
     
     // User roles - authenticated users can read and write (needed for signup)
