@@ -258,17 +258,27 @@ export function useNotifications() {
 
           setNotifications(prev => [newNotification, ...prev]);
 
-          // Play sound for urgent/delayed notifications
-          if (newNotification.type === 'urgent' || newNotification.type === 'delayed') {
+          // Play sound for urgent/delayed/info notifications (assignments, stage changes)
+          if (newNotification.type === 'urgent' || newNotification.type === 'delayed' || newNotification.type === 'info') {
             playSound();
           }
 
-          // Show browser push notification
+          // Show browser push notification for ALL notification types
           if (Notification.permission === 'granted') {
             showPushNotification(
               newNotification.title,
               newNotification.message
             );
+          } else if (Notification.permission === 'default') {
+            // Re-request permission if not yet decided
+            requestPushPermission().then((granted) => {
+              if (granted) {
+                showPushNotification(
+                  newNotification.title,
+                  newNotification.message
+                );
+              }
+            });
           }
         }
       )
