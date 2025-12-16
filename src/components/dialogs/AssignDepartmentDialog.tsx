@@ -50,8 +50,8 @@ const getAllowedDepartments = (userRole: string | null, isAdmin: boolean, curren
       // Design can forward to Prepress or Production
       return ['prepress', 'production'];
     case 'prepress':
-      // Prepress can only send to Production
-      return ['production'];
+      // Prepress can send forward to Production, or send back to Design for revisions
+      return ['production', 'design'];
     case 'production':
       // Production cannot reassign departments (only status changes)
       return [];
