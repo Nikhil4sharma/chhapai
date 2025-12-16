@@ -90,9 +90,9 @@ export default function Production() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="h-full flex flex-col gap-4">
+        {/* Header - Fixed */}
+        <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-display font-bold text-foreground">Production Dashboard</h1>
             <p className="text-muted-foreground">
@@ -101,31 +101,32 @@ export default function Production() {
           </div>
         </div>
 
-        {/* Production Stages Tabs */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <div className="overflow-x-auto pb-2">
-            <TabsList className="inline-flex h-auto p-1 bg-secondary/50">
-              <TabsTrigger value="all" className="px-4">
-                All
-                <Badge variant="secondary" className="ml-2">{productionItems.length}</Badge>
-              </TabsTrigger>
-              {PRODUCTION_STEPS.map((step) => {
-                const count = getItemsBySubstage(step.key).length;
-                return (
-                  <TabsTrigger key={step.key} value={step.key} className="px-4">
-                    {step.label}
-                    {count > 0 && (
-                      <Badge variant="secondary" className="ml-2">{count}</Badge>
-                    )}
-                  </TabsTrigger>
-                );
-              })}
-            </TabsList>
-          </div>
+        {/* Production Stages Tabs - Scrollable content */}
+        <div className="flex-1 min-h-0 flex flex-col">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+            <div className="flex-shrink-0 overflow-x-auto pb-2">
+              <TabsList className="inline-flex h-auto p-1 bg-secondary/50">
+                <TabsTrigger value="all" className="px-4">
+                  All
+                  <Badge variant="secondary" className="ml-2">{productionItems.length}</Badge>
+                </TabsTrigger>
+                {PRODUCTION_STEPS.map((step) => {
+                  const count = getItemsBySubstage(step.key).length;
+                  return (
+                    <TabsTrigger key={step.key} value={step.key} className="px-4">
+                      {step.label}
+                      {count > 0 && (
+                        <Badge variant="secondary" className="ml-2">{count}</Badge>
+                      )}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </div>
 
-          {['all', ...PRODUCTION_STEPS.map(s => s.key)].map((tabValue) => (
-            <TabsContent key={tabValue} value={tabValue}>
-              <div className="space-y-4">
+            {['all', ...PRODUCTION_STEPS.map(s => s.key)].map((tabValue) => (
+              <TabsContent key={tabValue} value={tabValue} className="flex-1 mt-4 overflow-hidden">
+                <div className="h-full overflow-y-auto custom-scrollbar pr-2 space-y-4">
                 {getItemsBySubstage(tabValue === 'all' ? 'all' : tabValue).length === 0 ? (
                   <Card>
                     <CardContent className="py-12 text-center">
@@ -295,10 +296,11 @@ export default function Production() {
                     </Card>
                   ))
                 )}
-              </div>
-            </TabsContent>
-          ))}
-        </Tabs>
+                </div>
+              </TabsContent>
+            ))}
+          </Tabs>
+        </div>
 
         {/* Upload Dialog */}
         {selectedItem && (

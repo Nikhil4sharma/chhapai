@@ -23,17 +23,24 @@ export function AppLayout() {
   const title = pageTitles[location.pathname] || 'Chhapai';
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="h-screen w-screen overflow-hidden bg-background flex">
+      {/* Fixed Sidebar - never scrolls */}
       <AppSidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} />
       
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Main content area */}
+      <div className={cn(
+        "flex-1 flex flex-col h-screen overflow-hidden transition-all duration-300",
+        sidebarOpen ? "lg:ml-0" : "lg:ml-0"
+      )}>
+        {/* Fixed Header */}
         <AppHeader 
           onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
           title={title}
         />
         
-        <main className="flex-1 overflow-y-auto">
-          <div className="container py-6 animate-fade-in">
+        {/* Scrollable Content Area */}
+        <main className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
+          <div className="p-4 lg:p-6 animate-fade-in min-h-full">
             <Outlet />
           </div>
         </main>

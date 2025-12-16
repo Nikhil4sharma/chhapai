@@ -177,7 +177,7 @@ export default function Dashboard() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-6">
+      <div className="h-full flex flex-col gap-4 overflow-hidden">
         {/* Welcome message */}
         <div className="flex items-center justify-between">
           <div>
@@ -303,86 +303,94 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Orders Tabs */}
-        <Tabs defaultValue="active" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="active">Active Orders ({processedOrders.length})</TabsTrigger>
-            <TabsTrigger value="urgent">Urgent ({urgentOrders.length})</TabsTrigger>
-            <TabsTrigger value="completed">Completed ({processedCompletedOrders.length})</TabsTrigger>
-          </TabsList>
+        {/* Orders Tabs - Scrollable Content */}
+        <div className="flex-1 min-h-0 flex flex-col">
+          <Tabs defaultValue="active" className="flex-1 flex flex-col min-h-0">
+            <TabsList className="flex-shrink-0">
+              <TabsTrigger value="active">Active Orders ({processedOrders.length})</TabsTrigger>
+              <TabsTrigger value="urgent">Urgent ({urgentOrders.length})</TabsTrigger>
+              <TabsTrigger value="completed">Completed ({processedCompletedOrders.length})</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="active">
-            {processedOrders.length > 0 ? (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {paginateArray(processedOrders, activePage).map((order) => (
-                    <OrderCard key={order.order_id} order={order} />
-                  ))}
-                </div>
-                <Pagination 
-                  currentPage={activePage}
-                  totalPages={getTotalPages(processedOrders.length)}
-                  onPageChange={setActivePage}
-                />
-              </>
-            ) : (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-12">
-                  <Package className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No active orders found</p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
+            <TabsContent value="active" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
+                {processedOrders.length > 0 ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-4">
+                      {paginateArray(processedOrders, activePage).map((order) => (
+                        <OrderCard key={order.order_id} order={order} />
+                      ))}
+                    </div>
+                    <Pagination 
+                      currentPage={activePage}
+                      totalPages={getTotalPages(processedOrders.length)}
+                      onPageChange={setActivePage}
+                    />
+                  </>
+                ) : (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <Package className="h-12 w-12 text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground">No active orders found</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </TabsContent>
 
-          <TabsContent value="urgent">
-            {urgentOrders.length > 0 ? (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {paginateArray(urgentOrders, urgentPage).map((order) => (
-                    <OrderCard key={order.order_id} order={order} />
-                  ))}
-                </div>
-                <Pagination 
-                  currentPage={urgentPage}
-                  totalPages={getTotalPages(urgentOrders.length)}
-                  onPageChange={setUrgentPage}
-                />
-              </>
-            ) : (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-12">
-                  <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
-                  <p className="text-muted-foreground">No urgent orders!</p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
+            <TabsContent value="urgent" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
+                {urgentOrders.length > 0 ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-4">
+                      {paginateArray(urgentOrders, urgentPage).map((order) => (
+                        <OrderCard key={order.order_id} order={order} />
+                      ))}
+                    </div>
+                    <Pagination 
+                      currentPage={urgentPage}
+                      totalPages={getTotalPages(urgentOrders.length)}
+                      onPageChange={setUrgentPage}
+                    />
+                  </>
+                ) : (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
+                      <p className="text-muted-foreground">No urgent orders!</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </TabsContent>
 
-          <TabsContent value="completed">
-            {processedCompletedOrders.length > 0 ? (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {paginateArray(processedCompletedOrders, completedPage).map((order) => (
-                    <OrderCard key={order.order_id} order={order} />
-                  ))}
-                </div>
-                <Pagination 
-                  currentPage={completedPage}
-                  totalPages={getTotalPages(processedCompletedOrders.length)}
-                  onPageChange={setCompletedPage}
-                />
-              </>
-            ) : (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-12">
-                  <Package className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No completed orders yet</p>
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="completed" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
+                {processedCompletedOrders.length > 0 ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-4">
+                      {paginateArray(processedCompletedOrders, completedPage).map((order) => (
+                        <OrderCard key={order.order_id} order={order} />
+                      ))}
+                    </div>
+                    <Pagination 
+                      currentPage={completedPage}
+                      totalPages={getTotalPages(processedCompletedOrders.length)}
+                      onPageChange={setCompletedPage}
+                    />
+                  </>
+                ) : (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-12">
+                      <Package className="h-12 w-12 text-muted-foreground mb-4" />
+                      <p className="text-muted-foreground">No completed orders yet</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
       </div>
     </TooltipProvider>
   );
