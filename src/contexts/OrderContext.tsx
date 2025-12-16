@@ -429,19 +429,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         completed: 'production',
       };
 
-      const { error } = await supabase
-        .from('order_items')
-        .update({
-          current_stage: newStage,
-          current_substage: substage || null,
-          assigned_department: deptMap[newStage],
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', itemId);
-
-      if (error) throw error;
-
-      // Add timeline entry
+      // Add timeline entry FIRST (before changing department) to satisfy RLS
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
@@ -453,6 +441,19 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         notes: `Moved to ${newStage}${substage ? ` - ${substage}` : ''}`,
         is_public: true,
       });
+
+      // Update the item stage AFTER timeline entry is added
+      const { error } = await supabase
+        .from('order_items')
+        .update({
+          current_stage: newStage,
+          current_substage: substage || null,
+          assigned_department: deptMap[newStage],
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (error) throw error;
 
       // Send notifications for stage change
       if (user?.id) {
