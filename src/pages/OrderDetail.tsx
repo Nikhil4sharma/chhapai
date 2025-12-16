@@ -23,6 +23,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
+  Palette,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -446,8 +447,8 @@ export default function OrderDetail() {
               </Collapsible>
             </Card>
 
-            {/* Timeline - Separate Scrollable Container */}
-            <Card className="flex flex-col min-h-0 max-h-80">
+            {/* Timeline - Separate Scrollable Container with fixed height */}
+            <Card className="flex flex-col overflow-hidden" style={{ maxHeight: '320px' }}>
               <Collapsible open={timelineOpen} onOpenChange={setTimelineOpen}>
                 <CardHeader className="flex-shrink-0 pb-3">
                   <CollapsibleTrigger asChild>
@@ -459,8 +460,8 @@ export default function OrderDetail() {
                     </div>
                   </CollapsibleTrigger>
                 </CardHeader>
-                <CollapsibleContent>
-                  <CardContent className="flex-1 overflow-y-auto custom-scrollbar pt-0">
+                <CollapsibleContent className="flex-1 min-h-0 overflow-hidden">
+                  <CardContent className="h-full max-h-52 overflow-y-auto custom-scrollbar pt-0">
                     <OrderTimeline entries={timeline} />
                   </CardContent>
                 </CollapsibleContent>
@@ -548,31 +549,112 @@ export default function OrderDetail() {
               </Card>
             )}
 
-            {/* Actions */}
+            {/* Actions - Dynamic based on role */}
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg font-display">Quick Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                {/* Send to Production - show only if not already in production/dispatch/completed */}
-                {mainItem && !['production', 'dispatch', 'completed'].includes(mainItem.current_stage) && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button 
-                        className="w-full" 
-                        size="sm"
-                        onClick={() => sendToProduction(orderId!, mainItem.item_id)}
-                      >
-                        <Factory className="h-4 w-4 mr-2" />
-                        Send to Production
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Send this item to production workflow</TooltipContent>
-                  </Tooltip>
+                {/* SALES ACTIONS */}
+                {(isAdmin || role === 'sales') && (
+                  <>
+                    {/* Assign to Design/Prepress */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button 
+                          variant="outline"
+                          className="w-full" 
+                          size="sm"
+                          onClick={() => {
+                            setSelectedItemId(mainItem?.item_id || null);
+                            setAssignDialogOpen(true);
+                          }}
+                        >
+                          <Users className="h-4 w-4 mr-2" />
+                          Assign to Department
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Assign this order to a department</TooltipContent>
+                    </Tooltip>
+                  </>
                 )}
 
-                {/* Mark as Dispatched - show only if in dispatch stage */}
-                {mainItem && mainItem.current_stage === 'dispatch' && (
+                {/* DESIGN ACTIONS */}
+                {(isAdmin || role === 'design') && mainItem?.current_stage === 'design' && (
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button 
+                          className="w-full" 
+                          size="sm"
+                          onClick={() => updateItemStage(orderId!, mainItem.item_id, 'prepress')}
+                        >
+                          <FileText className="h-4 w-4 mr-2" />
+                          Send to Prepress
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Move to prepress for file preparation</TooltipContent>
+                    </Tooltip>
+                  </>
+                )}
+
+                {/* PREPRESS ACTIONS */}
+                {(isAdmin || role === 'prepress') && mainItem?.current_stage === 'prepress' && (
+                  <>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button 
+                          className="w-full" 
+                          size="sm"
+                          onClick={() => sendToProduction(orderId!, mainItem.item_id)}
+                        >
+                          <Factory className="h-4 w-4 mr-2" />
+                          Send to Production
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Send this item to production workflow</TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button 
+                          variant="outline"
+                          className="w-full" 
+                          size="sm"
+                          onClick={() => updateItemStage(orderId!, mainItem.item_id, 'design')}
+                        >
+                          <Palette className="h-4 w-4 mr-2" />
+                          Return to Design
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Send back to design for revisions</TooltipContent>
+                    </Tooltip>
+                  </>
+                )}
+
+                {/* PRODUCTION ACTIONS */}
+                {(isAdmin || role === 'production') && mainItem?.current_stage === 'production' && (
+                  <>
+                    {mainItem.current_substage && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            className="w-full" 
+                            size="sm"
+                            onClick={() => completeSubstage(orderId!, mainItem.item_id)}
+                          >
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            Complete {mainItem.current_substage}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Mark {mainItem.current_substage} as complete</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </>
+                )}
+
+                {/* DISPATCH ACTIONS */}
+                {(isAdmin || role === 'production') && mainItem?.current_stage === 'dispatch' && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button 
@@ -584,12 +666,12 @@ export default function OrderDetail() {
                         Mark Dispatched
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>Mark this item as dispatched and complete the order</TooltipContent>
+                    <TooltipContent>Mark this item as dispatched</TooltipContent>
                   </Tooltip>
                 )}
 
-                {/* Mark Complete - show only if not completed */}
-                {mainItem && mainItem.current_stage !== 'completed' && (
+                {/* ADMIN-ONLY ACTIONS */}
+                {isAdmin && mainItem && mainItem.current_stage !== 'completed' && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button 
@@ -608,6 +690,7 @@ export default function OrderDetail() {
 
                 <Separator className="my-2" />
 
+                {/* Common actions - all roles */}
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button 
@@ -624,24 +707,6 @@ export default function OrderDetail() {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Upload a file to this order</TooltipContent>
-                </Tooltip>
-                
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button 
-                      variant="outline" 
-                      className="w-full" 
-                      size="sm"
-                      onClick={() => {
-                        setSelectedItemId(mainItem?.item_id || null);
-                        setAssignDialogOpen(true);
-                      }}
-                    >
-                      <Users className="h-4 w-4 mr-2" />
-                      Assign to Department
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Assign this order to a department</TooltipContent>
                 </Tooltip>
                 
                 <Tooltip>

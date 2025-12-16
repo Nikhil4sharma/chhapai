@@ -73,51 +73,73 @@ const createNotification = async (
   }
 };
 
-// Helper to notify admins and relevant users
+// Helper to notify only relevant users based on department
 const notifyStageChange = async (
   orderId: string,
   itemId: string,
   productName: string,
   newStage: Stage,
-  performerId: string
+  performerId: string,
+  assignedDepartment?: string
 ) => {
   try {
-    // Get admins
+    // Get admins - they always get notifications
     const { data: admins } = await supabase
       .from('user_roles')
       .select('user_id')
       .eq('role', 'admin');
 
-    // Get users in the target department
-    const deptRole = newStage === 'dispatch' || newStage === 'completed' ? 'production' : newStage;
+    // Get sales users - they get notifications for all orders
+    const { data: salesUsers } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('role', 'sales');
+
+    // Get users in the TARGET department only
+    const targetDept = newStage === 'dispatch' || newStage === 'completed' ? 'production' : newStage;
     const { data: deptUsers } = await supabase
       .from('user_roles')
       .select('user_id')
-      .eq('role', deptRole);
+      .eq('role', targetDept);
 
     const notifyUsers = new Set<string>();
+    
+    // Add admins
     admins?.forEach(a => notifyUsers.add(a.user_id));
+    
+    // Add sales for relevant events (dispatched, completed)
+    if (newStage === 'dispatch' || newStage === 'completed') {
+      salesUsers?.forEach(u => notifyUsers.add(u.user_id));
+    }
+    
+    // Add target department users
     deptUsers?.forEach(u => notifyUsers.add(u.user_id));
-    notifyUsers.delete(performerId); // Don't notify performer
+    
+    // Don't notify the performer
+    notifyUsers.delete(performerId);
 
     const title = `Order moved to ${newStage.charAt(0).toUpperCase() + newStage.slice(1)}`;
     const message = `${productName} (${orderId}) is now in ${newStage}`;
 
+    // Determine notification type based on stage
+    const notificationType = newStage === 'dispatch' ? 'success' : 'info';
+
     for (const userId of notifyUsers) {
-      await createNotification(userId, title, message, 'info', orderId, itemId);
+      await createNotification(userId, title, message, notificationType, orderId, itemId);
     }
   } catch (error) {
     console.error('Error notifying stage change:', error);
   }
 };
 
-// Helper to check and notify urgent/delayed orders
+// Helper to check and notify urgent/delayed orders - notifies admin AND assigned department
 const checkAndNotifyPriority = async (
   orderId: string,
   itemId: string,
   productName: string,
   priority: Priority,
-  previousPriority?: Priority
+  previousPriority?: Priority,
+  assignedDepartment?: string
 ) => {
   if (priority === previousPriority) return;
 
@@ -128,12 +150,30 @@ const checkAndNotifyPriority = async (
       .select('user_id')
       .eq('role', 'admin');
 
+    // Get assigned department users if urgent
+    let deptUsers: { user_id: string }[] = [];
+    if (assignedDepartment && priority === 'red') {
+      const validRoles = ['admin', 'sales', 'design', 'prepress', 'production'] as const;
+      const roleToQuery = validRoles.includes(assignedDepartment as any) ? assignedDepartment as typeof validRoles[number] : null;
+      if (roleToQuery) {
+        const { data } = await supabase
+          .from('user_roles')
+          .select('user_id')
+          .eq('role', roleToQuery);
+        deptUsers = data || [];
+      }
+    }
+
     if (priority === 'red') {
       const title = 'Urgent Order Alert';
       const message = `${productName} (${orderId}) is now URGENT - delivery approaching!`;
       
-      for (const admin of admins || []) {
-        await createNotification(admin.user_id, title, message, 'urgent', orderId, itemId);
+      const notifyUsers = new Set<string>();
+      admins?.forEach(a => notifyUsers.add(a.user_id));
+      deptUsers.forEach(u => notifyUsers.add(u.user_id));
+      
+      for (const userId of notifyUsers) {
+        await createNotification(userId, title, message, 'urgent', orderId, itemId);
       }
     }
   } catch (error) {
@@ -312,23 +352,30 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Real-time subscription for orders
+  // Real-time subscription for orders, items, timeline, and files
   useEffect(() => {
     if (!user) return;
 
     fetchOrders();
     fetchTimeline();
 
-    // Subscribe to real-time changes
+    // Subscribe to real-time changes on all relevant tables
     const ordersChannel = supabase
-      .channel('orders-realtime')
+      .channel('orders-realtime-all')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        console.log('Orders changed - refreshing');
         fetchOrders();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
+        console.log('Order items changed - refreshing');
+        fetchOrders();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_files' }, () => {
+        console.log('Order files changed - refreshing');
         fetchOrders();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'timeline' }, () => {
+        console.log('Timeline changed - refreshing');
         fetchTimeline();
       })
       .subscribe();

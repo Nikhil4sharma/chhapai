@@ -11,6 +11,7 @@ import {
   BarChart3,
   X,
   ChevronLeft,
+  PackageCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -36,7 +37,7 @@ interface AppSidebarProps {
 export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   const location = useLocation();
   const { isAdmin, role, profile } = useAuth();
-  const { orders } = useOrders();
+  const { orders, getCompletedOrders } = useOrders();
 
   // Calculate real-time badges from orders
   const badges = useMemo(() => {
@@ -46,6 +47,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
       prepress: 0,
       production: 0,
       dispatch: 0,
+      dispatched: 0,
     };
     
     const urgentCounts = {
@@ -57,13 +59,20 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
     };
 
     orders.forEach(order => {
-      if (order.is_completed) return;
+      if (order.is_completed) {
+        counts.dispatched++;
+        return;
+      }
       order.items.forEach(item => {
-        const stage = item.current_stage as keyof typeof counts;
-        if (counts[stage] !== undefined) {
-          counts[stage]++;
-          if (item.priority_computed === 'red') {
-            urgentCounts[stage]++;
+        if (item.is_dispatched || item.current_stage === 'completed') {
+          counts.dispatched++;
+        } else {
+          const stage = item.current_stage as keyof typeof counts;
+          if (counts[stage] !== undefined) {
+            counts[stage]++;
+            if (item.priority_computed === 'red') {
+              urgentCounts[stage as keyof typeof urgentCounts]++;
+            }
           }
         }
       });
@@ -114,6 +123,13 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         icon: Truck, 
         badge: badges.counts.dispatch,
         roles: ['admin', 'production']
+      },
+      { 
+        label: 'Dispatched', 
+        path: '/dispatched', 
+        icon: PackageCheck, 
+        badge: badges.counts.dispatched,
+        roles: ['admin', 'sales']
       },
     ];
 
