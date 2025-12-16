@@ -15,6 +15,7 @@ import Design from "./pages/Design";
 import Prepress from "./pages/Prepress";
 import Production from "./pages/Production";
 import Dispatch from "./pages/Dispatch";
+import Dispatched from "./pages/Dispatched";
 import OrderDetail from "./pages/OrderDetail";
 import TrackOrder from "./pages/TrackOrder";
 import Profile from "./pages/Profile";
@@ -81,6 +82,13 @@ const App = () => (
                   <Route path="/dispatch" element={
                     <ProtectedRoute allowedRoles={['admin', 'production']}>
                       <Dispatch />
+                    </ProtectedRoute>
+                  } />
+
+                  {/* Dispatched Orders - accessible by admin and sales */}
+                  <Route path="/dispatched" element={
+                    <ProtectedRoute allowedRoles={['admin', 'sales']}>
+                      <Dispatched />
                     </ProtectedRoute>
                   } />
                   

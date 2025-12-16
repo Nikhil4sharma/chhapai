@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Users, Palette, FileCheck, Factory, ShoppingCart } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Users, Palette, FileCheck, Factory, ShoppingCart, Lock } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -17,6 +17,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
 
 interface AssignDepartmentDialogProps {
   open: boolean;
@@ -25,12 +27,38 @@ interface AssignDepartmentDialogProps {
   currentDepartment?: string;
 }
 
-const departments = [
+const allDepartments = [
   { id: 'sales', label: 'Sales', icon: ShoppingCart, description: 'Order entry and customer communication' },
   { id: 'design', label: 'Design', icon: Palette, description: 'Creative design work' },
   { id: 'prepress', label: 'Prepress', icon: FileCheck, description: 'Prepare files for production' },
   { id: 'production', label: 'Production', icon: Factory, description: 'Manufacturing process' },
 ];
+
+// Define allowed transitions per role
+const getAllowedDepartments = (userRole: string | null, isAdmin: boolean, currentDepartment?: string) => {
+  if (isAdmin) {
+    // Admin can assign to any department
+    return allDepartments.map(d => d.id);
+  }
+
+  // Department-specific workflow rules
+  switch (userRole) {
+    case 'sales':
+      // Sales can assign to Design or Prepress
+      return ['design', 'prepress'];
+    case 'design':
+      // Design can forward to Prepress or Production
+      return ['prepress', 'production'];
+    case 'prepress':
+      // Prepress can only send to Production
+      return ['production'];
+    case 'production':
+      // Production cannot reassign departments (only status changes)
+      return [];
+    default:
+      return [];
+  }
+};
 
 export function AssignDepartmentDialog({ 
   open, 
@@ -38,12 +66,52 @@ export function AssignDepartmentDialog({
   onAssign,
   currentDepartment 
 }: AssignDepartmentDialogProps) {
+  const { role, isAdmin } = useAuth();
   const [selected, setSelected] = useState(currentDepartment || 'sales');
 
+  const allowedDepartments = useMemo(() => 
+    getAllowedDepartments(role, isAdmin, currentDepartment),
+    [role, isAdmin, currentDepartment]
+  );
+
   const handleAssign = () => {
+    if (!allowedDepartments.includes(selected)) {
+      toast({
+        title: "Permission Denied",
+        description: "You cannot assign to this department based on workflow rules",
+        variant: "destructive",
+      });
+      return;
+    }
     onAssign(selected);
     onOpenChange(false);
   };
+
+  // Check if user has any assignment permissions
+  const canAssign = allowedDepartments.length > 0 || isAdmin;
+
+  if (!canAssign) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Assign to Department</DialogTitle>
+            <DialogDescription>
+              You don't have permission to reassign items from your department.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-center py-8 text-muted-foreground">
+            <Lock className="h-12 w-12" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -51,40 +119,69 @@ export function AssignDepartmentDialog({
         <DialogHeader>
           <DialogTitle>Assign to Department</DialogTitle>
           <DialogDescription>
-            Choose which department should handle this item
+            {isAdmin 
+              ? "Choose which department should handle this item"
+              : `You can assign to: ${allowedDepartments.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(', ')}`
+            }
           </DialogDescription>
         </DialogHeader>
 
         <TooltipProvider>
           <RadioGroup value={selected} onValueChange={setSelected} className="space-y-3">
-            {departments.map((dept) => (
-              <Tooltip key={dept.id}>
-                <TooltipTrigger asChild>
-                  <div className="relative">
-                    <RadioGroupItem
-                      value={dept.id}
-                      id={dept.id}
-                      className="peer sr-only"
-                    />
-                    <Label
-                      htmlFor={dept.id}
-                      className="flex items-center gap-3 p-4 rounded-lg border border-border cursor-pointer transition-all hover:bg-secondary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5"
-                    >
-                      <div className="h-10 w-10 rounded-lg bg-secondary flex items-center justify-center">
-                        <dept.icon className="h-5 w-5 text-foreground" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium text-foreground">{dept.label}</p>
-                        <p className="text-sm text-muted-foreground">{dept.description}</p>
-                      </div>
-                    </Label>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  Assign item to {dept.label} team
-                </TooltipContent>
-              </Tooltip>
-            ))}
+            {allDepartments.map((dept) => {
+              const isAllowed = allowedDepartments.includes(dept.id);
+              const isCurrent = dept.id === currentDepartment;
+              
+              return (
+                <Tooltip key={dept.id}>
+                  <TooltipTrigger asChild>
+                    <div className="relative">
+                      <RadioGroupItem
+                        value={dept.id}
+                        id={dept.id}
+                        className="peer sr-only"
+                        disabled={!isAllowed && !isCurrent}
+                      />
+                      <Label
+                        htmlFor={dept.id}
+                        className={`flex items-center gap-3 p-4 rounded-lg border border-border cursor-pointer transition-all 
+                          ${isAllowed || isCurrent 
+                            ? 'hover:bg-secondary/50 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5' 
+                            : 'opacity-50 cursor-not-allowed'
+                          }`}
+                      >
+                        <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+                          isAllowed || isCurrent ? 'bg-secondary' : 'bg-muted'
+                        }`}>
+                          {isAllowed || isCurrent ? (
+                            <dept.icon className="h-5 w-5 text-foreground" />
+                          ) : (
+                            <Lock className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <p className="font-medium text-foreground flex items-center gap-2">
+                            {dept.label}
+                            {isCurrent && (
+                              <span className="text-xs text-muted-foreground">(Current)</span>
+                            )}
+                          </p>
+                          <p className="text-sm text-muted-foreground">{dept.description}</p>
+                        </div>
+                      </Label>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    {isAllowed 
+                      ? `Assign item to ${dept.label} team`
+                      : isCurrent 
+                        ? 'This is the current department'
+                        : 'You cannot assign to this department'
+                    }
+                  </TooltipContent>
+                </Tooltip>
+              );
+            })}
           </RadioGroup>
         </TooltipProvider>
 
@@ -92,7 +189,10 @@ export function AssignDepartmentDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleAssign}>
+          <Button 
+            onClick={handleAssign}
+            disabled={!allowedDepartments.includes(selected)}
+          >
             Assign
           </Button>
         </DialogFooter>
