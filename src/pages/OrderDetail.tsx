@@ -200,104 +200,110 @@ export default function OrderDetail() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-6">
-        {/* Back button */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/dashboard">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back
-              </Link>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Back to Dashboard</TooltipContent>
-        </Tooltip>
+      <div className="h-full flex flex-col gap-4">
+        {/* Fixed Header Section */}
+        <div className="flex-shrink-0 space-y-4">
+          {/* Back button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/dashboard">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back
+                </Link>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Back to Dashboard</TooltipContent>
+          </Tooltip>
 
-        {/* Header */}
-        <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3 mb-2 flex-wrap">
-              <h1 className="text-2xl font-display font-bold">{order.order_id}</h1>
-              <PriorityBadge priority={order.priority_computed} showLabel />
-              {order.source === 'wordpress' && (
-                <Badge variant="outline">WooCommerce</Badge>
-              )}
-              {order.is_completed && (
-                <Badge className="bg-green-500">Completed</Badge>
-              )}
+          {/* Header */}
+          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-3 mb-2 flex-wrap">
+                <h1 className="text-2xl font-display font-bold">{order.order_id}</h1>
+                <PriorityBadge priority={order.priority_computed} showLabel />
+                {order.source === 'wordpress' && (
+                  <Badge variant="outline">WooCommerce</Badge>
+                )}
+                {order.is_completed && (
+                  <Badge className="bg-green-500">Completed</Badge>
+                )}
+              </div>
+              <p className="text-muted-foreground text-sm">
+                Created {format(order.created_at, 'MMMM d, yyyy')} • 
+                Last updated {format(order.updated_at, 'MMM d, h:mm a')}
+              </p>
             </div>
-            <p className="text-muted-foreground">
-              Created {format(order.created_at, 'MMMM d, yyyy')} • 
-              Last updated {format(order.updated_at, 'MMM d, h:mm a')}
-            </p>
-          </div>
-          
-          <div className="flex gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)}>
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Edit order details</TooltipContent>
-            </Tooltip>
             
-            <DropdownMenu>
+            <div className="flex gap-2 flex-shrink-0">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
+                  <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                  </Button>
                 </TooltipTrigger>
-                <TooltipContent>More actions</TooltipContent>
+                <TooltipContent>Edit order details</TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => window.print()}>
-                  Print Order
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  Duplicate Order
-                </DropdownMenuItem>
-                {canDelete && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem 
-                      className="text-destructive"
-                      onClick={() => setDeleteDialogOpen(true)}
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      Delete Order
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+              
+              <DropdownMenu>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>More actions</TooltipContent>
+                </Tooltip>
+                <DropdownMenuContent align="end" className="bg-popover">
+                  <DropdownMenuItem onClick={() => window.print()}>
+                    Print Order
+                  </DropdownMenuItem>
+                  <DropdownMenuItem>
+                    Duplicate Order
+                  </DropdownMenuItem>
+                  {canDelete && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem 
+                        className="text-destructive"
+                        onClick={() => setDeleteDialogOpen(true)}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Delete Order
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main content */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Items - Collapsible */}
-            <Collapsible open={itemsOpen} onOpenChange={setItemsOpen}>
-              <Card>
-                <CardHeader className="pb-3">
-                  <CollapsibleTrigger asChild>
-                    <div className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors">
-                      <CardTitle className="text-lg font-display flex items-center gap-2">
-                        <Package className="h-5 w-5" />
-                        Order Items ({order.items.length})
-                      </CardTitle>
-                      {itemsOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
-                    </div>
-                  </CollapsibleTrigger>
-                </CardHeader>
-                <CollapsibleContent>
-                  <CardContent className="space-y-4 pt-0">
+        {/* Scrollable Content Grid */}
+        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Main content - Products Section */}
+          <div className="lg:col-span-2 flex flex-col gap-4 min-h-0">
+            {/* Items - Scrollable Container */}
+            <Card className="flex-1 flex flex-col min-h-0">
+              <CardHeader className="flex-shrink-0 pb-3">
+                <CollapsibleTrigger asChild>
+                  <div 
+                    onClick={() => setItemsOpen(!itemsOpen)}
+                    className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors"
+                  >
+                    <CardTitle className="text-lg font-display flex items-center gap-2">
+                      <Package className="h-5 w-5" />
+                      Order Items ({order.items.length})
+                    </CardTitle>
+                    {itemsOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
+                  </div>
+                </CollapsibleTrigger>
+              </CardHeader>
+              {itemsOpen && (
+                <CardContent className="flex-1 overflow-y-auto custom-scrollbar pt-0 space-y-4">
                     {order.items.map((item, index) => (
                       <div key={item.item_id}>
                         {index > 0 && <Separator className="my-4" />}
@@ -435,33 +441,31 @@ export default function OrderDetail() {
                         </div>
                       </div>
                     ))}
-                  </CardContent>
-                </CollapsibleContent>
-              </Card>
-            </Collapsible>
+                </CardContent>
+              )}
+            </Card>
 
-            {/* Timeline - Collapsible */}
-            <Collapsible open={timelineOpen} onOpenChange={setTimelineOpen}>
-              <Card>
-                <CardHeader className="pb-3">
-                  <CollapsibleTrigger asChild>
-                    <div className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors">
-                      <CardTitle className="text-lg font-display">Timeline ({timeline.length})</CardTitle>
-                      {timelineOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
-                    </div>
-                  </CollapsibleTrigger>
-                </CardHeader>
-                <CollapsibleContent>
-                  <CardContent className="pt-0">
-                    <OrderTimeline entries={timeline} />
-                  </CardContent>
-                </CollapsibleContent>
-              </Card>
-            </Collapsible>
+            {/* Timeline - Separate Scrollable Container */}
+            <Card className="flex flex-col min-h-0 max-h-80">
+              <CardHeader className="flex-shrink-0 pb-3">
+                <div 
+                  onClick={() => setTimelineOpen(!timelineOpen)}
+                  className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors"
+                >
+                  <CardTitle className="text-lg font-display">Timeline ({timeline.length})</CardTitle>
+                  {timelineOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
+                </div>
+              </CardHeader>
+              {timelineOpen && (
+                <CardContent className="flex-1 overflow-y-auto custom-scrollbar pt-0">
+                  <OrderTimeline entries={timeline} />
+                </CardContent>
+              )}
+            </Card>
           </div>
 
-          {/* Sidebar */}
-          <div className="space-y-6">
+          {/* Sidebar - Scrollable */}
+          <div className="lg:col-span-1 flex flex-col gap-4 min-h-0 max-h-full overflow-y-auto custom-scrollbar">
             {/* Customer info */}
             <Card>
               <CardHeader>

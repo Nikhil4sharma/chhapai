@@ -126,7 +126,7 @@ export default function Sales() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-6">
+      <div className="h-full flex flex-col gap-4">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
@@ -198,22 +198,23 @@ export default function Sales() {
           </Card>
         )}
 
-        {/* Orders Tabs */}
-        <Tabs defaultValue="pending" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="pending">
-              In Sales
-              <Badge variant="secondary" className="ml-2">{filteredSalesItems.length}</Badge>
-            </TabsTrigger>
-            <TabsTrigger value="urgent">
-              Urgent
-              <Badge variant="priority-red" className="ml-2">{urgentItems.length}</Badge>
-            </TabsTrigger>
-            <TabsTrigger value="all">All Orders</TabsTrigger>
-          </TabsList>
+        {/* Orders Tabs - Scrollable content area */}
+        <div className="flex-1 min-h-0">
+          <Tabs defaultValue="pending" className="h-full flex flex-col">
+            <TabsList className="flex-shrink-0">
+              <TabsTrigger value="pending">
+                In Sales
+                <Badge variant="secondary" className="ml-2">{filteredSalesItems.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="urgent">
+                Urgent
+                <Badge variant="priority-red" className="ml-2">{urgentItems.length}</Badge>
+              </TabsTrigger>
+              <TabsTrigger value="all">All Orders</TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="pending">
-            <div className="space-y-4">
+            <TabsContent value="pending" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 space-y-4">
               {filteredSalesItems.length === 0 ? (
                 <Card>
                   <CardContent className="py-12 text-center">
@@ -317,14 +318,14 @@ export default function Sales() {
                   </Card>
                 ))
               )}
-            </div>
-          </TabsContent>
+              </div>
+            </TabsContent>
 
-          <TabsContent value="urgent">
-            <div className="space-y-4">
-              {urgentItems.length === 0 ? (
-                <Card>
-                  <CardContent className="py-12 text-center">
+            <TabsContent value="urgent" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 space-y-4">
+                {urgentItems.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-12 text-center">
                     <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
                     <h3 className="font-semibold text-lg mb-2">No urgent items</h3>
                     <p className="text-muted-foreground">All items are on schedule.</p>
@@ -349,17 +350,20 @@ export default function Sales() {
                   </Card>
                 ))
               )}
-            </div>
-          </TabsContent>
+              </div>
+            </TabsContent>
 
-          <TabsContent value="all">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {orders.filter(o => !o.is_completed).map((order) => (
-                <OrderCard key={order.order_id} order={order} />
-              ))}
-            </div>
-          </TabsContent>
-        </Tabs>
+            <TabsContent value="all" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-4">
+                  {orders.filter(o => !o.is_completed).map((order) => (
+                    <OrderCard key={order.order_id} order={order} />
+                  ))}
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </div>
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

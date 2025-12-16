@@ -168,18 +168,18 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         />
       )}
       
-      {/* Sidebar */}
+      {/* Sidebar - Fixed position, full height, never scrolls with content */}
       <aside
         className={cn(
-          "fixed top-0 left-0 z-50 h-full bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col",
-          "lg:relative lg:z-0",
+          "fixed top-0 left-0 z-50 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300 flex flex-col",
+          "lg:sticky lg:z-40",
           isOpen ? "w-64 translate-x-0" : "-translate-x-full lg:translate-x-0 lg:w-20"
         )}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between h-16 px-4 border-b border-sidebar-border">
+        {/* Header - Fixed within sidebar */}
+        <div className="flex-shrink-0 flex items-center justify-between h-16 px-4 border-b border-sidebar-border bg-sidebar">
           <div className={cn("flex items-center gap-2", !isOpen && "lg:justify-center lg:w-full")}>
-            <div className="h-8 w-8 rounded-lg bg-sidebar-primary flex items-center justify-center">
+            <div className="h-8 w-8 rounded-lg bg-sidebar-primary flex items-center justify-center shadow-md">
               <span className="text-sidebar-primary-foreground font-bold text-sm">C</span>
             </div>
             {isOpen && (
@@ -199,15 +199,15 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           <Button
             variant="ghost"
             size="icon-sm"
-            className="hidden lg:flex"
+            className="hidden lg:flex hover:bg-sidebar-accent"
             onClick={onToggle}
           >
-            <ChevronLeft className={cn("h-5 w-5 transition-transform", !isOpen && "rotate-180")} />
+            <ChevronLeft className={cn("h-5 w-5 transition-transform duration-200", !isOpen && "rotate-180")} />
           </Button>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto p-3 space-y-1 custom-scrollbar">
+        {/* Navigation - Scrollable within sidebar only */}
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden p-3 space-y-1 custom-scrollbar">
           <div className="space-y-1">
             {visibleNavItems.map((item) => (
               <NavItemComponent key={item.path} item={item} />
@@ -229,12 +229,12 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           )}
         </nav>
 
-        {/* Footer */}
+        {/* Footer - Fixed within sidebar */}
         {isOpen && profile && (
-          <div className="p-4 border-t border-sidebar-border">
+          <div className="flex-shrink-0 p-4 border-t border-sidebar-border bg-sidebar">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full bg-sidebar-accent flex items-center justify-center">
-                <span className="text-sm font-medium text-sidebar-foreground">
+              <div className="h-9 w-9 rounded-full bg-gradient-to-br from-sidebar-primary to-sidebar-accent flex items-center justify-center shadow-sm">
+                <span className="text-sm font-medium text-sidebar-primary-foreground">
                   {profile.full_name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U'}
                 </span>
               </div>

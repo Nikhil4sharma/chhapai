@@ -138,9 +138,9 @@ export default function Dispatch() {
 
   return (
     <TooltipProvider>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="h-full flex flex-col gap-4">
+        {/* Header - Fixed */}
+        <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-display font-bold text-foreground flex items-center gap-2">
               <Truck className="h-6 w-6" />
@@ -152,8 +152,8 @@ export default function Dispatch() {
           </div>
         </div>
 
-        {/* Search */}
-        <div className="relative max-w-md">
+        {/* Search - Fixed */}
+        <div className="flex-shrink-0 relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search by product, order ID, or customer..."
@@ -163,8 +163,8 @@ export default function Dispatch() {
           />
         </div>
 
-        {/* Dispatch Queue */}
-        <div className="space-y-4">
+        {/* Dispatch Queue - Scrollable */}
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 space-y-4">
           {filteredItems.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">

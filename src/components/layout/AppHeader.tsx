@@ -31,7 +31,8 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
 
   return (
     <TooltipProvider>
-      <header className="sticky top-0 z-30 h-16 bg-background/95 backdrop-blur-sm border-b border-border">
+      {/* Fixed Header - never scrolls */}
+      <header className="flex-shrink-0 h-16 bg-background/95 backdrop-blur-md border-b border-border shadow-sm z-30">
         <div className="flex items-center justify-between h-full px-4 lg:px-6">
           {/* Left section */}
           <div className="flex items-center gap-4">
@@ -40,7 +41,7 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="lg:hidden"
+                  className="lg:hidden hover:bg-accent"
                   onClick={onMenuClick}
                 >
                   <Menu className="h-5 w-5" />
@@ -48,7 +49,7 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
               </TooltipTrigger>
               <TooltipContent>Toggle menu</TooltipContent>
             </Tooltip>
-            <h1 className="text-xl font-display font-semibold text-foreground">
+            <h1 className="text-xl font-display font-semibold text-foreground tracking-tight">
               {title}
             </h1>
           </div>
@@ -71,7 +72,7 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
 
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="sm" className="hidden sm:flex gap-2" onClick={() => setCreateOrderOpen(true)}>
+                <Button size="sm" className="hidden sm:flex gap-2 shadow-sm" onClick={() => setCreateOrderOpen(true)}>
                   <Plus className="h-4 w-4" />
                   New Order
                 </Button>

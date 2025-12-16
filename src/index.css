@@ -119,6 +119,10 @@
     @apply border-border;
   }
 
+  html, body, #root {
+    @apply h-full w-full overflow-hidden;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', sans-serif;
@@ -178,17 +182,59 @@
     @apply transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5;
   }
 
-  /* Scrollbar styling */
+  /* Custom scrollbar styling */
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
+  }
+
   .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
 
   .custom-scrollbar::-webkit-scrollbar-track {
-    @apply bg-muted rounded-full;
+    @apply bg-transparent rounded-full;
   }
 
   .custom-scrollbar::-webkit-scrollbar-thumb {
-    @apply bg-muted-foreground/30 rounded-full hover:bg-muted-foreground/50;
+    @apply bg-muted-foreground/30 rounded-full transition-colors;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+
+  /* Scroll container utilities */
+  .scroll-container {
+    @apply overflow-y-auto overflow-x-hidden custom-scrollbar;
+    scroll-behavior: smooth;
+  }
+
+  /* Fixed height scroll container with calculated height */
+  .scroll-area-orders {
+    max-height: calc(100vh - 12rem);
+    @apply overflow-y-auto custom-scrollbar;
+  }
+
+  .scroll-area-products {
+    max-height: calc(100vh - 20rem);
+    @apply overflow-y-auto custom-scrollbar;
+  }
+
+  .scroll-area-timeline {
+    max-height: calc(100vh - 20rem);
+    @apply overflow-y-auto custom-scrollbar;
+  }
+
+  /* Container shadow for visual separation */
+  .container-shadow {
+    box-shadow: inset 0 -1px 0 0 hsl(var(--border));
+  }
+
+  /* Smooth scroll behavior */
+  .smooth-scroll {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
   }
 }
