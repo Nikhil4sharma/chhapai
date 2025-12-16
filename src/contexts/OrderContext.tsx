@@ -749,19 +749,27 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const sendToProduction = useCallback(async (orderId: string, itemId: string, stageSequence?: string[]) => {
     const order = orders.find(o => o.order_id === orderId);
     const item = order?.items.find(i => i.item_id === itemId);
+    if (!order || !item) return;
     
     // Use custom sequence if provided or saved, otherwise default
     const sequence = stageSequence || (item as any)?.production_stage_sequence || PRODUCTION_SUBSTAGES;
     const firstStage = sequence[0] as SubStage;
 
-    // Save sequence if provided
-    if (stageSequence && stageSequence.length > 0) {
-      await setProductionStageSequence(orderId, itemId, stageSequence);
-    }
+    try {
+      // Save production sequence FIRST (while still in prepress)
+      if (stageSequence && stageSequence.length > 0) {
+        const { error: seqError } = await supabase
+          .from('order_items')
+          .update({
+            production_stage_sequence: stageSequence,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', itemId);
+        
+        if (seqError) throw seqError;
+      }
 
-    await updateItemStage(orderId, itemId, 'production', firstStage);
-    
-    if (order && item) {
+      // Add timeline entry BEFORE changing department (while user still has RLS access)
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
@@ -773,8 +781,41 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         notes: `Sent to production with sequence: ${sequence.join(' → ')}`,
         is_public: true,
       });
+
+      // Now update department to production
+      const { error } = await supabase
+        .from('order_items')
+        .update({
+          current_stage: 'production',
+          current_substage: firstStage,
+          assigned_department: 'production',
+          is_ready_for_production: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (error) throw error;
+
+      // Send notifications for stage change
+      if (user?.id) {
+        await notifyStageChange(order.order_id, itemId, item.product_name, 'production', user.id);
+      }
+
+      await fetchOrders();
+
+      toast({
+        title: "Sent to Production",
+        description: `${item.product_name} sent to production: ${sequence.join(' → ')}`,
+      });
+    } catch (error) {
+      console.error('Error sending to production:', error);
+      toast({
+        title: "Error",
+        description: "Failed to send to production",
+        variant: "destructive",
+      });
     }
-  }, [orders, user, profile, updateItemStage, addTimelineEntry, setProductionStageSequence]);
+  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
 
   const assignToDepartment = useCallback(async (orderId: string, itemId: string, department: string) => {
     const stageMap: Record<string, Stage> = {
