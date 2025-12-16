@@ -17,7 +17,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { supabase } from '@/integrations/supabase/client';
+import { collection, query, getDocs, doc, setDoc, updateDoc, deleteDoc, where, Timestamp } from 'firebase/firestore';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { db, auth } from '@/integrations/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { AddTeamMemberDialog } from '@/components/dialogs/AddTeamMemberDialog';
@@ -59,28 +61,25 @@ export default function Team() {
     setLoading(true);
     try {
       // Fetch profiles
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('*');
+      const profilesQuery = query(collection(db, 'profiles'));
+      const profilesSnapshot = await getDocs(profilesQuery);
+      const profiles = profilesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      if (profilesError) throw profilesError;
-
-      const { data: roles, error: rolesError } = await supabase
-        .from('user_roles')
-        .select('*');
-
-      if (rolesError) throw rolesError;
+      // Fetch roles
+      const rolesQuery = query(collection(db, 'user_roles'));
+      const rolesSnapshot = await getDocs(rolesQuery);
+      const roles = rolesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
       // Combine profiles with roles
-      const members: TeamMember[] = (profiles || []).map(profile => {
-        const userRoles = roles?.filter(r => r.user_id === profile.user_id).map(r => r.role) || [];
+      const members: TeamMember[] = profiles.map(profile => {
+        const userRoles = roles.filter(r => r.user_id === profile.user_id).map(r => r.role) || [];
         const primaryRole = userRoles[0] || 'sales';
         const team = primaryRole.charAt(0).toUpperCase() + primaryRole.slice(1);
         
         return {
           user_id: profile.user_id,
           name: profile.full_name || 'Unknown',
-          email: profile.user_id, // We'll show user_id as placeholder
+          email: profile.user_id, // Email is in Firebase Auth
           phone: profile.phone || undefined,
           roles: userRoles,
           team,
@@ -119,54 +118,29 @@ export default function Team() {
     password: string;
   }) => {
     try {
-      // Create user via Supabase auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: member.email,
-        password: member.password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`,
-          data: {
-            full_name: member.name,
-          },
-        },
+      // Create user via Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(auth, member.email, member.password);
+      const newUser = userCredential.user;
+
+      // Create profile in Firestore
+      const profileRef = doc(db, 'profiles', newUser.uid);
+      await setDoc(profileRef, {
+        user_id: newUser.uid,
+        full_name: member.name,
+        phone: member.phone || null,
+        department: member.role,
+        avatar_url: null,
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
       });
 
-      if (authError) throw authError;
-
-      if (authData.user) {
-        // Wait a moment for the trigger to create the profile
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        // Update profile with department
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .update({
-            full_name: member.name,
-            phone: member.phone || null,
-            department: member.role, // Use role as department
-          })
-          .eq('user_id', authData.user.id);
-
-        if (profileError) console.error('Profile update error:', profileError);
-
-        // Add role - check if role already exists first
-        const { data: existingRole } = await supabase
-          .from('user_roles')
-          .select('id')
-          .eq('user_id', authData.user.id)
-          .maybeSingle();
-
-        if (!existingRole) {
-          const { error: roleError } = await supabase
-            .from('user_roles')
-            .insert({
-              user_id: authData.user.id,
-              role: member.role as any,
-            });
-
-          if (roleError) console.error('Role insert error:', roleError);
-        }
-      }
+      // Create role in Firestore
+      const roleRef = doc(db, 'user_roles', `${newUser.uid}_${member.role}`);
+      await setDoc(roleRef, {
+        user_id: newUser.uid,
+        role: member.role,
+        created_at: Timestamp.now(),
+      });
 
       toast({
         title: "Success",
@@ -187,44 +161,28 @@ export default function Team() {
 
   const handleEditMember = async (memberId: string, updates: { name: string; phone: string; role: string; department: string }) => {
     try {
-      // Update profile with both department and name
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          full_name: updates.name,
-          phone: updates.phone || null,
-          department: updates.department,
-        })
-        .eq('user_id', memberId);
+      // Update profile
+      const profileRef = doc(db, 'profiles', memberId);
+      await updateDoc(profileRef, {
+        full_name: updates.name,
+        phone: updates.phone || null,
+        department: updates.department,
+        updated_at: Timestamp.now(),
+      });
 
-      if (profileError) throw profileError;
+      // Delete all existing roles for this user
+      const rolesQuery = query(collection(db, 'user_roles'), where('user_id', '==', memberId));
+      const rolesSnapshot = await getDocs(rolesQuery);
+      const deletePromises = rolesSnapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
 
-      // Update role - first check if exists
-      const { data: existingRole } = await supabase
-        .from('user_roles')
-        .select('id')
-        .eq('user_id', memberId)
-        .maybeSingle();
-
-      if (existingRole) {
-        // Update existing role
-        const { error: roleError } = await supabase
-          .from('user_roles')
-          .update({ role: updates.role as any })
-          .eq('user_id', memberId);
-
-        if (roleError) throw roleError;
-      } else {
-        // Insert new role
-        const { error: roleError } = await supabase
-          .from('user_roles')
-          .insert({
-            user_id: memberId,
-            role: updates.role as any,
-          });
-
-        if (roleError) throw roleError;
-      }
+      // Create new role
+      const roleRef = doc(db, 'user_roles', `${memberId}_${updates.role}`);
+      await setDoc(roleRef, {
+        user_id: memberId,
+        role: updates.role,
+        created_at: Timestamp.now(),
+      });
 
       toast({
         title: "Success",
@@ -248,24 +206,15 @@ export default function Team() {
     
     setDeleteLoading(true);
     try {
-      // Delete user role first
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .delete()
-        .eq('user_id', selectedMember.user_id);
+      // Delete user roles
+      const rolesQuery = query(collection(db, 'user_roles'), where('user_id', '==', selectedMember.user_id));
+      const rolesSnapshot = await getDocs(rolesQuery);
+      const deleteRolePromises = rolesSnapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deleteRolePromises);
 
-      if (roleError) {
-        console.error('Role delete error:', roleError);
-        // Continue even if role delete fails
-      }
-
-      // Delete profile (trigger will clear order_items.assigned_to)
-      const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('user_id', selectedMember.user_id);
-
-      if (error) throw error;
+      // Delete profile
+      const profileRef = doc(db, 'profiles', selectedMember.user_id);
+      await deleteDoc(profileRef);
 
       toast({
         title: "Success",

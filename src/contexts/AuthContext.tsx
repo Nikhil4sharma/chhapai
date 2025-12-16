@@ -1,7 +1,23 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '@/integrations/supabase/client';
-import { useNavigate } from 'react-router-dom';
+import { 
+  User as FirebaseUser,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  updatePassword as firebaseUpdatePassword,
+  onAuthStateChanged
+} from 'firebase/auth';
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc,
+  collection,
+  query,
+  where,
+  getDocs
+} from 'firebase/firestore';
+import { auth, db } from '@/integrations/firebase/config';
 
 export type AppRole = 'admin' | 'sales' | 'design' | 'prepress' | 'production';
 
@@ -15,8 +31,8 @@ interface Profile {
 }
 
 interface AuthContextType {
-  user: User | null;
-  session: Session | null;
+  user: FirebaseUser | null;
+  session: { user: FirebaseUser } | null;
   profile: Profile | null;
   role: AppRole | null;
   isLoading: boolean;
@@ -31,8 +47,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
+  const [session, setSession] = useState<{ user: FirebaseUser } | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -40,64 +56,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = role === 'admin';
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        
-        if (session?.user) {
-          setTimeout(() => {
-            fetchUserData(session.user.id);
-          }, 0);
-        } else {
-          setProfile(null);
-          setRole(null);
-          setIsLoading(false);
-        }
-      }
-    );
-
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        // Handle invalid refresh token by signing out
-        console.log('Session error, signing out:', error.message);
-        supabase.auth.signOut();
-        setIsLoading(false);
-        return;
-      }
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserData(session.user.id);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+      setSession(firebaseUser ? { user: firebaseUser } : null);
+      
+      if (firebaseUser) {
+        await fetchUserData(firebaseUser.uid);
       } else {
+        setProfile(null);
+        setRole(null);
         setIsLoading(false);
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => unsubscribe();
   }, []);
 
   const fetchUserData = async (userId: string) => {
     try {
-      // Fetch profile (using secure view)
-      const { data: profileData } = await supabase
-        .from('profiles_secure')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (profileData) {
-        setProfile(profileData);
+      // Fetch profile
+      const profileDoc = await getDoc(doc(db, 'profiles', userId));
+      if (profileDoc.exists()) {
+        const profileData = profileDoc.data();
+        setProfile({
+          id: profileDoc.id,
+          user_id: userId,
+          full_name: profileData.full_name || null,
+          department: profileData.department || null,
+          phone: profileData.phone || null,
+          avatar_url: profileData.avatar_url || null,
+        });
       }
 
       // Fetch role
-      const { data: roleData } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .maybeSingle();
-
-      if (roleData) {
+      const rolesQuery = query(collection(db, 'user_roles'), where('user_id', '==', userId));
+      const rolesSnapshot = await getDocs(rolesQuery);
+      if (!rolesSnapshot.empty) {
+        const roleData = rolesSnapshot.docs[0].data();
         setRole(roleData.role as AppRole);
       }
     } catch (error) {
@@ -108,50 +103,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return { error: error as Error | null };
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      return { error: null };
+    } catch (error: any) {
+      return { error: error as Error };
+    }
   };
 
   const signUp = async (email: string, password: string, fullName: string, roleToAssign: AppRole) => {
-    const redirectUrl = `${window.location.origin}/`;
-    
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: redirectUrl,
-        data: { full_name: fullName }
-      }
-    });
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const newUser = userCredential.user;
 
-    if (error) return { error: error as Error };
+      // Create profile
+      await setDoc(doc(db, 'profiles', newUser.uid), {
+        user_id: newUser.uid,
+        full_name: fullName,
+        department: roleToAssign,
+        phone: null,
+        avatar_url: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
 
-    // If user was created, assign role
-    if (data.user) {
-      const { error: roleError } = await supabase
-        .from('user_roles')
-        .insert({ user_id: data.user.id, role: roleToAssign });
+      // Assign role
+      await setDoc(doc(db, 'user_roles', `${newUser.uid}_${roleToAssign}`), {
+        user_id: newUser.uid,
+        role: roleToAssign,
+        created_at: new Date().toISOString(),
+      });
 
-      if (roleError) {
-        console.error('Error assigning role:', roleError);
-        return { error: roleError as unknown as Error };
-      }
-
-      // Update profile with department
-      await supabase
-        .from('profiles')
-        .update({ department: roleToAssign, full_name: fullName })
-        .eq('user_id', data.user.id);
+      return { error: null };
+    } catch (error: any) {
+      return { error: error as Error };
     }
-
-    return { error: null };
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await firebaseSignOut(auth);
     setUser(null);
     setSession(null);
     setProfile(null);
@@ -159,25 +149,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updatePassword = async (newPassword: string) => {
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword
-    });
-    return { error: error as Error | null };
+    try {
+      if (!user) throw new Error('Not authenticated');
+      await firebaseUpdatePassword(user, newPassword);
+      return { error: null };
+    } catch (error: any) {
+      return { error: error as Error };
+    }
   };
 
   const updateProfile = async (updates: Partial<Profile>) => {
-    if (!user) return { error: new Error('Not authenticated') };
-    
-    const { error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('user_id', user.id);
+    try {
+      if (!user) return { error: new Error('Not authenticated') };
+      
+      const profileRef = doc(db, 'profiles', user.uid);
+      const updateData: any = {};
+      if (updates.full_name !== undefined) updateData.full_name = updates.full_name;
+      if (updates.phone !== undefined) updateData.phone = updates.phone;
+      if (updates.avatar_url !== undefined) updateData.avatar_url = updates.avatar_url;
+      if (updates.department !== undefined) updateData.department = updates.department;
+      updateData.updated_at = new Date().toISOString();
 
-    if (!error && profile) {
-      setProfile({ ...profile, ...updates });
+      await updateDoc(profileRef, updateData);
+
+      if (profile) {
+        setProfile({ ...profile, ...updates });
+      }
+
+      return { error: null };
+    } catch (error: any) {
+      return { error: error as Error };
     }
-
-    return { error: error as Error | null };
   };
 
   return (

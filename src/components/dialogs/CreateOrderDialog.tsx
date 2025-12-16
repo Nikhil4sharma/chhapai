@@ -29,7 +29,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { supabase } from '@/integrations/supabase/client';
+import { collection, doc, setDoc, Timestamp } from 'firebase/firestore';
+import { db } from '@/integrations/firebase/config';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -55,6 +57,7 @@ export function CreateOrderDialog({
   onOpenChange,
   onOrderCreated
 }: CreateOrderDialogProps) {
+  const { user } = useAuth();
   const [isCreating, setIsCreating] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined);
   
@@ -171,66 +174,65 @@ export function CreateOrderDialog({
     try {
       const orderId = generateOrderId();
       
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
       
       // Create order
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          order_id: orderId,
-          customer_name: customerData.name,
-          customer_phone: customerData.phone,
-          customer_email: customerData.email,
-          customer_address: customerData.address,
-          billing_city: customerData.city,
-          billing_state: customerData.state,
-          billing_pincode: customerData.pincode,
-          shipping_name: customerData.name,
-          shipping_phone: customerData.phone,
-          shipping_address: customerData.address,
-          shipping_city: customerData.city,
-          shipping_state: customerData.state,
-          shipping_pincode: customerData.pincode,
-          delivery_date: deliveryDate!.toISOString(),
-          priority: priority,
-          source: 'manual',
-          global_notes: globalNotes,
-          created_by: user?.id,
-        })
-        .select()
-        .single();
-
-      if (orderError) throw orderError;
+      const orderRef = doc(collection(db, 'orders'));
+      await setDoc(orderRef, {
+        order_id: orderId,
+        customer_name: customerData.name,
+        customer_phone: customerData.phone,
+        customer_email: customerData.email,
+        customer_address: customerData.address,
+        billing_city: customerData.city,
+        billing_state: customerData.state,
+        billing_pincode: customerData.pincode,
+        shipping_name: customerData.name,
+        shipping_phone: customerData.phone,
+        shipping_address: customerData.address,
+        shipping_city: customerData.city,
+        shipping_state: customerData.state,
+        shipping_pincode: customerData.pincode,
+        delivery_date: Timestamp.fromDate(deliveryDate!),
+        priority: priority,
+        source: 'manual',
+        global_notes: globalNotes,
+        created_by: user.uid,
+        is_completed: false,
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
 
       // Create order items for each product
       for (const product of products) {
-        const { error: itemError } = await supabase
-          .from('order_items')
-          .insert({
-            order_id: orderData.id,
-            product_name: product.name,
-            quantity: product.quantity,
-            specifications: product.specifications,
-            priority: priority,
-            current_stage: 'sales',
-            assigned_department: 'sales',
-            delivery_date: deliveryDate!.toISOString(),
-          });
-
-        if (itemError) throw itemError;
+        await setDoc(doc(collection(db, 'order_items')), {
+          order_id: orderRef.id,
+          product_name: product.name,
+          quantity: product.quantity,
+          specifications: product.specifications,
+          priority: priority,
+          current_stage: 'sales',
+          assigned_department: 'sales',
+          delivery_date: Timestamp.fromDate(deliveryDate!),
+          need_design: false,
+          is_ready_for_production: false,
+          is_dispatched: false,
+          created_at: Timestamp.now(),
+          updated_at: Timestamp.now(),
+        });
       }
 
       // Create timeline entry
-      await supabase
-        .from('timeline')
-        .insert({
-          order_id: orderData.id,
-          stage: 'sales',
-          action: `Order created manually with ${products.length} product(s)`,
-          performed_by: user?.id,
-          is_public: true,
-        });
+      await setDoc(doc(collection(db, 'timeline')), {
+        order_id: orderRef.id,
+        stage: 'sales',
+        action: 'created',
+        performed_by: user.uid,
+        performed_by_name: 'System',
+        notes: `Order created manually with ${products.length} product(s)`,
+        is_public: true,
+        created_at: Timestamp.now(),
+      });
 
       toast({
         title: "Order Created",

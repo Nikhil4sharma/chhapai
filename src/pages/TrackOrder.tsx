@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { supabase } from '@/integrations/supabase/client';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { db } from '@/integrations/firebase/config';
 import { Order, STAGE_LABELS, Stage, Priority } from '@/types/order';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -126,58 +127,58 @@ export default function TrackOrder() {
         return;
       }
 
-      // Search for order by exact order_id match (case-insensitive)
-      const { data: orderData, error: orderError } = await supabase
-        .from('orders')
-        .select('id, order_id, customer_name, is_completed, delivery_date, created_at')
-        .ilike('order_id', trimmedOrderNumber)
-        .maybeSingle();
+      // Search for order by exact order_id match
+      const ordersQuery = query(
+        collection(db, 'orders'),
+        where('order_id', '==', trimmedOrderNumber)
+      );
+      const ordersSnapshot = await getDocs(ordersQuery);
 
-      if (orderError) throw orderError;
-
-      if (!orderData) {
+      if (ordersSnapshot.empty) {
         setError('Order not found. Please check the order number and try again.');
         setIsLoading(false);
         return;
       }
 
-      // Fetch order items
-      const { data: itemsData, error: itemsError } = await supabase
-        .from('order_items')
-        .select('id, product_name, quantity, current_stage, delivery_date')
-        .eq('order_id', orderData.id);
+      const orderData = { id: ordersSnapshot.docs[0].id, ...ordersSnapshot.docs[0].data() };
 
-      if (itemsError) throw itemsError;
+      // Fetch order items
+      const itemsQuery = query(
+        collection(db, 'order_items'),
+        where('order_id', '==', orderData.id)
+      );
+      const itemsSnapshot = await getDocs(itemsQuery);
+      const itemsData = itemsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
       // Fetch public timeline entries
-      const { data: timelineData, error: timelineError } = await supabase
-        .from('timeline')
-        .select('id, action, created_at, is_public')
-        .eq('order_id', orderData.id)
-        .eq('is_public', true)
-        .order('created_at', { ascending: false });
-
-      if (timelineError) throw timelineError;
+      const timelineQuery = query(
+        collection(db, 'timeline'),
+        where('order_id', '==', orderData.id),
+        where('is_public', '==', true),
+        orderBy('created_at', 'desc')
+      );
+      const timelineSnapshot = await getDocs(timelineQuery);
+      const timelineData = timelineSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
       const result: SearchedOrder = {
         id: orderData.id,
         order_id: orderData.order_id,
         customer_name: orderData.customer_name,
         is_completed: orderData.is_completed,
-        delivery_date: orderData.delivery_date,
-        created_at: orderData.created_at,
+        delivery_date: orderData.delivery_date?.toDate?.()?.toISOString() || orderData.delivery_date,
+        created_at: orderData.created_at?.toDate?.()?.toISOString() || orderData.created_at,
         items: (itemsData || []).map(item => ({
           item_id: item.id,
           product_name: item.product_name,
           quantity: item.quantity,
           current_stage: item.current_stage as Stage,
-          delivery_date: item.delivery_date,
-          priority_computed: computePriority(item.delivery_date ? new Date(item.delivery_date) : null),
+          delivery_date: item.delivery_date?.toDate?.()?.toISOString() || item.delivery_date,
+          priority_computed: computePriority(item.delivery_date?.toDate ? item.delivery_date.toDate() : (item.delivery_date ? new Date(item.delivery_date) : null)),
         })),
         timeline: (timelineData || []).map(entry => ({
           id: entry.id,
           action: entry.action,
-          created_at: entry.created_at,
+          created_at: entry.created_at?.toDate?.()?.toISOString() || entry.created_at,
           is_public: entry.is_public,
         })),
       };

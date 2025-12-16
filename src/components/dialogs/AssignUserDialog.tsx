@@ -16,7 +16,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { supabase } from '@/integrations/supabase/client';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/integrations/firebase/config';
 
 interface User {
   user_id: string;
@@ -52,15 +53,18 @@ export function AssignUserDialog({
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      // Fetch profiles with matching department (using secure view)
-      const { data: profiles, error } = await supabase
-        .from('profiles_secure')
-        .select('user_id, full_name, department')
-        .eq('department', department);
+      // Fetch profiles with matching department
+      const profilesQuery = query(
+        collection(db, 'profiles'),
+        where('department', '==', department)
+      );
+      const snapshot = await getDocs(profilesQuery);
 
-      if (error) throw error;
-
-      setUsers(profiles || []);
+      setUsers(snapshot.docs.map(doc => ({
+        user_id: doc.data().user_id,
+        full_name: doc.data().full_name,
+        department: doc.data().department,
+      })));
     } catch (error) {
       console.error('Error fetching users:', error);
     } finally {

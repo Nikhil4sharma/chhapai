@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { storage } from '@/integrations/firebase/config';
 
 export default function Profile() {
   const { user, profile, role, updatePassword, updateProfile } = useAuth();
@@ -115,23 +116,18 @@ export default function Profile() {
     setIsUploadingAvatar(true);
     try {
       const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/avatar.${fileExt}`;
+      const fileName = `avatars/${user.uid}/avatar.${fileExt}`;
 
-      // Upload to storage
-      const { error: uploadError } = await supabase.storage
-        .from('order-files')
-        .upload(fileName, file, { upsert: true });
+      // Upload to Firebase Storage
+      const fileRef = ref(storage, fileName);
+      await uploadBytes(fileRef, file);
 
-      if (uploadError) throw uploadError;
+      // Get download URL
+      const downloadURL = await getDownloadURL(fileRef);
 
-      // Create signed URL for avatar
-      const { data: urlData } = await supabase.storage
-        .from('order-files')
-        .createSignedUrl(fileName, 86400); // 24 hour expiry for avatars
-
-      // Update profile with avatar path (will generate signed URL when needed)
+      // Update profile with avatar URL
       const { error: updateError } = await updateProfile({
-        avatar_url: `order-files/${fileName}`, // Store path, not signed URL
+        avatar_url: downloadURL,
       });
 
       if (updateError) throw updateError;

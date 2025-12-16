@@ -29,7 +29,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { OrderFile } from '@/types/order';
-import { supabase } from '@/integrations/supabase/client';
+import { doc, deleteDoc, getDoc } from 'firebase/firestore';
+import { ref, deleteObject } from 'firebase/storage';
+import { db, storage } from '@/integrations/firebase/config';
 import { toast } from '@/hooks/use-toast';
 
 interface FilePreviewProps {
@@ -69,12 +71,23 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     
     setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from('order_files')
-        .delete()
-        .eq('id', deleteFileId);
-
-      if (error) throw error;
+      // Get file document to find storage path
+      const fileDoc = await getDoc(doc(db, 'order_files', deleteFileId));
+      if (fileDoc.exists()) {
+        const fileData = fileDoc.data();
+        // Delete from storage if path exists
+        if (fileData.file_url) {
+          try {
+            const fileRef = ref(storage, fileData.file_url);
+            await deleteObject(fileRef);
+          } catch (storageError) {
+            console.warn('Error deleting from storage:', storageError);
+          }
+        }
+      }
+      
+      // Delete from Firestore
+      await deleteDoc(doc(db, 'order_files', deleteFileId));
 
       toast({
         title: "File deleted",

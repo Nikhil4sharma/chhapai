@@ -1,5 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { 
+  collection, 
+  query, 
+  where, 
+  orderBy, 
+  limit, 
+  getDocs, 
+  doc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc,
+  onSnapshot,
+  Timestamp
+} from 'firebase/firestore';
+import { db } from '@/integrations/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 
 export interface AppNotification {
@@ -25,20 +39,23 @@ export function useNotifications() {
     if (!user) return;
     
     try {
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(50);
+      const notificationsQuery = query(
+        collection(db, 'notifications'),
+        where('user_id', '==', user.uid),
+        orderBy('created_at', 'desc'),
+        limit(50)
+      );
+      const snapshot = await getDocs(notificationsQuery);
 
-      if (error) throw error;
-
-      setNotifications((data || []).map(n => ({
-        ...n,
-        created_at: new Date(n.created_at),
-        type: n.type as AppNotification['type'],
-      })));
+      setNotifications(snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          created_at: data.created_at?.toDate() || new Date(),
+          type: data.type as AppNotification['type'],
+        } as AppNotification;
+      }));
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
@@ -51,14 +68,15 @@ export function useNotifications() {
     if (!user) return;
     
     try {
-      const { data } = await supabase
-        .from('user_settings')
-        .select('sound_enabled')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      const settingsQuery = query(
+        collection(db, 'user_settings'),
+        where('user_id', '==', user.uid)
+      );
+      const snapshot = await getDocs(settingsQuery);
 
-      if (data) {
-        setSoundEnabled(data.sound_enabled);
+      if (!snapshot.empty) {
+        const settings = snapshot.docs[0].data();
+        setSoundEnabled(settings.sound_enabled);
       }
     } catch (error) {
       // Settings don't exist yet, use defaults
@@ -153,29 +171,26 @@ export function useNotifications() {
 
     try {
       // First check if settings exist
-      const { data: existing } = await supabase
-        .from('user_settings')
-        .select('id')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      const settingsQuery = query(
+        collection(db, 'user_settings'),
+        where('user_id', '==', user.uid)
+      );
+      const snapshot = await getDocs(settingsQuery);
       
-      if (existing) {
+      if (!snapshot.empty) {
         // Update existing
-        await supabase
-          .from('user_settings')
-          .update({
-            sound_enabled: newValue,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('user_id', user.id);
+        const settingsRef = doc(db, 'user_settings', snapshot.docs[0].id);
+        await updateDoc(settingsRef, {
+          sound_enabled: newValue,
+          updated_at: Timestamp.now(),
+        });
       } else {
         // Insert new
-        await supabase
-          .from('user_settings')
-          .insert({
-            user_id: user.id,
-            sound_enabled: newValue,
-          });
+        await setDoc(doc(collection(db, 'user_settings')), {
+          user_id: user.uid,
+          sound_enabled: newValue,
+          created_at: Timestamp.now(),
+        });
       }
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -189,10 +204,8 @@ export function useNotifications() {
     );
 
     try {
-      await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('id', id);
+      const notificationRef = doc(db, 'notifications', id);
+      await updateDoc(notificationRef, { read: true });
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }
@@ -205,11 +218,17 @@ export function useNotifications() {
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
 
     try {
-      await supabase
-        .from('notifications')
-        .update({ read: true })
-        .eq('user_id', user.id)
-        .eq('read', false);
+      const notificationsQuery = query(
+        collection(db, 'notifications'),
+        where('user_id', '==', user.uid),
+        where('read', '==', false)
+      );
+      const snapshot = await getDocs(notificationsQuery);
+      
+      const batch = snapshot.docs.map(doc => 
+        updateDoc(doc.ref, { read: true })
+      );
+      await Promise.all(batch);
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
@@ -220,10 +239,7 @@ export function useNotifications() {
     setNotifications(prev => prev.filter(n => n.id !== id));
 
     try {
-      await supabase
-        .from('notifications')
-        .delete()
-        .eq('id', id);
+      await deleteDoc(doc(db, 'notifications', id));
     } catch (error) {
       console.error('Error deleting notification:', error);
     }
@@ -239,31 +255,37 @@ export function useNotifications() {
     // Request push notification permission on load
     requestPushPermission();
 
-    const channel = supabase
-      .channel('notifications-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${user.id}`,
-        },
-        (payload) => {
+    const notificationsQuery = query(
+      collection(db, 'notifications'),
+      where('user_id', '==', user.uid),
+      orderBy('created_at', 'desc'),
+      limit(50)
+    );
+
+    const unsubscribe = onSnapshot(notificationsQuery, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === 'added') {
           const newNotification = {
-            ...payload.new,
-            created_at: new Date(payload.new.created_at),
-            type: payload.new.type as AppNotification['type'],
+            id: change.doc.id,
+            ...change.doc.data(),
+            created_at: change.doc.data().created_at?.toDate() || new Date(),
+            type: change.doc.data().type as AppNotification['type'],
           } as AppNotification;
 
-          setNotifications(prev => [newNotification, ...prev]);
+          setNotifications(prev => {
+            // Avoid duplicates
+            if (prev.find(n => n.id === newNotification.id)) {
+              return prev;
+            }
+            return [newNotification, ...prev];
+          });
 
-          // Play sound for urgent/delayed/info notifications (assignments, stage changes)
+          // Play sound for urgent/delayed/info notifications
           if (newNotification.type === 'urgent' || newNotification.type === 'delayed' || newNotification.type === 'info') {
             playSound();
           }
 
-          // Show browser push notification for ALL notification types
+          // Show browser push notification
           if (Notification.permission === 'granted') {
             showPushNotification(
               newNotification.title,
@@ -281,12 +303,10 @@ export function useNotifications() {
             });
           }
         }
-      )
-      .subscribe();
+      });
+    });
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => unsubscribe();
   }, [user, fetchNotifications, fetchSettings, playSound, requestPushPermission, showPushNotification]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
@@ -316,16 +336,16 @@ export async function createNotification(
   itemId?: string
 ) {
   try {
-    await supabase
-      .from('notifications')
-      .insert({
-        user_id: userId,
-        title,
-        message,
-        type,
-        order_id: orderId,
-        item_id: itemId,
-      });
+    await setDoc(doc(collection(db, 'notifications')), {
+      user_id: userId,
+      title,
+      message,
+      type,
+      order_id: orderId || null,
+      item_id: itemId || null,
+      read: false,
+      created_at: Timestamp.now(),
+    });
   } catch (error) {
     console.error('Error creating notification:', error);
   }

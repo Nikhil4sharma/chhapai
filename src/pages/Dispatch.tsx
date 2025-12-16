@@ -11,7 +11,8 @@ import { format } from 'date-fns';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { db } from '@/integrations/firebase/config';
 import {
   Tooltip,
   TooltipContent,
@@ -69,17 +70,13 @@ export default function Dispatch() {
 
     try {
       // Save dispatch info to the order item
-      const { error: updateError } = await supabase
-        .from('order_items')
-        .update({
-          dispatch_info: JSON.parse(JSON.stringify(dispatchInfo)),
-          current_stage: 'completed',
-          is_dispatched: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', selectedItem.itemId);
-
-      if (updateError) throw updateError;
+      const itemRef = doc(db, 'order_items', selectedItem.itemId);
+      await updateDoc(itemRef, {
+        dispatch_info: JSON.parse(JSON.stringify(dispatchInfo)),
+        current_stage: 'completed',
+        is_dispatched: true,
+        updated_at: Timestamp.now(),
+      });
 
       // Add timeline entry for dispatch with details
       await addTimelineEntry({
@@ -87,7 +84,7 @@ export default function Dispatch() {
         item_id: selectedItem.itemId,
         stage: 'dispatch',
         action: 'dispatched',
-        performed_by: user?.id || '',
+        performed_by: user?.uid || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Dispatched via ${dispatchInfo.courier_company} | AWB: ${dispatchInfo.tracking_number} | Date: ${dispatchInfo.dispatch_date}`,
         is_public: true,
@@ -102,10 +99,11 @@ export default function Dispatch() {
         const allCompleted = updatedItems.every(i => i.current_stage === 'completed');
 
         if (allCompleted && order.id) {
-          await supabase
-            .from('orders')
-            .update({ is_completed: true, updated_at: new Date().toISOString() })
-            .eq('id', order.id);
+          const orderRef = doc(db, 'orders', order.id);
+          await updateDoc(orderRef, { 
+            is_completed: true, 
+            updated_at: Timestamp.now() 
+          });
         }
       }
 

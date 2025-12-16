@@ -59,6 +59,24 @@ This project is built with:
 - React
 - shadcn-ui
 - Tailwind CSS
+- Firebase (Authentication, Firestore, Storage)
+
+## Firebase Setup
+
+1. Create a Firebase project at [Firebase Console](https://console.firebase.google.com/)
+2. Enable Authentication (Email/Password)
+3. Create a Firestore database
+4. Create a Storage bucket
+5. Copy your Firebase config to `.env` file (see `.env.example`)
+6. Update `.firebaserc` with your project ID
+
+## Deployment to Firebase
+
+1. Install Firebase CLI: `npm install -g firebase-tools`
+2. Login: `firebase login`
+3. Initialize: `firebase init` (select Hosting and Firestore)
+4. Build: `npm run build`
+5. Deploy: `firebase deploy`
 
 ## How can I deploy this project?
 

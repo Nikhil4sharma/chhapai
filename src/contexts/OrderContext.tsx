@@ -2,7 +2,23 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { Order, OrderItem, TimelineEntry, Stage, SubStage, Priority } from '@/types/order';
 import { useAuth } from './AuthContext';
 import { toast } from '@/hooks/use-toast';
-import { supabase } from '@/integrations/supabase/client';
+import { 
+  collection, 
+  doc, 
+  getDoc, 
+  getDocs, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc,
+  query, 
+  where, 
+  orderBy,
+  onSnapshot,
+  Timestamp,
+  writeBatch
+} from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { db, storage } from '@/integrations/firebase/config';
 
 interface OrderContextType {
   orders: Order[];
@@ -58,16 +74,16 @@ const createNotification = async (
   itemId?: string
 ) => {
   try {
-    await supabase
-      .from('notifications')
-      .insert({
-        user_id: userId,
-        title,
-        message,
-        type,
-        order_id: orderId,
-        item_id: itemId,
-      });
+    await setDoc(doc(collection(db, 'notifications')), {
+      user_id: userId,
+      title,
+      message,
+      type,
+      order_id: orderId || null,
+      item_id: itemId || null,
+      read: false,
+      created_at: Timestamp.now(),
+    });
   } catch (error) {
     console.error('Error creating notification:', error);
   }
@@ -84,36 +100,33 @@ const notifyStageChange = async (
 ) => {
   try {
     // Get admins - they always get notifications
-    const { data: admins } = await supabase
-      .from('user_roles')
-      .select('user_id')
-      .eq('role', 'admin');
+    const adminsQuery = query(collection(db, 'user_roles'), where('role', '==', 'admin'));
+    const adminsSnapshot = await getDocs(adminsQuery);
+    const admins = adminsSnapshot.docs.map(d => ({ user_id: d.data().user_id }));
 
     // Get sales users - they get notifications for all orders
-    const { data: salesUsers } = await supabase
-      .from('user_roles')
-      .select('user_id')
-      .eq('role', 'sales');
+    const salesQuery = query(collection(db, 'user_roles'), where('role', '==', 'sales'));
+    const salesSnapshot = await getDocs(salesQuery);
+    const salesUsers = salesSnapshot.docs.map(d => ({ user_id: d.data().user_id }));
 
     // Get users in the TARGET department only
     const targetDept = newStage === 'dispatch' || newStage === 'completed' ? 'production' : newStage;
-    const { data: deptUsers } = await supabase
-      .from('user_roles')
-      .select('user_id')
-      .eq('role', targetDept);
+    const deptQuery = query(collection(db, 'user_roles'), where('role', '==', targetDept));
+    const deptSnapshot = await getDocs(deptQuery);
+    const deptUsers = deptSnapshot.docs.map(d => ({ user_id: d.data().user_id }));
 
     const notifyUsers = new Set<string>();
     
     // Add admins
-    admins?.forEach(a => notifyUsers.add(a.user_id));
+    admins.forEach(a => notifyUsers.add(a.user_id));
     
     // Add sales for relevant events (dispatched, completed)
     if (newStage === 'dispatch' || newStage === 'completed') {
-      salesUsers?.forEach(u => notifyUsers.add(u.user_id));
+      salesUsers.forEach(u => notifyUsers.add(u.user_id));
     }
     
     // Add target department users
-    deptUsers?.forEach(u => notifyUsers.add(u.user_id));
+    deptUsers.forEach(u => notifyUsers.add(u.user_id));
     
     // Don't notify the performer
     notifyUsers.delete(performerId);
@@ -132,7 +145,7 @@ const notifyStageChange = async (
   }
 };
 
-// Helper to check and notify urgent/delayed orders - notifies admin AND assigned department
+// Helper to check and notify urgent/delayed orders
 const checkAndNotifyPriority = async (
   orderId: string,
   itemId: string,
@@ -145,10 +158,9 @@ const checkAndNotifyPriority = async (
 
   try {
     // Get admins
-    const { data: admins } = await supabase
-      .from('user_roles')
-      .select('user_id')
-      .eq('role', 'admin');
+    const adminsQuery = query(collection(db, 'user_roles'), where('role', '==', 'admin'));
+    const adminsSnapshot = await getDocs(adminsQuery);
+    const admins = adminsSnapshot.docs.map(d => ({ user_id: d.data().user_id }));
 
     // Get assigned department users if urgent
     let deptUsers: { user_id: string }[] = [];
@@ -156,11 +168,9 @@ const checkAndNotifyPriority = async (
       const validRoles = ['admin', 'sales', 'design', 'prepress', 'production'] as const;
       const roleToQuery = validRoles.includes(assignedDepartment as any) ? assignedDepartment as typeof validRoles[number] : null;
       if (roleToQuery) {
-        const { data } = await supabase
-          .from('user_roles')
-          .select('user_id')
-          .eq('role', roleToQuery);
-        deptUsers = data || [];
+        const deptQuery = query(collection(db, 'user_roles'), where('role', '==', roleToQuery));
+        const deptSnapshot = await getDocs(deptQuery);
+        deptUsers = deptSnapshot.docs.map(d => ({ user_id: d.data().user_id }));
       }
     }
 
@@ -169,7 +179,7 @@ const checkAndNotifyPriority = async (
       const message = `${productName} (${orderId}) is now URGENT - delivery approaching!`;
       
       const notifyUsers = new Set<string>();
-      admins?.forEach(a => notifyUsers.add(a.user_id));
+      admins.forEach(a => notifyUsers.add(a.user_id));
       deptUsers.forEach(u => notifyUsers.add(u.user_id));
       
       for (const userId of notifyUsers) {
@@ -190,86 +200,54 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   // Check if user can view financial data
   const canViewFinancials = isAdmin || role === 'sales';
 
-  // Fetch orders from Supabase
+  // Fetch orders from Firestore
   const fetchOrders = useCallback(async () => {
     try {
       setIsLoading(true);
       
-      const { data: ordersData, error: ordersError } = await supabase
-        .from('orders_secure')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // Fetch orders
+      const ordersQuery = query(collection(db, 'orders'), orderBy('created_at', 'desc'));
+      const ordersSnapshot = await getDocs(ordersQuery);
+      const ordersData = ordersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      if (ordersError) throw ordersError;
+      // Fetch items
+      const itemsSnapshot = await getDocs(collection(db, 'order_items'));
+      const itemsData = itemsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      const { data: itemsData, error: itemsError } = await supabase
-        .from('order_items')
-        .select('*');
+      // Fetch files
+      const filesSnapshot = await getDocs(collection(db, 'order_files'));
+      const filesData = filesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-      if (itemsError) throw itemsError;
+      // Fetch profiles for user names
+      const profilesSnapshot = await getDocs(collection(db, 'profiles'));
+      const profilesMap = new Map(profilesSnapshot.docs.map(d => [d.data().user_id, d.data().full_name]));
 
-      const { data: filesData, error: filesError } = await supabase
-        .from('order_files')
-        .select('*');
-
-      if (filesError) throw filesError;
-
-      const { data: profilesData } = await supabase
-        .from('profiles_secure')
-        .select('user_id, full_name');
-
-      const profilesMap = new Map(profilesData?.map(p => [p.user_id, p.full_name]) || []);
-
-      // Generate signed URLs for files
-      const getSignedUrl = async (fileUrl: string): Promise<string> => {
-        try {
-          let filePath = '';
-          
-          // Handle new format: "order-files/path/to/file"
-          if (fileUrl.startsWith('order-files/')) {
-            filePath = fileUrl.replace('order-files/', '');
+      // Process files to get download URLs
+      const filesWithUrls = await Promise.all(
+        filesData.map(async (file: any) => {
+          try {
+            const fileRef = ref(storage, file.file_url);
+            const url = await getDownloadURL(fileRef);
+            return { ...file, file_url: url };
+          } catch (error) {
+            console.error('Error getting file URL:', error);
+            return file;
           }
-          // Handle old format: full URL with "/order-files/" in path
-          else if (fileUrl.includes('/order-files/')) {
-            const urlParts = fileUrl.split('/order-files/');
-            if (urlParts.length > 1) {
-              filePath = urlParts[1].split('?')[0]; // Remove any query params
-            }
-          }
-          
-          if (filePath) {
-            const { data } = await supabase.storage
-              .from('order-files')
-              .createSignedUrl(filePath, 3600); // 1 hour expiry
-            return data?.signedUrl || fileUrl;
-          }
-          return fileUrl;
-        } catch (error) {
-          console.error('Error generating signed URL:', error);
-          return fileUrl;
-        }
-      };
-
-      // Process files to get signed URLs
-      const filesWithSignedUrls = await Promise.all(
-        (filesData || []).map(async (file) => ({
-          ...file,
-          file_url: await getSignedUrl(file.file_url),
-        }))
+        })
       );
 
-      const mappedOrders: Order[] = (ordersData || []).map(order => {
-        const orderItems = (itemsData || [])
-          .filter(item => item.order_id === order.id)
-          .map(item => {
-            const itemFiles = filesWithSignedUrls
-              .filter(file => file.item_id === item.id || (file.order_id === order.id && !file.item_id))
-              .map(file => ({
+      const mappedOrders: Order[] = ordersData.map((order: any) => {
+        const orderItems = itemsData
+          .filter((item: any) => item.order_id === order.id)
+          .map((item: any) => {
+            const itemFiles = filesWithUrls
+              .filter((file: any) => file.item_id === item.id || (file.order_id === order.id && !file.item_id))
+              .map((file: any) => ({
                 file_id: file.id,
                 url: file.file_url,
                 type: file.file_type as 'proof' | 'final' | 'image' | 'other',
                 uploaded_by: file.uploaded_by || '',
-                uploaded_at: new Date(file.created_at),
+                uploaded_at: file.created_at?.toDate() || new Date(),
                 is_public: file.is_public,
                 file_name: file.file_name,
               }));
@@ -280,25 +258,23 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
               item_id: item.id,
               order_id: item.order_id,
               product_name: item.product_name,
-              // SKU is hidden - not included in the mapped item
               quantity: item.quantity,
-              // Only include line_total for admin/sales
-              line_total: canViewFinancials ? ((item as any).line_total || undefined) : undefined,
+              line_total: canViewFinancials ? (item.line_total || undefined) : undefined,
               specifications: item.specifications || {},
-              woo_meta: (item as any).woo_meta || undefined,
+              woo_meta: item.woo_meta || undefined,
               need_design: item.need_design,
               current_stage: item.current_stage as Stage,
               current_substage: item.current_substage as SubStage,
               assigned_to: item.assigned_to,
               assigned_to_name: assignedUserName,
               assigned_department: item.assigned_department as any,
-              delivery_date: item.delivery_date ? new Date(item.delivery_date) : new Date(),
-              priority_computed: computePriority(item.delivery_date ? new Date(item.delivery_date) : null),
+              delivery_date: item.delivery_date?.toDate() || new Date(),
+              priority_computed: computePriority(item.delivery_date?.toDate() || null),
               files: itemFiles,
               is_ready_for_production: item.is_ready_for_production,
               is_dispatched: item.is_dispatched,
-              created_at: new Date(item.created_at),
-              updated_at: new Date(item.updated_at),
+              created_at: item.created_at?.toDate() || new Date(),
+              updated_at: item.updated_at?.toDate() || new Date(),
               production_stage_sequence: item.production_stage_sequence || undefined,
             } as OrderItem;
           });
@@ -312,35 +288,34 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
             phone: order.customer_phone || '',
             email: order.customer_email || '',
             address: order.customer_address || '',
-            city: (order as any).billing_city || undefined,
-            state: (order as any).billing_state || undefined,
-            pincode: (order as any).billing_pincode || undefined,
+            city: order.billing_city || undefined,
+            state: order.billing_state || undefined,
+            pincode: order.billing_pincode || undefined,
           },
-          shipping: (order as any).shipping_name ? {
-            name: (order as any).shipping_name || '',
-            email: (order as any).shipping_email || undefined,
-            phone: (order as any).shipping_phone || undefined,
-            address: (order as any).shipping_address || '',
-            city: (order as any).shipping_city || undefined,
-            state: (order as any).shipping_state || undefined,
-            pincode: (order as any).shipping_pincode || undefined,
+          shipping: order.shipping_name ? {
+            name: order.shipping_name || '',
+            email: order.shipping_email || undefined,
+            phone: order.shipping_phone || undefined,
+            address: order.shipping_address || '',
+            city: order.shipping_city || undefined,
+            state: order.shipping_state || undefined,
+            pincode: order.shipping_pincode || undefined,
           } : undefined,
-          // Only include financial data for admin/sales users
           financials: canViewFinancials ? {
-            total: (order as any).order_total || undefined,
-            tax_cgst: (order as any).tax_cgst || undefined,
-            tax_sgst: (order as any).tax_sgst || undefined,
-            payment_status: (order as any).payment_status || undefined,
+            total: order.order_total || undefined,
+            tax_cgst: order.tax_cgst || undefined,
+            tax_sgst: order.tax_sgst || undefined,
+            payment_status: order.payment_status || undefined,
           } : undefined,
-          woo_order_id: (order as any).woo_order_id || undefined,
-          order_status: (order as any).order_status || undefined,
+          woo_order_id: order.woo_order_id || undefined,
+          order_status: order.order_status || undefined,
           created_by: order.created_by || '',
-          created_at: new Date(order.created_at),
-          updated_at: new Date(order.updated_at),
+          created_at: order.created_at?.toDate() || new Date(),
+          updated_at: order.updated_at?.toDate() || new Date(),
           global_notes: order.global_notes,
           is_completed: order.is_completed,
-          order_level_delivery_date: order.delivery_date ? new Date(order.delivery_date) : undefined,
-          priority_computed: computePriority(order.delivery_date ? new Date(order.delivery_date) : null),
+          order_level_delivery_date: order.delivery_date?.toDate() || undefined,
+          priority_computed: computePriority(order.delivery_date?.toDate() || null),
           items: orderItems,
         } as Order;
       });
@@ -356,33 +331,32 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [canViewFinancials]);
 
   const fetchTimeline = useCallback(async () => {
     try {
-      const { data, error } = await supabase
-        .from('timeline')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const timelineQuery = query(collection(db, 'timeline'), orderBy('created_at', 'desc'));
+      const timelineSnapshot = await getDocs(timelineQuery);
 
-      if (error) throw error;
-
-      const mappedTimeline: TimelineEntry[] = (data || []).map(entry => ({
-        timeline_id: entry.id,
-        order_id: entry.order_id,
-        item_id: entry.item_id,
-        stage: entry.stage as Stage,
-        substage: entry.substage as SubStage,
-        action: entry.action as any,
-        performed_by: entry.performed_by || '',
-        performed_by_name: entry.performed_by_name || 'Unknown',
-        notes: entry.notes,
-        attachments: entry.attachments as any,
-        qty_confirmed: entry.qty_confirmed,
-        paper_treatment: entry.paper_treatment,
-        created_at: new Date(entry.created_at),
-        is_public: entry.is_public,
-      }));
+      const mappedTimeline: TimelineEntry[] = timelineSnapshot.docs.map(doc => {
+        const entry = doc.data();
+        return {
+          timeline_id: doc.id,
+          order_id: entry.order_id,
+          item_id: entry.item_id,
+          stage: entry.stage as Stage,
+          substage: entry.substage as SubStage,
+          action: entry.action as any,
+          performed_by: entry.performed_by || '',
+          performed_by_name: entry.performed_by_name || 'Unknown',
+          notes: entry.notes,
+          attachments: entry.attachments as any,
+          qty_confirmed: entry.qty_confirmed,
+          paper_treatment: entry.paper_treatment,
+          created_at: entry.created_at?.toDate() || new Date(),
+          is_public: entry.is_public,
+        };
+      });
 
       setTimeline(mappedTimeline);
     } catch (error) {
@@ -397,29 +371,32 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     fetchOrders();
     fetchTimeline();
 
-    // Subscribe to real-time changes on all relevant tables
-    const ordersChannel = supabase
-      .channel('orders-realtime-all')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-        console.log('Orders changed - refreshing');
-        fetchOrders();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, () => {
-        console.log('Order items changed - refreshing');
-        fetchOrders();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_files' }, () => {
-        console.log('Order files changed - refreshing');
-        fetchOrders();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'timeline' }, () => {
-        console.log('Timeline changed - refreshing');
-        fetchTimeline();
-      })
-      .subscribe();
+    // Subscribe to real-time changes
+    const unsubscribeOrders = onSnapshot(collection(db, 'orders'), () => {
+      console.log('Orders changed - refreshing');
+      fetchOrders();
+    });
+
+    const unsubscribeItems = onSnapshot(collection(db, 'order_items'), () => {
+      console.log('Order items changed - refreshing');
+      fetchOrders();
+    });
+
+    const unsubscribeFiles = onSnapshot(collection(db, 'order_files'), () => {
+      console.log('Order files changed - refreshing');
+      fetchOrders();
+    });
+
+    const unsubscribeTimeline = onSnapshot(collection(db, 'timeline'), () => {
+      console.log('Timeline changed - refreshing');
+      fetchTimeline();
+    });
 
     return () => {
-      supabase.removeChannel(ordersChannel);
+      unsubscribeOrders();
+      unsubscribeItems();
+      unsubscribeFiles();
+      unsubscribeTimeline();
     };
   }, [user, fetchOrders, fetchTimeline]);
 
@@ -448,7 +425,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
     return orders.filter(order =>
       !order.is_completed && order.items.some(item => 
-        item.assigned_department === role || item.assigned_to === user?.id
+        item.assigned_department === role || item.assigned_to === user?.uid
       )
     );
   }, [orders, role, isAdmin, user]);
@@ -473,24 +450,22 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
   const addTimelineEntry = useCallback(async (entry: Omit<TimelineEntry, 'timeline_id' | 'created_at'>) => {
     try {
-      const { error } = await supabase
-        .from('timeline')
-        .insert({
-          order_id: entry.order_id,
-          item_id: entry.item_id,
-          stage: entry.stage,
-          substage: entry.substage,
-          action: entry.action,
-          performed_by: entry.performed_by,
-          performed_by_name: entry.performed_by_name,
-          notes: entry.notes,
-          attachments: entry.attachments,
-          qty_confirmed: entry.qty_confirmed,
-          paper_treatment: entry.paper_treatment,
-          is_public: entry.is_public ?? true,
-        });
+      await setDoc(doc(collection(db, 'timeline')), {
+        order_id: entry.order_id,
+        item_id: entry.item_id || null,
+        stage: entry.stage,
+        substage: entry.substage || null,
+        action: entry.action,
+        performed_by: entry.performed_by,
+        performed_by_name: entry.performed_by_name,
+        notes: entry.notes || null,
+        attachments: entry.attachments || null,
+        qty_confirmed: entry.qty_confirmed || null,
+        paper_treatment: entry.paper_treatment || null,
+        is_public: entry.is_public ?? true,
+        created_at: Timestamp.now(),
+      });
 
-      if (error) throw error;
       await fetchTimeline();
     } catch (error) {
       console.error('Error adding timeline entry:', error);
@@ -514,35 +489,31 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         completed: 'production',
       };
 
-      // Add timeline entry FIRST (before changing department) to satisfy RLS
+      // Add timeline entry FIRST
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
         stage: newStage,
         substage: substage,
         action: 'assigned',
-        performed_by: user?.id || '',
+        performed_by: user?.uid || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Moved to ${newStage}${substage ? ` - ${substage}` : ''}`,
         is_public: true,
       });
 
-      // Update the item stage AFTER timeline entry is added
-      const { error } = await supabase
-        .from('order_items')
-        .update({
-          current_stage: newStage,
-          current_substage: substage || null,
-          assigned_department: deptMap[newStage],
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', itemId);
-
-      if (error) throw error;
+      // Update the item stage
+      const itemRef = doc(db, 'order_items', itemId);
+      await updateDoc(itemRef, {
+        current_stage: newStage,
+        current_substage: substage || null,
+        assigned_department: deptMap[newStage],
+        updated_at: Timestamp.now(),
+      });
 
       // Send notifications for stage change
-      if (user?.id) {
-        await notifyStageChange(order.order_id, itemId, item.product_name, newStage, user.id);
+      if (user?.uid) {
+        await notifyStageChange(order.order_id, itemId, item.product_name, newStage, user.uid);
       }
 
       await fetchOrders();
@@ -572,15 +543,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const order = orders.find(o => o.order_id === orderId);
       if (!order) return;
 
-      const { error } = await supabase
-        .from('order_items')
-        .update({
-          current_substage: substage,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', itemId);
-
-      if (error) throw error;
+      const itemRef = doc(db, 'order_items', itemId);
+      await updateDoc(itemRef, {
+        current_substage: substage,
+        updated_at: Timestamp.now(),
+      });
 
       await addTimelineEntry({
         order_id: order.id!,
@@ -588,7 +555,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         stage: 'production',
         substage: substage,
         action: 'substage_started',
-        performed_by: user?.id || '',
+        performed_by: user?.uid || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Started ${substage}`,
         is_public: true,
@@ -627,7 +594,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       stage: 'production',
       substage: item.current_substage,
       action: 'substage_completed',
-      performed_by: user?.id || '',
+      performed_by: user?.uid || '',
       performed_by_name: profile?.full_name || 'Unknown',
       notes: `Completed ${item.current_substage}`,
       is_public: true,
@@ -637,15 +604,13 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       await updateItemStage(orderId, itemId, 'dispatch');
       
       // Notify about ready for dispatch
-      if (user?.id) {
-        const { data: admins } = await supabase
-          .from('user_roles')
-          .select('user_id')
-          .eq('role', 'admin');
+      if (user?.uid) {
+        const adminsQuery = query(collection(db, 'user_roles'), where('role', '==', 'admin'));
+        const adminsSnapshot = await getDocs(adminsQuery);
         
-        for (const admin of admins || []) {
+        for (const adminDoc of adminsSnapshot.docs) {
           await createNotification(
-            admin.user_id,
+            adminDoc.data().user_id,
             'Ready for Dispatch',
             `${item.product_name} (${orderId}) is ready for dispatch`,
             'success',
@@ -671,39 +636,33 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const item = order.items.find(i => i.item_id === itemId);
 
-      const { error } = await supabase
-        .from('order_items')
-        .update({
-          current_stage: 'completed',
-          is_dispatched: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', itemId);
-
-      if (error) throw error;
+      const itemRef = doc(db, 'order_items', itemId);
+      await updateDoc(itemRef, {
+        current_stage: 'completed',
+        is_dispatched: true,
+        updated_at: Timestamp.now(),
+      });
 
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
         stage: 'dispatch',
         action: 'dispatched',
-        performed_by: user?.id || '',
+        performed_by: user?.uid || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: 'Item dispatched',
         is_public: true,
       });
 
       // Notify about dispatch
-      if (user?.id && item) {
-        const { data: admins } = await supabase
-          .from('user_roles')
-          .select('user_id')
-          .eq('role', 'admin');
+      if (user?.uid && item) {
+        const adminsQuery = query(collection(db, 'user_roles'), where('role', '==', 'admin'));
+        const adminsSnapshot = await getDocs(adminsQuery);
         
-        for (const admin of admins || []) {
-          if (admin.user_id !== user.id) {
+        for (const adminDoc of adminsSnapshot.docs) {
+          if (adminDoc.data().user_id !== user.uid) {
             await createNotification(
-              admin.user_id,
+              adminDoc.data().user_id,
               'Order Dispatched',
               `${item.product_name} (${orderId}) has been dispatched`,
               'success',
@@ -720,10 +679,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const allCompleted = updatedItems.every(i => i.current_stage === 'completed');
 
       if (allCompleted) {
-        await supabase
-          .from('orders')
-          .update({ is_completed: true, updated_at: new Date().toISOString() })
-          .eq('id', order.id);
+        const orderRef = doc(db, 'orders', order.id!);
+        await updateDoc(orderRef, { 
+          is_completed: true, 
+          updated_at: Timestamp.now() 
+        });
       }
 
       await fetchOrders();
@@ -747,22 +707,18 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const order = orders.find(o => o.order_id === orderId);
       if (!order) return;
 
-      const { error } = await supabase
-        .from('order_items')
-        .update({
-          production_stage_sequence: sequence,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', itemId);
-
-      if (error) throw error;
+      const itemRef = doc(db, 'order_items', itemId);
+      await updateDoc(itemRef, {
+        production_stage_sequence: sequence,
+        updated_at: Timestamp.now(),
+      });
 
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
         stage: 'prepress',
         action: 'assigned',
-        performed_by: user?.id || '',
+        performed_by: user?.uid || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Production sequence set: ${sequence.join(' → ')}`,
         is_public: true,
@@ -794,49 +750,41 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     const firstStage = sequence[0] as SubStage;
 
     try {
-      // Save production sequence FIRST (while still in prepress)
+      // Save production sequence FIRST
       if (stageSequence && stageSequence.length > 0) {
-        const { error: seqError } = await supabase
-          .from('order_items')
-          .update({
-            production_stage_sequence: stageSequence,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', itemId);
-        
-        if (seqError) throw seqError;
+        const itemRef = doc(db, 'order_items', itemId);
+        await updateDoc(itemRef, {
+          production_stage_sequence: stageSequence,
+          updated_at: Timestamp.now(),
+        });
       }
 
-      // Add timeline entry BEFORE changing department (while user still has RLS access)
+      // Add timeline entry BEFORE changing department
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
         stage: 'production',
         substage: firstStage,
         action: 'sent_to_production',
-        performed_by: user?.id || '',
+        performed_by: user?.uid || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Sent to production with sequence: ${sequence.join(' → ')}`,
         is_public: true,
       });
 
       // Now update department to production
-      const { error } = await supabase
-        .from('order_items')
-        .update({
-          current_stage: 'production',
-          current_substage: firstStage,
-          assigned_department: 'production',
-          is_ready_for_production: true,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', itemId);
-
-      if (error) throw error;
+      const itemRef = doc(db, 'order_items', itemId);
+      await updateDoc(itemRef, {
+        current_stage: 'production',
+        current_substage: firstStage,
+        assigned_department: 'production',
+        is_ready_for_production: true,
+        updated_at: Timestamp.now(),
+      });
 
       // Send notifications for stage change
-      if (user?.id) {
-        await notifyStageChange(order.order_id, itemId, item.product_name, 'production', user.id);
+      if (user?.uid) {
+        await notifyStageChange(order.order_id, itemId, item.product_name, 'production', user.uid);
       }
 
       await fetchOrders();
@@ -874,22 +822,18 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const item = order.items.find(i => i.item_id === itemId);
 
-      const { error } = await supabase
-        .from('order_items')
-        .update({
-          assigned_to: userId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', itemId);
-
-      if (error) throw error;
+      const itemRef = doc(db, 'order_items', itemId);
+      await updateDoc(itemRef, {
+        assigned_to: userId,
+        updated_at: Timestamp.now(),
+      });
 
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
         stage: item?.current_stage || 'sales',
         action: 'assigned',
-        performed_by: user?.id || '',
+        performed_by: user?.uid || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Assigned to ${userName}`,
         is_public: true,
@@ -930,56 +874,50 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const fileExt = file.name.split('.').pop();
       const fileName = `${orderId}/${itemId}/${Date.now()}.${fileExt}`;
+      const filePath = `order-files/${fileName}`;
       
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('order-files')
-        .upload(fileName, file);
+      // Upload to Firebase Storage
+      const fileRef = ref(storage, filePath);
+      await uploadBytes(fileRef, file);
 
-      if (uploadError) throw uploadError;
-
-      // Create signed URL for the uploaded file
-      const { data: urlData } = await supabase.storage
-        .from('order-files')
-        .createSignedUrl(fileName, 3600); // 1 hour expiry
-      
-      const fileUrl = urlData?.signedUrl || fileName;
+      // Get download URL
+      const downloadURL = await getDownloadURL(fileRef);
 
       const fileType = file.type.includes('pdf') ? 'proof' : 
                        file.type.includes('image') ? 'image' : 'other';
 
       if (replaceExisting) {
-        await supabase
-          .from('order_files')
-          .delete()
-          .eq('item_id', itemId);
+        // Delete existing files for this item
+        const existingFilesQuery = query(collection(db, 'order_files'), where('item_id', '==', itemId));
+        const existingFilesSnapshot = await getDocs(existingFilesQuery);
+        const batch = writeBatch(db);
+        existingFilesSnapshot.docs.forEach(doc => {
+          batch.delete(doc.ref);
+        });
+        await batch.commit();
       }
 
-      // Store the file path (not signed URL) in database for future signed URL generation
-      const storedPath = `order-files/${fileName}`;
-      
-      const { error: insertError } = await supabase
-        .from('order_files')
-        .insert({
-          order_id: order.id,
-          item_id: itemId,
-          file_url: storedPath,
-          file_name: file.name,
-          file_type: fileType,
-          uploaded_by: user?.id,
-          is_public: true,
-        });
-
-      if (insertError) throw insertError;
+      // Store file metadata in Firestore
+      await setDoc(doc(collection(db, 'order_files')), {
+        order_id: order.id,
+        item_id: itemId,
+        file_url: filePath,
+        file_name: file.name,
+        file_type: fileType,
+        uploaded_by: user?.uid,
+        is_public: true,
+        created_at: Timestamp.now(),
+      });
 
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
         stage: order.items.find(i => i.item_id === itemId)?.current_stage || 'sales',
         action: replaceExisting ? 'final_proof_uploaded' : 'uploaded_proof',
-        performed_by: user?.id || '',
+        performed_by: user?.uid || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `${replaceExisting ? 'Replaced with' : 'Uploaded'} ${file.name}`,
-        attachments: [{ url: fileUrl, type: file.type }],
+        attachments: [{ url: downloadURL, type: file.type }],
         is_public: true,
       });
 
@@ -1006,21 +944,17 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const newNotes = order.global_notes ? `${order.global_notes}\n${note}` : note;
 
-      const { error } = await supabase
-        .from('orders')
-        .update({
-          global_notes: newNotes,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', order.id);
-
-      if (error) throw error;
+      const orderRef = doc(db, 'orders', order.id!);
+      await updateDoc(orderRef, {
+        global_notes: newNotes,
+        updated_at: Timestamp.now(),
+      });
 
       await addTimelineEntry({
         order_id: order.id!,
         stage: 'sales',
         action: 'note_added',
-        performed_by: user?.id || '',
+        performed_by: user?.uid || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: note,
         is_public: false,
@@ -1047,25 +981,21 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const order = orders.find(o => o.order_id === orderId);
       if (!order) return;
 
-      const dbUpdates: any = {
-        updated_at: new Date().toISOString(),
+      const orderRef = doc(db, 'orders', order.id!);
+      const updateData: any = {
+        updated_at: Timestamp.now(),
       };
 
       if (updates.customer) {
-        dbUpdates.customer_name = updates.customer.name;
-        dbUpdates.customer_email = updates.customer.email;
-        dbUpdates.customer_phone = updates.customer.phone;
-        dbUpdates.customer_address = updates.customer.address;
+        updateData.customer_name = updates.customer.name;
+        updateData.customer_email = updates.customer.email;
+        updateData.customer_phone = updates.customer.phone;
+        updateData.customer_address = updates.customer.address;
       }
-      if (updates.global_notes !== undefined) dbUpdates.global_notes = updates.global_notes;
-      if (updates.order_level_delivery_date) dbUpdates.delivery_date = updates.order_level_delivery_date.toISOString();
+      if (updates.global_notes !== undefined) updateData.global_notes = updates.global_notes;
+      if (updates.order_level_delivery_date) updateData.delivery_date = Timestamp.fromDate(updates.order_level_delivery_date);
 
-      const { error } = await supabase
-        .from('orders')
-        .update(dbUpdates)
-        .eq('id', order.id);
-
-      if (error) throw error;
+      await updateDoc(orderRef, updateData);
 
       await fetchOrders();
 
@@ -1097,16 +1027,28 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      await supabase.from('timeline').delete().eq('order_id', order.id);
-      await supabase.from('order_files').delete().eq('order_id', order.id);
-      await supabase.from('order_items').delete().eq('order_id', order.id);
+      // Delete related documents
+      const batch = writeBatch(db);
       
-      const { error } = await supabase
-        .from('orders')
-        .delete()
-        .eq('id', order.id);
+      // Delete timeline entries
+      const timelineQuery = query(collection(db, 'timeline'), where('order_id', '==', order.id));
+      const timelineSnapshot = await getDocs(timelineQuery);
+      timelineSnapshot.docs.forEach(doc => batch.delete(doc.ref));
 
-      if (error) throw error;
+      // Delete files
+      const filesQuery = query(collection(db, 'order_files'), where('order_id', '==', order.id));
+      const filesSnapshot = await getDocs(filesQuery);
+      filesSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+
+      // Delete items
+      const itemsQuery = query(collection(db, 'order_items'), where('order_id', '==', order.id));
+      const itemsSnapshot = await getDocs(itemsQuery);
+      itemsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
+
+      // Delete order
+      batch.delete(doc(db, 'orders', order.id!));
+      
+      await batch.commit();
 
       await fetchOrders();
 

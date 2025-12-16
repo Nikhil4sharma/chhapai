@@ -31,7 +31,9 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { PRODUCTION_STEPS } from '@/types/order';
-import { supabase } from '@/integrations/supabase/client';
+// Note: WooCommerce integration may need Firebase Cloud Functions
+// For now, this is a placeholder - you'll need to implement Cloud Functions
+// or use a different approach for WooCommerce integration
 import { WooCommerceCredentialsDialog } from '@/components/dialogs/WooCommerceCredentialsDialog';
 
 export default function Settings() {
