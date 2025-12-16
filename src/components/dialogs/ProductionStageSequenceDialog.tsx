@@ -99,7 +99,7 @@ export function ProductionStageSequenceDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <div className="space-y-4 py-4 max-h-[60vh] overflow-y-auto custom-scrollbar">
           <div className="text-sm text-muted-foreground mb-2">
             Drag to reorder or use arrows. Uncheck stages not needed.
           </div>
@@ -107,7 +107,7 @@ export function ProductionStageSequenceDialog({
           {/* Available stages to add */}
           <div className="space-y-2 mb-4">
             <Label className="text-xs font-medium text-muted-foreground">Available Stages:</Label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 border border-border rounded-lg">
               {PRODUCTION_STEPS.map(stage => (
                 <div key={stage.key} className="flex items-center gap-2">
                   <Checkbox

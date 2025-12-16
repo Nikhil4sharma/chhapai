@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -19,7 +19,6 @@ export function useNotifications() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useAuth();
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Load notifications
   const fetchNotifications = useCallback(async () => {
@@ -72,14 +71,78 @@ export function useNotifications() {
     if (!soundEnabled) return;
     
     try {
-      if (!audioRef.current) {
-        audioRef.current = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2teleVs/IpzY7q2SXDUmitrpnXhLIDyj0OqhhUMHIZjZ7rSVXDQli9TpnHlMICCj0OqqikMII5nZ77eZXTYmjNTqnn5OICA=');
-      }
-      audioRef.current.play().catch(() => {});
+      // Create a more audible notification sound
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.value = 880; // A5 note
+      oscillator.type = 'sine';
+      
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+      
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.5);
+      
+      // Play second beep
+      setTimeout(() => {
+        const osc2 = audioContext.createOscillator();
+        const gain2 = audioContext.createGain();
+        osc2.connect(gain2);
+        gain2.connect(audioContext.destination);
+        osc2.frequency.value = 1100;
+        osc2.type = 'sine';
+        gain2.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gain2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        osc2.start(audioContext.currentTime);
+        osc2.stop(audioContext.currentTime + 0.3);
+      }, 150);
     } catch (e) {
-      // Audio play failed, ignore
+      console.log('Audio play failed:', e);
     }
   }, [soundEnabled]);
+
+  // Request browser push notification permission
+  const requestPushPermission = useCallback(async () => {
+    if (!('Notification' in window)) {
+      console.log('Browser does not support notifications');
+      return false;
+    }
+    
+    if (Notification.permission === 'granted') {
+      return true;
+    }
+    
+    if (Notification.permission !== 'denied') {
+      const permission = await Notification.requestPermission();
+      return permission === 'granted';
+    }
+    
+    return false;
+  }, []);
+
+  // Show browser push notification
+  const showPushNotification = useCallback((title: string, body: string, icon?: string) => {
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      return;
+    }
+    
+    try {
+      new Notification(title, {
+        body,
+        icon: icon || '/favicon.ico',
+        badge: '/favicon.ico',
+        tag: 'chhapai-notification',
+        requireInteraction: false,
+      });
+    } catch (e) {
+      console.log('Push notification failed:', e);
+    }
+  }, []);
 
   // Toggle sound
   const toggleSound = useCallback(async () => {
@@ -172,6 +235,9 @@ export function useNotifications() {
 
     fetchNotifications();
     fetchSettings();
+    
+    // Request push notification permission on load
+    requestPushPermission();
 
     const channel = supabase
       .channel('notifications-changes')
@@ -196,6 +262,14 @@ export function useNotifications() {
           if (newNotification.type === 'urgent' || newNotification.type === 'delayed') {
             playSound();
           }
+
+          // Show browser push notification
+          if (Notification.permission === 'granted') {
+            showPushNotification(
+              newNotification.title,
+              newNotification.message
+            );
+          }
         }
       )
       .subscribe();
@@ -203,7 +277,7 @@ export function useNotifications() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, fetchNotifications, fetchSettings, playSound]);
+  }, [user, fetchNotifications, fetchSettings, playSound, requestPushPermission, showPushNotification]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -217,6 +291,8 @@ export function useNotifications() {
     markAllAsRead,
     removeNotification,
     refetch: fetchNotifications,
+    requestPushPermission,
+    showPushNotification,
   };
 }
 

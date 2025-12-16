@@ -237,4 +237,9 @@
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
   }
+
+  /* Hover card portal - ensure it's above all other content */
+  [data-radix-popper-content-wrapper] {
+    z-index: 100 !important;
+  }
 }
