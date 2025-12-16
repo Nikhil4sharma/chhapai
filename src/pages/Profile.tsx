@@ -124,14 +124,14 @@ export default function Profile() {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
-      const { data: urlData } = supabase.storage
+      // Create signed URL for avatar
+      const { data: urlData } = await supabase.storage
         .from('order-files')
-        .getPublicUrl(fileName);
+        .createSignedUrl(fileName, 86400); // 24 hour expiry for avatars
 
-      // Update profile with avatar URL
+      // Update profile with avatar path (will generate signed URL when needed)
       const { error: updateError } = await updateProfile({
-        avatar_url: urlData.publicUrl + '?t=' + Date.now(), // Add timestamp to bust cache
+        avatar_url: `order-files/${fileName}`, // Store path, not signed URL
       });
 
       if (updateError) throw updateError;

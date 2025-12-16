@@ -116,11 +116,21 @@ export default function TrackOrder() {
     setIsLoading(true);
 
     try {
-      // Search for order by order_id
+      // Validate order number format (must be MAN-xxx or WC-xxx)
+      const trimmedOrderNumber = orderNumber.trim().toUpperCase();
+      const orderIdPattern = /^(MAN|WC)-\d+$/;
+      
+      if (!orderIdPattern.test(trimmedOrderNumber)) {
+        setError('Invalid order number format. Please enter a valid order number (e.g., WC-53277 or MAN-1234)');
+        setIsLoading(false);
+        return;
+      }
+
+      // Search for order by exact order_id match (case-insensitive)
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .select('id, order_id, customer_name, is_completed, delivery_date, created_at')
-        .ilike('order_id', `%${orderNumber}%`)
+        .ilike('order_id', trimmedOrderNumber)
         .maybeSingle();
 
       if (orderError) throw orderError;
