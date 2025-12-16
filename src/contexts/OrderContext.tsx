@@ -220,11 +220,49 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const profilesMap = new Map(profilesData?.map(p => [p.user_id, p.full_name]) || []);
 
+      // Generate signed URLs for files
+      const getSignedUrl = async (fileUrl: string): Promise<string> => {
+        try {
+          let filePath = '';
+          
+          // Handle new format: "order-files/path/to/file"
+          if (fileUrl.startsWith('order-files/')) {
+            filePath = fileUrl.replace('order-files/', '');
+          }
+          // Handle old format: full URL with "/order-files/" in path
+          else if (fileUrl.includes('/order-files/')) {
+            const urlParts = fileUrl.split('/order-files/');
+            if (urlParts.length > 1) {
+              filePath = urlParts[1].split('?')[0]; // Remove any query params
+            }
+          }
+          
+          if (filePath) {
+            const { data } = await supabase.storage
+              .from('order-files')
+              .createSignedUrl(filePath, 3600); // 1 hour expiry
+            return data?.signedUrl || fileUrl;
+          }
+          return fileUrl;
+        } catch (error) {
+          console.error('Error generating signed URL:', error);
+          return fileUrl;
+        }
+      };
+
+      // Process files to get signed URLs
+      const filesWithSignedUrls = await Promise.all(
+        (filesData || []).map(async (file) => ({
+          ...file,
+          file_url: await getSignedUrl(file.file_url),
+        }))
+      );
+
       const mappedOrders: Order[] = (ordersData || []).map(order => {
         const orderItems = (itemsData || [])
           .filter(item => item.order_id === order.id)
           .map(item => {
-            const itemFiles = (filesData || [])
+            const itemFiles = filesWithSignedUrls
               .filter(file => file.item_id === item.id || (file.order_id === order.id && !file.item_id))
               .map(file => ({
                 file_id: file.id,
@@ -899,9 +937,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
+      // Create signed URL for the uploaded file
+      const { data: urlData } = await supabase.storage
         .from('order-files')
-        .getPublicUrl(fileName);
+        .createSignedUrl(fileName, 3600); // 1 hour expiry
+      
+      const fileUrl = urlData?.signedUrl || fileName;
 
       const fileType = file.type.includes('pdf') ? 'proof' : 
                        file.type.includes('image') ? 'image' : 'other';
@@ -913,12 +954,15 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           .eq('item_id', itemId);
       }
 
+      // Store the file path (not signed URL) in database for future signed URL generation
+      const storedPath = `order-files/${fileName}`;
+      
       const { error: insertError } = await supabase
         .from('order_files')
         .insert({
           order_id: order.id,
           item_id: itemId,
-          file_url: urlData.publicUrl,
+          file_url: storedPath,
           file_name: file.name,
           file_type: fileType,
           uploaded_by: user?.id,
@@ -935,7 +979,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `${replaceExisting ? 'Replaced with' : 'Uploaded'} ${file.name}`,
-        attachments: [{ url: urlData.publicUrl, type: file.type }],
+        attachments: [{ url: fileUrl, type: file.type }],
         is_public: true,
       });
 
