@@ -452,6 +452,9 @@ export type Database = {
     Views: {
       orders_secure: {
         Row: {
+          billing_city: string | null
+          billing_pincode: string | null
+          billing_state: string | null
           created_at: string | null
           created_by: string | null
           customer_address: string | null
@@ -463,11 +466,27 @@ export type Database = {
           id: string | null
           is_completed: boolean | null
           order_id: string | null
+          order_status: string | null
+          order_total: number | null
+          payment_status: string | null
           priority: string | null
+          shipping_address: string | null
+          shipping_city: string | null
+          shipping_email: string | null
+          shipping_name: string | null
+          shipping_phone: string | null
+          shipping_pincode: string | null
+          shipping_state: string | null
           source: string | null
+          tax_cgst: number | null
+          tax_sgst: number | null
           updated_at: string | null
+          woo_order_id: number | null
         }
         Insert: {
+          billing_city?: never
+          billing_pincode?: never
+          billing_state?: never
           created_at?: string | null
           created_by?: string | null
           customer_address?: never
@@ -479,11 +498,27 @@ export type Database = {
           id?: string | null
           is_completed?: boolean | null
           order_id?: string | null
+          order_status?: string | null
+          order_total?: never
+          payment_status?: string | null
           priority?: string | null
+          shipping_address?: never
+          shipping_city?: never
+          shipping_email?: never
+          shipping_name?: never
+          shipping_phone?: never
+          shipping_pincode?: never
+          shipping_state?: never
           source?: string | null
+          tax_cgst?: never
+          tax_sgst?: never
           updated_at?: string | null
+          woo_order_id?: number | null
         }
         Update: {
+          billing_city?: never
+          billing_pincode?: never
+          billing_state?: never
           created_at?: string | null
           created_by?: string | null
           customer_address?: never
@@ -495,9 +530,22 @@ export type Database = {
           id?: string | null
           is_completed?: boolean | null
           order_id?: string | null
+          order_status?: string | null
+          order_total?: never
+          payment_status?: string | null
           priority?: string | null
+          shipping_address?: never
+          shipping_city?: never
+          shipping_email?: never
+          shipping_name?: never
+          shipping_phone?: never
+          shipping_pincode?: never
+          shipping_state?: never
           source?: string | null
+          tax_cgst?: never
+          tax_sgst?: never
           updated_at?: string | null
+          woo_order_id?: number | null
         }
         Relationships: []
       }
