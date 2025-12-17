@@ -95,7 +95,7 @@ export default function Design() {
             </Card>
           ) : (
             designItems.map(({ order, item }) => (
-              <Card key={`${order.order_id}-${item.item_id}`} className="card-hover overflow-hidden">
+              <Card key={`${order.order_id}-${item.item_id}`} className="card-hover overflow-hidden transition-all duration-200 hover:shadow-lg">
                 <CardContent className="p-0">
                   <div 
                     className={`h-1 ${
@@ -105,8 +105,8 @@ export default function Design() {
                     }`}
                   />
                   
-                  <div className="p-4">
-                    <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                  <div className="p-4 sm:p-5">
+                    <div className="flex flex-col lg:flex-row lg:items-start gap-4">
                       <div className="flex-1 min-w-0">
                         <Link 
                           to={`/orders/${order.order_id}`}
@@ -141,44 +141,62 @@ export default function Design() {
                       </div>
 
                       {/* Actions */}
-                      <div className="flex gap-2">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handleUploadClick(order.order_id, item.item_id)}
-                            >
-                              <Upload className="h-4 w-4 mr-2" />
-                              Upload Proof
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Upload design proof</TooltipContent>
-                        </Tooltip>
-
-                        <DropdownMenu>
+                      <div className="flex flex-wrap gap-2">
+                        <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <DropdownMenuTrigger asChild>
-                                <Button size="sm">
-                                  <CheckCircle className="h-4 w-4 mr-2" />
-                                  Complete
-                                </Button>
-                              </DropdownMenuTrigger>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                className="bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:hover:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800"
+                                onClick={() => handleUploadClick(order.order_id, item.item_id)}
+                              >
+                                <Upload className="h-4 w-4 mr-2" />
+                                <span className="hidden sm:inline">Upload Proof</span>
+                                <span className="sm:hidden">Upload</span>
+                              </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Mark design complete</TooltipContent>
+                            <TooltipContent side="top">
+                              <p>Upload design proof file</p>
+                            </TooltipContent>
                           </Tooltip>
-                          <DropdownMenuContent align="end" className="bg-popover">
-                            <DropdownMenuItem onClick={() => handleSendToPrepress(order.order_id, item.item_id)}>
-                              <ArrowRight className="h-4 w-4 mr-2" />
-                              Send to Prepress
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleSendToProduction(order.order_id, item.item_id)}>
-                              <ArrowRight className="h-4 w-4 mr-2" />
-                              Send to Production
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+
+                          <DropdownMenu>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <DropdownMenuTrigger asChild>
+                                  <Button 
+                                    size="sm"
+                                    className="bg-green-600 hover:bg-green-700 text-white border-green-700"
+                                  >
+                                    <CheckCircle className="h-4 w-4 mr-2" />
+                                    <span className="hidden sm:inline">Complete</span>
+                                    <span className="sm:hidden">Done</span>
+                                  </Button>
+                                </DropdownMenuTrigger>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                <p>Mark design as complete</p>
+                              </TooltipContent>
+                            </Tooltip>
+                            <DropdownMenuContent align="end" className="bg-popover w-56">
+                              <DropdownMenuItem 
+                                onClick={() => handleSendToPrepress(order.order_id, item.item_id)}
+                                className="cursor-pointer"
+                              >
+                                <ArrowRight className="h-4 w-4 mr-2 text-blue-500" />
+                                <span>Send to Prepress</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => handleSendToProduction(order.order_id, item.item_id)}
+                                className="cursor-pointer"
+                              >
+                                <ArrowRight className="h-4 w-4 mr-2 text-orange-500" />
+                                <span>Send to Production</span>
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </TooltipProvider>
                       </div>
                     </div>
 

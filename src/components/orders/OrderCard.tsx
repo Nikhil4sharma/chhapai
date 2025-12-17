@@ -19,7 +19,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
   const additionalItems = order.items.length - 1;
 
   return (
-    <Card className={cn("card-hover overflow-hidden", className)}>
+    <Card className={cn("card-hover overflow-hidden transition-all duration-200 hover:shadow-lg", className)}>
       <CardContent className="p-0">
         {/* Priority bar */}
         <div 
@@ -31,7 +31,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
           )}
         />
         
-        <div className="p-4">
+        <div className="p-4 sm:p-5">
           {/* Header - Order ID, Priority, Stage */}
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-2">

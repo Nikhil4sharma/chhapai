@@ -12,6 +12,7 @@ import {
   X,
   ChevronLeft,
   PackageCheck,
+  TrendingUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -39,7 +40,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   const { isAdmin, role, profile } = useAuth();
   const { orders, getCompletedOrders } = useOrders();
 
-  // Calculate real-time badges from orders
+  // Calculate real-time badges from orders - count items per stage
   const badges = useMemo(() => {
     const counts = {
       sales: 0,
@@ -59,10 +60,18 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
     };
 
     orders.forEach(order => {
+      // Count dispatched/completed orders
       if (order.is_completed) {
-        counts.dispatched++;
+        // Count completed items
+        order.items.forEach(item => {
+          if (item.current_stage === 'completed' || item.is_dispatched) {
+            counts.dispatched++;
+          }
+        });
         return;
       }
+      
+      // Count items by stage
       order.items.forEach(item => {
         if (item.is_dispatched || item.current_stage === 'completed') {
           counts.dispatched++;
@@ -139,6 +148,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   const adminItems: NavItem[] = [
     { label: 'Team', path: '/team', icon: Users },
     { label: 'Reports', path: '/reports', icon: BarChart3 },
+    { label: 'Performance', path: '/performance', icon: TrendingUp },
     { label: 'Settings', path: '/settings', icon: Settings },
   ];
 
@@ -241,6 +251,13 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
                   <NavItemComponent key={item.path} item={item} />
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Performance Reports - visible to non-admin users only */}
+          {!isAdmin && isOpen && (
+            <div className="pt-4 mt-4 border-t border-sidebar-border">
+              <NavItemComponent item={{ label: 'Performance', path: '/performance', icon: TrendingUp }} />
             </div>
           )}
         </nav>

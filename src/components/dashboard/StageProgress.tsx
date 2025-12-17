@@ -29,7 +29,7 @@ export function StageProgress({ data, className }: StageProgressProps) {
           return (
             <div
               key={stage}
-              className={cn("h-full transition-all duration-500", stageColors[stage])}
+              className={cn("h-full transition-all duration-700 ease-in-out", stageColors[stage])}
               style={{ width: `${percentage}%` }}
               title={`${STAGE_LABELS[stage]}: ${data[stage]}`}
             />
@@ -44,7 +44,7 @@ export function StageProgress({ data, className }: StageProgressProps) {
             <span className={cn("h-3 w-3 rounded-full", stageColors[stage])} />
             <div className="text-sm">
               <span className="text-muted-foreground">{STAGE_LABELS[stage]}</span>
-              <span className="font-semibold ml-1">{data[stage]}</span>
+              <span className="font-semibold ml-1 transition-all duration-500 ease-in-out inline-block">{data[stage]}</span>
             </div>
           </div>
         ))}

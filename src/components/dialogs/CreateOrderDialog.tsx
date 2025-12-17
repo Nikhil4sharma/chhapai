@@ -29,7 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { collection, doc, setDoc, Timestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, Timestamp, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/integrations/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -59,6 +59,9 @@ export function CreateOrderDialog({
 }: CreateOrderDialogProps) {
   const { user } = useAuth();
   const [isCreating, setIsCreating] = useState(false);
+  const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+  const [orderNumber, setOrderNumber] = useState('');
+  const [orderNumberError, setOrderNumberError] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined);
   
   const [customerData, setCustomerData] = useState({
@@ -98,12 +101,50 @@ export function CreateOrderDialog({
     setNewSpecKey('');
     setNewSpecValue('');
     setActiveProductIndex(null);
+    setOrderNumber('');
+    setOrderNumberError(null);
   };
 
-  const generateOrderId = () => {
-    const timestamp = Date.now().toString().slice(-6);
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    return `MAN-${timestamp}${random}`;
+  // Check if order number already exists
+  const checkOrderNumberDuplicate = async (orderNum: string): Promise<boolean> => {
+    if (!orderNum.trim()) return false;
+    
+    try {
+      setIsCheckingDuplicate(true);
+      // Check in orders collection
+      const ordersQuery = query(
+        collection(db, 'orders'),
+        where('order_id', '==', orderNum.trim())
+      );
+      const ordersSnapshot = await getDocs(ordersQuery);
+      
+      if (!ordersSnapshot.empty) {
+        return true; // Duplicate found
+      }
+      
+      return false; // No duplicate
+    } catch (error) {
+      console.error('Error checking order number:', error);
+      return false; // On error, allow creation (fail-safe)
+    } finally {
+      setIsCheckingDuplicate(false);
+    }
+  };
+
+  // Validate order number on change
+  const handleOrderNumberChange = async (value: string) => {
+    setOrderNumber(value);
+    setOrderNumberError(null);
+    
+    if (!value.trim()) {
+      setOrderNumberError('Order number is required');
+      return;
+    }
+    
+    const isDuplicate = await checkOrderNumberDuplicate(value);
+    if (isDuplicate) {
+      setOrderNumberError('Order number already exists');
+    }
   };
 
   const addProduct = () => {
@@ -139,6 +180,14 @@ export function CreateOrderDialog({
   };
 
   const validateForm = (): string | null => {
+    if (!orderNumber.trim()) {
+      return "Order number is required";
+    }
+    
+    if (orderNumberError) {
+      return orderNumberError;
+    }
+
     if (!customerData.name.trim()) {
       return "Customer name is required";
     }
@@ -170,16 +219,25 @@ export function CreateOrderDialog({
       return;
     }
 
+    // Final duplicate check before creating
+    const finalCheck = await checkOrderNumberDuplicate(orderNumber.trim());
+    if (finalCheck) {
+      toast({
+        title: "Duplicate Order Number",
+        description: "Order number already exists. Please use a different order number.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsCreating(true);
     try {
-      const orderId = generateOrderId();
-      
       if (!user) throw new Error('User not authenticated');
       
       // Create order
       const orderRef = doc(collection(db, 'orders'));
       await setDoc(orderRef, {
-        order_id: orderId,
+        order_id: orderNumber.trim(),
         customer_name: customerData.name,
         customer_phone: customerData.phone,
         customer_email: customerData.email,
@@ -234,9 +292,26 @@ export function CreateOrderDialog({
         created_at: Timestamp.now(),
       });
 
+      // Auto-log work action for order creation
+      await autoLogWorkAction(
+        user.uid,
+        user.displayName || 'Unknown',
+        'sales',
+        orderRef.id,
+        orderNumber.trim(),
+        null,
+        'sales',
+        'order_created',
+        `Created manual order with ${products.length} product(s)`,
+        0,
+        products.map(p => p.name).join(', '),
+        new Date(),
+        new Date()
+      );
+
       toast({
         title: "Order Created",
-        description: `Order ${orderId} has been created with ${products.length} product(s)`,
+        description: `Order ${orderNumber.trim()} has been created with ${products.length} product(s)`,
       });
 
       resetForm();
@@ -272,6 +347,39 @@ export function CreateOrderDialog({
 
         <ScrollArea className="max-h-[calc(90vh-180px)]">
           <div className="p-6 space-y-6">
+            {/* Order Number Section */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <Package className="h-4 w-4" />
+                Order Information
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="order_number">Order Number *</Label>
+                  <div className="space-y-1">
+                    <Input
+                      id="order_number"
+                      placeholder="e.g., WC-12345 or MAN-001"
+                      value={orderNumber}
+                      onChange={(e) => handleOrderNumberChange(e.target.value)}
+                      disabled={isCheckingDuplicate}
+                      className={orderNumberError ? "border-destructive" : ""}
+                    />
+                    {isCheckingDuplicate && (
+                      <p className="text-xs text-muted-foreground">Checking availability...</p>
+                    )}
+                    {orderNumberError && (
+                      <p className="text-xs text-destructive">{orderNumberError}</p>
+                    )}
+                    {!orderNumberError && orderNumber.trim() && !isCheckingDuplicate && (
+                      <p className="text-xs text-green-600">✓ Order number available</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Customer Details Section */}
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -563,10 +671,13 @@ export function CreateOrderDialog({
         </ScrollArea>
 
         <DialogFooter className="px-6 py-4 border-t gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isCreating}>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isCreating || isCheckingDuplicate}>
             Cancel
           </Button>
-          <Button onClick={handleCreate} disabled={isCreating}>
+          <Button 
+            onClick={handleCreate} 
+            disabled={isCreating || isCheckingDuplicate || !!orderNumberError || !orderNumber.trim()}
+          >
             {isCreating ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />

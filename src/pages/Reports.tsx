@@ -17,7 +17,7 @@ export default function Reports() {
   const { orders, getCompletedOrders, isLoading } = useOrders();
   const completedOrders = getCompletedOrders();
 
-  // Calculate real stats from orders
+  // Calculate real stats from orders with department-wise counts
   const stats = useMemo(() => {
     const byStage = {
       sales: 0,
@@ -34,6 +34,13 @@ export default function Reports() {
       blue: 0,
     };
 
+    const byDepartment = {
+      sales: 0,
+      design: 0,
+      prepress: 0,
+      production: 0,
+    };
+
     let totalItems = 0;
 
     orders.forEach(order => {
@@ -41,6 +48,10 @@ export default function Reports() {
         byStage[item.current_stage]++;
         byPriority[item.priority_computed]++;
         totalItems++;
+        // Count by assigned department
+        if (item.assigned_department && byDepartment[item.assigned_department as keyof typeof byDepartment] !== undefined) {
+          byDepartment[item.assigned_department as keyof typeof byDepartment]++;
+        }
       });
     });
 
@@ -52,7 +63,7 @@ export default function Reports() {
       });
     });
 
-    return { byStage, byPriority, totalItems };
+    return { byStage, byPriority, byDepartment, totalItems };
   }, [orders, completedOrders]);
 
   // Calculate stage distribution
@@ -159,6 +170,33 @@ export default function Reports() {
             </Card>
           ))}
         </div>
+
+        {/* Department-wise Order Counts */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-display">Orders by Department</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center p-4 bg-primary/5 rounded-lg">
+                <p className="text-2xl font-bold text-primary">{stats.byDepartment.sales}</p>
+                <p className="text-sm text-muted-foreground mt-1">Sales</p>
+              </div>
+              <div className="text-center p-4 bg-blue-500/5 rounded-lg">
+                <p className="text-2xl font-bold text-blue-500">{stats.byDepartment.design}</p>
+                <p className="text-sm text-muted-foreground mt-1">Design</p>
+              </div>
+              <div className="text-center p-4 bg-purple-500/5 rounded-lg">
+                <p className="text-2xl font-bold text-purple-500">{stats.byDepartment.prepress}</p>
+                <p className="text-sm text-muted-foreground mt-1">Prepress</p>
+              </div>
+              <div className="text-center p-4 bg-orange-500/5 rounded-lg">
+                <p className="text-2xl font-bold text-orange-500">{stats.byDepartment.production}</p>
+                <p className="text-sm text-muted-foreground mt-1">Production</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Stage Distribution */}
         <Card>

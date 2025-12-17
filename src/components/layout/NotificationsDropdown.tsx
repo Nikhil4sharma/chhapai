@@ -1,4 +1,4 @@
-import { Bell, Check, X, Clock, Package, AlertTriangle, Volume2, VolumeX, Truck } from 'lucide-react';
+import { Bell, Check, X, Clock, Package, AlertTriangle, Volume2, VolumeX, Truck, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { useNotifications, AppNotification } from '@/hooks/useNotifications';
 import { Link } from 'react-router-dom';
+import { useState, useRef } from 'react';
 
 export function NotificationsDropdown() {
   const {
@@ -26,6 +27,7 @@ export function NotificationsDropdown() {
     markAsRead,
     markAllAsRead,
     removeNotification,
+    clearAllNotifications,
   } = useNotifications();
 
   const getIcon = (type: AppNotification['type']) => {
@@ -84,15 +86,32 @@ export function NotificationsDropdown() {
                   {soundEnabled ? 'Mute sounds' : 'Enable sounds'}
                 </TooltipContent>
               </Tooltip>
-              {unreadCount > 0 && (
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  className="text-xs"
-                  onClick={markAllAsRead}
-                >
-                  Mark all read
-                </Button>
+              {notifications.length > 0 && (
+                <>
+                  {unreadCount > 0 && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="text-xs"
+                      onClick={markAllAsRead}
+                    >
+                      Mark all read
+                    </Button>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button 
+                        variant="ghost" 
+                        size="icon-sm"
+                        onClick={clearAllNotifications}
+                        className="text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Clear all notifications</TooltipContent>
+                  </Tooltip>
+                </>
               )}
             </div>
           </div>
@@ -105,58 +124,125 @@ export function NotificationsDropdown() {
               </div>
             ) : (
               <div className="divide-y divide-border">
-                {notifications.map((notification) => (
-                  <div
-                    key={notification.id}
-                    className={cn(
-                      "p-3 hover:bg-secondary/50 transition-colors cursor-pointer group",
-                      !notification.read && "bg-primary/5"
-                    )}
-                    onClick={() => markAsRead(notification.id)}
-                  >
-                    <div className="flex gap-3">
-                      <div className="mt-0.5">
-                        {getIcon(notification.type)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={cn(
-                          "text-sm text-foreground",
-                          !notification.read && "font-medium"
-                        )}>
-                          {notification.title}
-                        </p>
-                        <p className="text-sm text-muted-foreground truncate">
-                          {notification.message}
-                        </p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <p className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(notification.created_at, { addSuffix: true })}
-                          </p>
-                          {notification.order_id && (
-                            <Link 
-                              to={`/orders/${notification.order_id}`}
-                              className="text-xs text-primary hover:underline"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              View Order
-                            </Link>
+                {notifications.map((notification) => {
+                  const NotificationItem = () => {
+                    const [swipeOffset, setSwipeOffset] = useState(0);
+                    const [isSwiping, setIsSwiping] = useState(false);
+                    const touchStartX = useRef<number | null>(null);
+                    const SWIPE_THRESHOLD = 100;
+
+                    const handleTouchStart = (e: React.TouchEvent) => {
+                      touchStartX.current = e.touches[0].clientX;
+                      setIsSwiping(true);
+                    };
+
+                    const handleTouchMove = (e: React.TouchEvent) => {
+                      if (touchStartX.current === null) return;
+                      const currentX = e.touches[0].clientX;
+                      const diff = touchStartX.current - currentX;
+                      
+                      // Only allow swiping left (to reveal delete)
+                      if (diff > 0) {
+                        setSwipeOffset(Math.min(diff, SWIPE_THRESHOLD));
+                      }
+                    };
+
+                    const handleTouchEnd = () => {
+                      if (swipeOffset >= SWIPE_THRESHOLD) {
+                        // Swipe completed - delete notification
+                        removeNotification(notification.id);
+                        setSwipeOffset(0);
+                      } else {
+                        // Reset position
+                        setSwipeOffset(0);
+                      }
+                      touchStartX.current = null;
+                      setIsSwiping(false);
+                    };
+
+                    return (
+                      <div
+                        className="relative overflow-hidden"
+                        onTouchStart={handleTouchStart}
+                        onTouchMove={handleTouchMove}
+                        onTouchEnd={handleTouchEnd}
+                      >
+                        {/* Delete indicator */}
+                        <div 
+                          className={cn(
+                            "absolute right-0 top-0 bottom-0 flex items-center justify-center bg-destructive text-destructive-foreground px-4 transition-opacity",
+                            swipeOffset > 0 ? "opacity-100" : "opacity-0"
                           )}
+                          style={{ width: `${SWIPE_THRESHOLD}px` }}
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </div>
+                        
+                        {/* Notification content */}
+                        <div
+                          className={cn(
+                            "p-3 hover:bg-secondary/50 transition-all cursor-pointer group relative bg-background",
+                            !notification.read && "bg-primary/5",
+                            isSwiping && "transition-none"
+                          )}
+                          style={{ 
+                            transform: `translateX(-${swipeOffset}px)`,
+                            transition: isSwiping ? 'none' : 'transform 0.2s ease-out'
+                          }}
+                          onClick={() => {
+                            if (swipeOffset === 0) {
+                              markAsRead(notification.id);
+                            }
+                          }}
+                        >
+                          <div className="flex gap-3">
+                            <div className="mt-0.5">
+                              {getIcon(notification.type)}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className={cn(
+                                "text-sm text-foreground",
+                                !notification.read && "font-medium"
+                              )}>
+                                {notification.title}
+                              </p>
+                              <p className="text-sm text-muted-foreground truncate">
+                                {notification.message}
+                              </p>
+                              <div className="flex items-center gap-2 mt-1">
+                                <p className="text-xs text-muted-foreground">
+                                  {formatDistanceToNow(notification.created_at, { addSuffix: true })}
+                                </p>
+                                {notification.order_id && (
+                                  <Link 
+                                    to={`/orders/${notification.order_id}`}
+                                    className="text-xs text-primary hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    View Order
+                                  </Link>
+                                )}
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeNotification(notification.id);
+                              }}
+                            >
+                              <X className="h-3 w-3" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeNotification(notification.id);
-                        }}
-                      >
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                    );
+                  };
+
+                  return <NotificationItem key={notification.id} />;
+                })}
               </div>
             )}
           </ScrollArea>

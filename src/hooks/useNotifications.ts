@@ -31,6 +31,7 @@ export interface AppNotification {
 export function useNotifications() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [pushEnabled, setPushEnabled] = useState(true); // Default ON
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useAuth();
 
@@ -63,7 +64,7 @@ export function useNotifications() {
     }
   }, [user]);
 
-  // Load user sound settings
+  // Load user notification settings
   const fetchSettings = useCallback(async () => {
     if (!user) return;
     
@@ -76,11 +77,19 @@ export function useNotifications() {
 
       if (!snapshot.empty) {
         const settings = snapshot.docs[0].data();
-        setSoundEnabled(settings.sound_enabled);
+        setSoundEnabled(settings.sound_enabled ?? true);
+        // Push notifications default to true if not set
+        setPushEnabled(settings.push_notifications !== undefined ? settings.push_notifications : true);
+      } else {
+        // No settings exist - use defaults (both ON)
+        setSoundEnabled(true);
+        setPushEnabled(true);
       }
     } catch (error) {
       // Settings don't exist yet, use defaults
       console.log('User settings not found, using defaults');
+      setSoundEnabled(true);
+      setPushEnabled(true);
     }
   }, [user]);
 
@@ -135,32 +144,62 @@ export function useNotifications() {
       return true;
     }
     
-    if (Notification.permission !== 'denied') {
-      const permission = await Notification.requestPermission();
-      return permission === 'granted';
+    if (Notification.permission === 'denied') {
+      console.log('Notification permission denied by user');
+      return false;
     }
     
-    return false;
+    // Request permission if not yet decided
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        console.log('Notification permission granted');
+        return true;
+      } else {
+        console.log('Notification permission denied');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error requesting notification permission:', error);
+      return false;
+    }
   }, []);
 
   // Show browser push notification
   const showPushNotification = useCallback((title: string, body: string, icon?: string) => {
-    if (!('Notification' in window) || Notification.permission !== 'granted') {
+    if (!('Notification' in window)) {
+      console.log('Browser does not support notifications');
+      return;
+    }
+    
+    if (Notification.permission !== 'granted') {
+      console.log('Notification permission not granted');
+      return;
+    }
+    
+    if (!pushEnabled) {
+      console.log('Push notifications disabled in user settings');
       return;
     }
     
     try {
-      new Notification(title, {
+      const notification = new Notification(title, {
         body,
         icon: icon || '/favicon.ico',
         badge: '/favicon.ico',
         tag: 'chhapai-notification',
         requireInteraction: false,
+        silent: false,
       });
+      
+      // Auto-close after 5 seconds
+      setTimeout(() => {
+        notification.close();
+      }, 5000);
     } catch (e) {
-      console.log('Push notification failed:', e);
+      console.error('Push notification failed:', e);
     }
-  }, []);
+  }, [pushEnabled]);
 
   // Toggle sound
   const toggleSound = useCallback(async () => {
@@ -245,15 +284,35 @@ export function useNotifications() {
     }
   }, []);
 
+  // Clear all notifications
+  const clearAllNotifications = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      // Get all user notifications
+      const notificationsQuery = query(
+        collection(db, 'notifications'),
+        where('user_id', '==', user.uid)
+      );
+      const snapshot = await getDocs(notificationsQuery);
+      
+      // Delete all notifications
+      const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      
+      // Clear local state
+      setNotifications([]);
+    } catch (error) {
+      console.error('Error clearing all notifications:', error);
+    }
+  }, [user]);
+
   // Subscribe to real-time notifications
   useEffect(() => {
     if (!user) return;
 
     fetchNotifications();
     fetchSettings();
-    
-    // Request push notification permission on load
-    requestPushPermission();
 
     const notificationsQuery = query(
       collection(db, 'notifications'),
@@ -263,6 +322,21 @@ export function useNotifications() {
     );
 
     const unsubscribe = onSnapshot(notificationsQuery, (snapshot) => {
+      // Handle all changes, not just 'added'
+      const allNotifications: AppNotification[] = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          ...data,
+          created_at: data.created_at?.toDate() || new Date(),
+          type: data.type as AppNotification['type'],
+        } as AppNotification;
+      });
+
+      // Update notifications list
+      setNotifications(allNotifications);
+
+      // Check for new notifications
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const newNotification = {
@@ -272,42 +346,48 @@ export function useNotifications() {
             type: change.doc.data().type as AppNotification['type'],
           } as AppNotification;
 
-          setNotifications(prev => {
-            // Avoid duplicates
-            if (prev.find(n => n.id === newNotification.id)) {
-              return prev;
-            }
-            return [newNotification, ...prev];
-          });
-
           // Play sound for urgent/delayed/info notifications
           if (newNotification.type === 'urgent' || newNotification.type === 'delayed' || newNotification.type === 'info') {
             playSound();
           }
 
-          // Show browser push notification
-          if (Notification.permission === 'granted') {
-            showPushNotification(
-              newNotification.title,
-              newNotification.message
-            );
-          } else if (Notification.permission === 'default') {
-            // Re-request permission if not yet decided
-            requestPushPermission().then((granted) => {
-              if (granted) {
-                showPushNotification(
-                  newNotification.title,
-                  newNotification.message
-                );
-              }
-            });
+          // Show browser push notification only if enabled in settings
+          if (pushEnabled) {
+            if (Notification.permission === 'granted') {
+              showPushNotification(
+                newNotification.title,
+                newNotification.message
+              );
+            } else if (Notification.permission === 'default') {
+              // Re-request permission if not yet decided
+              requestPushPermission().then((granted) => {
+                if (granted) {
+                  showPushNotification(
+                    newNotification.title,
+                    newNotification.message
+                  );
+                }
+              });
+            }
           }
         }
       });
     });
 
     return () => unsubscribe();
-  }, [user, fetchNotifications, fetchSettings, playSound, requestPushPermission, showPushNotification]);
+  }, [user, fetchNotifications, fetchSettings, playSound, requestPushPermission, showPushNotification, pushEnabled]);
+
+  // Request push notification permission when push is enabled and settings are loaded
+  useEffect(() => {
+    if (!user || !pushEnabled) return;
+    
+    // Request permission after a short delay to ensure settings are loaded
+    const timer = setTimeout(() => {
+      requestPushPermission();
+    }, 1000);
+    
+    return () => clearTimeout(timer);
+  }, [user, pushEnabled, requestPushPermission]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -320,6 +400,7 @@ export function useNotifications() {
     markAsRead,
     markAllAsRead,
     removeNotification,
+    clearAllNotifications,
     refetch: fetchNotifications,
     requestPushPermission,
     showPushNotification,

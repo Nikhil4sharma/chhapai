@@ -112,7 +112,7 @@ export function OrderTimeline({ entries, className }: OrderTimelineProps) {
               </div>
               
               {/* Content Card */}
-              <div className="bg-card border border-border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+              <div className="bg-card border border-border rounded-lg p-4 sm:p-5 shadow-sm hover:shadow-md transition-all duration-200">
                 {/* Header */}
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 flex-wrap">

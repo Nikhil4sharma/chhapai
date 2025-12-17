@@ -8,7 +8,7 @@ interface ProductSpecificationsProps {
 }
 
 // Keys to exclude from display (SKU and other internal fields)
-const EXCLUDED_KEYS = ['sku', 'SKU', 'notes', '_sku', 'product_sku'];
+const EXCLUDED_KEYS = ['sku', 'SKU', 'notes', '_sku', 'product_sku', 'id'];
 
 export function ProductSpecifications({ item, compact = false }: ProductSpecificationsProps) {
   // Collect all specifications from both structured and woo_meta
@@ -17,27 +17,78 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
   // Add structured specs first
   if (item.specifications) {
     Object.entries(item.specifications).forEach(([key, value]) => {
-      // Exclude SKU and notes
-      if (value && !EXCLUDED_KEYS.includes(key.toLowerCase())) {
-        allSpecs.push({ key, value });
+      // Skip numeric keys (array indices) and excluded keys
+      if (/^\d+$/.test(key) || EXCLUDED_KEYS.includes(key.toLowerCase())) {
+        return;
+      }
+      
+      if (value !== null && value !== undefined) {
+        // Ensure value is a string, not an object
+        let stringValue = '';
+        if (typeof value === 'string') {
+          stringValue = value;
+        } else if (typeof value === 'object' && value !== null) {
+          // If it's an object with display_value, use that
+          if ('display_value' in value && typeof value.display_value === 'string') {
+            stringValue = value.display_value;
+            // Use display_key for the key
+            const displayKey = value.display_key || key;
+            if (stringValue && stringValue.trim()) {
+              allSpecs.push({ key: displayKey, value: stringValue.trim() });
+            }
+            return; // Already added, skip further processing
+          } else if ('value' in value && typeof value.value === 'string') {
+            stringValue = value.value;
+            const displayKey = value.display_key || value.key || key;
+            if (stringValue && stringValue.trim()) {
+              allSpecs.push({ key: displayKey, value: stringValue.trim() });
+            }
+            return; // Already added, skip further processing
+          } else {
+            // Skip raw objects - don't show them as code
+            return;
+          }
+        } else {
+          stringValue = String(value || '');
+        }
+        
+        if (stringValue && stringValue.trim()) {
+          allSpecs.push({ key: key, value: stringValue.trim() });
+        }
       }
     });
   }
   
   // Add WooCommerce meta (if not already in structured specs)
-  if (item.woo_meta && Array.isArray(item.woo_meta)) {
-    for (const meta of item.woo_meta) {
-      const displayValue = meta.display_value || meta.value;
+  if (item.woo_meta) {
+    // Handle both array and object formats
+    const metaArray = Array.isArray(item.woo_meta) ? item.woo_meta : 
+                     typeof item.woo_meta === 'object' ? Object.values(item.woo_meta) : [];
+    
+    for (const meta of metaArray) {
+      if (!meta || typeof meta !== 'object') continue;
+      
       const metaKey = (meta.key || '').toLowerCase();
       
-      // Skip SKU-related fields
-      if (EXCLUDED_KEYS.some(k => metaKey.includes(k.toLowerCase()))) continue;
+      // Skip SKU-related fields and internal keys
+      if (EXCLUDED_KEYS.some(k => metaKey.includes(k.toLowerCase())) || metaKey.startsWith('_')) {
+        continue;
+      }
       
-      if (displayValue && !allSpecs.find(s => s.value === displayValue)) {
-        allSpecs.push({
-          key: meta.display_key || meta.key,
-          value: displayValue,
-        });
+      const displayKey = meta.display_key || meta.key;
+      const displayValue = meta.display_value || meta.value;
+      
+      // Only process if we have a valid string value
+      if (displayValue && typeof displayValue === 'string' && displayValue.trim()) {
+        const stringValue = displayValue.trim();
+        
+        // Check if this spec is already added (avoid duplicates)
+        if (!allSpecs.find(s => s.key === displayKey && s.value === stringValue)) {
+          allSpecs.push({
+            key: displayKey || 'Unknown',
+            value: stringValue,
+          });
+        }
       }
     }
   }
@@ -76,11 +127,11 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
         <FileText className="h-3.5 w-3.5" />
         <span>Specifications</span>
       </div>
-      <div className="bg-secondary/50 rounded-lg p-3 space-y-1">
+      <div className="bg-secondary/50 rounded-lg p-3 sm:p-4 space-y-2">
         {allSpecs.map((spec, idx) => (
-          <div key={idx} className="text-sm flex gap-2">
-            <span className="text-muted-foreground min-w-[80px]">{spec.key}:</span>
-            <span className="text-foreground font-medium">{spec.value}</span>
+          <div key={idx} className="text-sm flex flex-col sm:flex-row gap-1 sm:gap-2">
+            <span className="text-muted-foreground min-w-[100px] sm:min-w-[120px] font-medium">{spec.key}:</span>
+            <span className="text-foreground break-words">{spec.value}</span>
           </div>
         ))}
       </div>

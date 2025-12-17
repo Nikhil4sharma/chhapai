@@ -1,6 +1,7 @@
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
+import { UpdateDeliveryDateDialog } from '@/components/dialogs/UpdateDeliveryDateDialog';
 import { 
   ArrowLeft, 
   Phone, 
@@ -24,6 +25,8 @@ import {
   ChevronDown,
   ChevronUp,
   Palette,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -66,11 +69,14 @@ import {
 } from '@/components/ui/collapsible';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWorkLogs } from '@/contexts/WorkLogContext';
 import { useFinancialAccess } from '@/hooks/useFinancialAccess';
+import { toast } from '@/hooks/use-toast';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
 import { AssignDepartmentDialog } from '@/components/dialogs/AssignDepartmentDialog';
 import { AssignUserDialog } from '@/components/dialogs/AssignUserDialog';
 import { AddNoteDialog } from '@/components/dialogs/AddNoteDialog';
+import { AddWorkNoteDialog } from '@/components/dialogs/AddWorkNoteDialog';
 import { EditOrderDialog } from '@/components/dialogs/EditOrderDialog';
 import { ChangeStageDialog } from '@/components/dialogs/ChangeStageDialog';
 import { PRODUCTION_STEPS, STAGE_LABELS, Stage, SubStage } from '@/types/order';
@@ -91,14 +97,44 @@ export default function OrderDetail() {
     sendToProduction, 
     markAsDispatched,
     deleteOrder,
+    updateItemDeliveryDate,
     isLoading,
     refreshOrders,
   } = useOrders();
   const { isAdmin, role } = useAuth();
   const { canViewFinancials } = useFinancialAccess();
+  const { getWorkNotesByOrder, addWorkNote, getWorkLogsByOrder } = useWorkLogs();
   
   const order = getOrderById(orderId || '');
-  const timeline = orderId ? getTimelineForOrder(orderId) : [];
+  const timelineEntries = orderId ? getTimelineForOrder(orderId) : [];
+  const workNotes = orderId ? getWorkNotesByOrder(orderId) : [];
+  const workLogsForOrder = orderId ? getWorkLogsByOrder(orderId) : [];
+  
+  // Merge timeline entries with work logs for comprehensive timeline view
+  const timeline = useMemo(() => {
+    const combined: TimelineEntry[] = [...timelineEntries];
+    
+    // Convert work logs to timeline entries
+    workLogsForOrder.forEach(log => {
+      combined.push({
+        timeline_id: log.log_id,
+        order_id: log.order_id,
+        item_id: log.order_item_id || undefined,
+        stage: log.stage as any,
+        action: log.action_type.replace('_', ' ') as any,
+        performed_by: log.user_id,
+        performed_by_name: log.user_name,
+        notes: `${log.work_summary}${log.time_spent_minutes > 0 ? ` (${Math.floor(log.time_spent_minutes / 60)}h ${log.time_spent_minutes % 60}m)` : ''}`,
+        is_public: true,
+        created_at: log.created_at,
+      });
+    });
+    
+    // Sort by created_at descending (newest first)
+    return combined.sort((a, b) => 
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }, [timelineEntries, workLogsForOrder]);
 
   // Dialog states
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -108,12 +144,15 @@ export default function OrderDetail() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [stageDialogOpen, setStageDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deliveryDateDialogOpen, setDeliveryDateDialogOpen] = useState(false);
+  const [workNoteDialogOpen, setWorkNoteDialogOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [selectedItemForDeliveryDate, setSelectedItemForDeliveryDate] = useState<{ itemId: string; productName: string; currentDate: Date } | null>(null);
   
   // Collapsible states
   const [itemsOpen, setItemsOpen] = useState(true);
   const [timelineOpen, setTimelineOpen] = useState(false);
-  const [customerOpen, setCustomerOpen] = useState(true);
+  const [customerOpen, setCustomerOpen] = useState(false);
 
   const canDelete = isAdmin || role === 'sales';
 
@@ -305,69 +344,135 @@ export default function OrderDetail() {
                 </CardHeader>
                 <CollapsibleContent>
                   <CardContent className="flex-1 overflow-y-auto custom-scrollbar pt-0 space-y-4">
-                    {order.items.map((item, index) => (
-                      <div key={item.item_id}>
+                    {order.items.map((item, index) => {
+                      const deliveryDateFormatted = format(item.delivery_date, 'd MMMM yyyy');
+                      const priorityColor = item.priority_computed === 'red' 
+                        ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'
+                        : item.priority_computed === 'yellow'
+                        ? 'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800'
+                        : 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800';
+                      
+                      return (
+                      <div key={item.item_id} className="bg-card border rounded-lg p-4 sm:p-5 lg:p-6 shadow-sm hover:shadow-lg transition-all duration-200">
                         {index > 0 && <Separator className="my-4" />}
-                        <div className="flex flex-col gap-4">
-                          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                                <h4 className="font-medium">{item.product_name}</h4>
-                                <PriorityBadge priority={item.priority_computed} />
-                                <StageBadge stage={item.current_stage} />
-                                {item.current_substage && (
-                                  <Badge variant="outline" className="capitalize">
-                                    {item.current_substage}
+                        <div className="flex flex-col gap-4 sm:gap-5">
+                          {/* Product Header with Order ID and Delivery Date */}
+                          <div className="flex flex-col gap-3 sm:gap-4">
+                            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2 flex-wrap">
+                                  <h4 className="font-semibold text-base sm:text-lg text-foreground break-words">{item.product_name}</h4>
+                                  <Badge 
+                                    className={`${priorityColor} border font-medium text-xs px-2.5 py-0.5 w-fit`}
+                                  >
+                                    {deliveryDateFormatted}
                                   </Badge>
-                                )}
+                                </div>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <PriorityBadge priority={item.priority_computed} />
+                                  <StageBadge stage={item.current_stage} />
+                                  {item.current_substage && (
+                                    <Badge variant="outline" className="capitalize text-xs">
+                                      {item.current_substage}
+                                    </Badge>
+                                  )}
+                                </div>
                               </div>
-
-                              {/* Assigned user */}
-                              {item.assigned_to_name && (
-                                <div className="flex items-center gap-2 mb-2 text-sm text-primary">
-                                  <UserCircle className="h-4 w-4" />
-                                  <span>Assigned to: <strong>{item.assigned_to_name}</strong></span>
-                                </div>
-                              )}
-                              
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-                                <div>
-                                  <span className="text-muted-foreground">Quantity</span>
-                                  <p className="font-medium">{item.quantity}</p>
-                                </div>
-                                {/* Financial data only for admin/sales */}
-                                {canViewFinancials && item.line_total && (
-                                  <div>
-                                    <span className="text-muted-foreground">Line Total</span>
-                                    <p className="font-medium">₹{item.line_total.toFixed(2)}</p>
-                                  </div>
-                                )}
+                              <div className="text-left sm:text-right">
+                                <p className="text-xs text-muted-foreground mb-1">Order Number</p>
+                                <p className="font-bold text-primary">{order.order_id}</p>
                               </div>
-                              
-                              {/* Product Specifications from WooCommerce */}
-                              <ProductSpecifications item={item} />
+                            </div>
 
-                              {/* Files with FilePreview component */}
-                              {item.files.length > 0 && (
-                                <div className="mt-3">
-                                  <p className="text-xs text-muted-foreground mb-2">Files ({item.files.length})</p>
-                                  <FilePreview 
-                                    files={item.files} 
-                                    compact 
-                                    onFileDeleted={() => refreshOrders()}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                            
-                            <div className="flex items-center gap-2 text-sm">
-                              <Calendar className="h-4 w-4 text-muted-foreground" />
-                              <span>{format(item.delivery_date, 'MMM d, yyyy')}</span>
-                            </div>
+                            {/* Assigned user */}
+                            {item.assigned_to_name && (
+                              <div className="flex items-center gap-2 text-sm text-primary bg-primary/5 px-3 py-2 rounded-md">
+                                <UserCircle className="h-4 w-4" />
+                                <span>Assigned to: <strong>{item.assigned_to_name}</strong></span>
+                              </div>
+                            )}
                           </div>
 
+                          {/* Product Details Grid */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 p-4 bg-muted/30 rounded-lg">
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Quantity</p>
+                              <p className="font-semibold text-base">{item.quantity}</p>
+                            </div>
+                            {/* Financial data only for admin/sales */}
+                            {canViewFinancials && item.line_total && (
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Line Total</p>
+                                <p className="font-semibold text-base">₹{item.line_total.toFixed(2)}</p>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Delivery Date</p>
+                                <div className="flex items-center gap-1.5">
+                                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                                  <p className="font-semibold text-base">{format(item.delivery_date, 'MMM d, yyyy')}</p>
+                                </div>
+                              </div>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-8 w-8 p-0"
+                                    onClick={() => {
+                                      setSelectedItemForDeliveryDate({
+                                        itemId: item.item_id,
+                                        productName: item.product_name,
+                                        currentDate: item.delivery_date,
+                                      });
+                                      setDeliveryDateDialogOpen(true);
+                                    }}
+                                  >
+                                    <Edit className="h-4 w-4" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Update delivery date</TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </div>
+                          
+                          {/* Product Specifications from WooCommerce */}
+                          <div className="border-t pt-4">
+                            <ProductSpecifications item={item} />
+                          </div>
+
+                          {/* Files with FilePreview component */}
+                          {item.files.length > 0 && (
+                            <div className="border-t pt-4">
+                              <p className="text-sm font-medium text-foreground mb-3">Files ({item.files.length})</p>
+                              <FilePreview 
+                                files={item.files} 
+                                compact 
+                                onFileDeleted={() => refreshOrders()}
+                              />
+                            </div>
+                          )}
+
                           {/* Item Actions */}
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex flex-wrap gap-2 border-t pt-4 sm:pt-5">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedItemId(item.item_id);
+                                    setWorkNoteDialogOpen(true);
+                                  }}
+                                >
+                                  <MessageSquare className="h-4 w-4 mr-1" />
+                                  Add Work Note
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Add a work note for this item</TooltipContent>
+                            </Tooltip>
+
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <Button 
@@ -441,7 +546,8 @@ export default function OrderDetail() {
                           </div>
                         </div>
                       </div>
-                    ))}
+                    );
+                    })}
                   </CardContent>
                 </CollapsibleContent>
               </Collapsible>
@@ -473,41 +579,78 @@ export default function OrderDetail() {
           <div className="lg:col-span-1 flex flex-col gap-4 min-h-0 max-h-full overflow-y-auto custom-scrollbar">
             {/* Customer info */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg font-display">Customer</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <h4 className="font-medium text-lg">{order.customer.name}</h4>
-                </div>
-                
-                <div className="space-y-2 text-sm">
-                  {order.customer.phone && (
-                    <a 
-                      href={`tel:${order.customer.phone}`}
-                      className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+              <Collapsible open={customerOpen} onOpenChange={setCustomerOpen}>
+                <CardHeader className="flex-shrink-0 pb-3">
+                  <CollapsibleTrigger asChild>
+                    <div 
+                      className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors"
                     >
-                      <Phone className="h-4 w-4" />
-                      {order.customer.phone}
-                    </a>
-                  )}
-                  {order.customer.email && (
-                    <a 
-                      href={`mailto:${order.customer.email}`}
-                      className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      <Mail className="h-4 w-4" />
-                      {order.customer.email}
-                    </a>
-                  )}
-                  {order.customer.address && (
-                    <div className="flex items-start gap-2 text-muted-foreground">
-                      <MapPin className="h-4 w-4 mt-0.5" />
-                      <span>{order.customer.address}</span>
+                      <CardTitle className="text-lg font-display">Customer Details</CardTitle>
+                      {customerOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
                     </div>
-                  )}
-                </div>
-              </CardContent>
+                  </CollapsibleTrigger>
+                </CardHeader>
+                <CollapsibleContent>
+                  <CardContent className="space-y-4 pt-0">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-medium text-lg">{order.customer.name}</h4>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const customerDetails = [
+                                `Name: ${order.customer.name}`,
+                                order.customer.phone && `Phone: ${order.customer.phone}`,
+                                order.customer.email && `Email: ${order.customer.email}`,
+                                order.customer.address && `Address: ${order.customer.address}`,
+                              ].filter(Boolean).join('\n');
+                              await navigator.clipboard.writeText(customerDetails);
+                              toast({
+                                title: "Copied!",
+                                description: "Customer details copied to clipboard",
+                              });
+                            }}
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Copy customer details</TooltipContent>
+                      </Tooltip>
+                    </div>
+                    
+                    <div className="space-y-2 text-sm">
+                      {order.customer.phone && (
+                        <a 
+                          href={`tel:${order.customer.phone}`}
+                          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <Phone className="h-4 w-4" />
+                          {order.customer.phone}
+                        </a>
+                      )}
+                      {order.customer.email && (
+                        <a 
+                          href={`mailto:${order.customer.email}`}
+                          className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          <Mail className="h-4 w-4" />
+                          {order.customer.email}
+                        </a>
+                      )}
+                      {order.customer.address && (
+                        <div className="flex items-start gap-2 text-muted-foreground">
+                          <MapPin className="h-4 w-4 mt-0.5" />
+                          <span>{order.customer.address}</span>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </CollapsibleContent>
+              </Collapsible>
             </Card>
 
             {/* Delivery */}
@@ -778,6 +921,17 @@ export default function OrderDetail() {
           onAdd={handleAddNote}
         />
 
+        {selectedItemId && order && (
+          <AddWorkNoteDialog
+            open={workNoteDialogOpen}
+            onOpenChange={setWorkNoteDialogOpen}
+            orderId={order.id || order.order_id}
+            itemId={selectedItemId}
+            stage={order.items.find(i => i.item_id === selectedItemId)?.current_stage || 'sales'}
+            productName={order.items.find(i => i.item_id === selectedItemId)?.product_name}
+          />
+        )}
+
         <EditOrderDialog
           open={editDialogOpen}
           onOpenChange={setEditDialogOpen}
@@ -792,6 +946,21 @@ export default function OrderDetail() {
             onChangeStage={handleStageChange}
             currentStage={order.items.find(i => i.item_id === selectedItemId)?.current_stage || 'sales'}
             currentSubstage={order.items.find(i => i.item_id === selectedItemId)?.current_substage}
+          />
+        )}
+
+        {/* Update Delivery Date Dialog */}
+        {selectedItemForDeliveryDate && (
+          <UpdateDeliveryDateDialog
+            open={deliveryDateDialogOpen}
+            onOpenChange={setDeliveryDateDialogOpen}
+            currentDate={selectedItemForDeliveryDate.currentDate}
+            productName={selectedItemForDeliveryDate.productName}
+            onSave={async (date) => {
+              if (orderId) {
+                await updateItemDeliveryDate(orderId, selectedItemForDeliveryDate.itemId, date);
+              }
+            }}
           />
         )}
 

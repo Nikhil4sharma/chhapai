@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { Order, OrderItem, TimelineEntry, Stage, SubStage, Priority } from '@/types/order';
 import { useAuth } from './AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { format } from 'date-fns';
 import { 
   collection, 
   doc, 
@@ -19,6 +20,7 @@ import {
 } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '@/integrations/firebase/config';
+import { autoLogWorkAction } from '@/utils/workLogHelper';
 
 interface OrderContextType {
   orders: Order[];
@@ -42,6 +44,7 @@ interface OrderContextType {
   markAsDispatched: (orderId: string, itemId: string) => Promise<void>;
   sendToProduction: (orderId: string, itemId: string, stageSequence?: string[]) => Promise<void>;
   setProductionStageSequence: (orderId: string, itemId: string, sequence: string[]) => Promise<void>;
+  updateItemDeliveryDate: (orderId: string, itemId: string, deliveryDate: Date) => Promise<void>;
   refreshOrders: () => Promise<void>;
   getCompletedOrders: () => Order[];
 }
@@ -201,9 +204,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const canViewFinancials = isAdmin || role === 'sales';
 
   // Fetch orders from Firestore
-  const fetchOrders = useCallback(async () => {
+  const fetchOrders = useCallback(async (showLoading = false) => {
     try {
-      setIsLoading(true);
+      // Only show loading on initial fetch, not on real-time updates
+      if (showLoading) {
+        setIsLoading(true);
+      }
       
       // Fetch orders
       const ordersQuery = query(collection(db, 'orders'), orderBy('created_at', 'desc'));
@@ -254,14 +260,55 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
             const assignedUserName = item.assigned_to ? profilesMap.get(item.assigned_to) : null;
 
+            // Normalize specifications - properly parse WooCommerce meta data
+            const EXCLUDED_KEYS = ['sku', 'SKU', 'notes', '_sku', 'product_sku', 'id'];
+            const normalizedSpecs: Record<string, string> = {};
+            if (item.specifications && typeof item.specifications === 'object') {
+              Object.entries(item.specifications).forEach(([key, value]) => {
+                // Skip numeric keys (array indices) and SKU
+                if (/^\d+$/.test(key) || EXCLUDED_KEYS.includes(key.toLowerCase())) {
+                  return;
+                }
+                
+                if (value !== null && value !== undefined) {
+                  // If value is already a string, use it
+                  if (typeof value === 'string') {
+                    normalizedSpecs[key] = value;
+                  } else if (typeof value === 'object') {
+                    // If it's an object with display_value, extract that
+                    const valueObj = value as any;
+                    if ('display_value' in valueObj && typeof valueObj.display_value === 'string') {
+                      normalizedSpecs[valueObj.display_key || key] = valueObj.display_value;
+                    } else if ('value' in valueObj && typeof valueObj.value === 'string') {
+                      normalizedSpecs[valueObj.display_key || valueObj.key || key] = valueObj.value;
+                    }
+                    // Otherwise skip - don't show raw objects
+                  } else {
+                    normalizedSpecs[key] = String(value);
+                  }
+                }
+              });
+            }
+
+            // Normalize woo_meta - ensure it's an array
+            let normalizedWooMeta: any[] | undefined = undefined;
+            if (item.woo_meta) {
+              if (Array.isArray(item.woo_meta)) {
+                normalizedWooMeta = item.woo_meta;
+              } else if (typeof item.woo_meta === 'object') {
+                // Convert object to array
+                normalizedWooMeta = Object.values(item.woo_meta);
+              }
+            }
+
             return {
               item_id: item.id,
               order_id: item.order_id,
               product_name: item.product_name,
               quantity: item.quantity,
               line_total: canViewFinancials ? (item.line_total || undefined) : undefined,
-              specifications: item.specifications || {},
-              woo_meta: item.woo_meta || undefined,
+              specifications: normalizedSpecs,
+              woo_meta: normalizedWooMeta,
               need_design: item.need_design,
               current_stage: item.current_stage as Stage,
               current_substage: item.current_substage as SubStage,
@@ -321,15 +368,22 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       });
 
       setOrders(mappedOrders);
+      if (showLoading) {
+        setIsLoading(false);
+      }
     } catch (error) {
       console.error('Error fetching orders:', error);
-      toast({
-        title: "Error",
-        description: "Failed to load orders",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      }
+      // Only show toast on initial load, not on real-time updates
+      if (showLoading) {
+        toast({
+          title: "Error",
+          description: "Failed to load orders",
+          variant: "destructive",
+        });
+      }
     }
   }, [canViewFinancials]);
 
@@ -364,35 +418,59 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  // Real-time subscription for orders, items, timeline, and files
+  // Real-time subscription for orders, items, timeline, and files - optimized
   useEffect(() => {
     if (!user) return;
 
-    fetchOrders();
+    // Initial fetch with loading indicator
+    fetchOrders(true);
     fetchTimeline();
 
-    // Subscribe to real-time changes
-    const unsubscribeOrders = onSnapshot(collection(db, 'orders'), () => {
-      console.log('Orders changed - refreshing');
-      fetchOrders();
-    });
+    // Use debounce to prevent too many rapid updates
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedFetch = (callback: () => void) => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        callback();
+      }, 300); // 300ms debounce
+    };
 
-    const unsubscribeItems = onSnapshot(collection(db, 'order_items'), () => {
-      console.log('Order items changed - refreshing');
-      fetchOrders();
-    });
+    // Subscribe to real-time changes with optimized queries
+    const unsubscribeOrders = onSnapshot(
+      query(collection(db, 'orders'), orderBy('updated_at', 'desc')),
+      () => {
+        debouncedFetch(() => {
+          fetchOrders(false); // Don't show loading on real-time updates
+        });
+      }
+    );
+
+    const unsubscribeItems = onSnapshot(
+      query(collection(db, 'order_items'), orderBy('updated_at', 'desc')),
+      () => {
+        debouncedFetch(() => {
+          fetchOrders(false); // Don't show loading on real-time updates
+        });
+      }
+    );
 
     const unsubscribeFiles = onSnapshot(collection(db, 'order_files'), () => {
-      console.log('Order files changed - refreshing');
-      fetchOrders();
+      debouncedFetch(() => {
+        fetchOrders(false); // Don't show loading on real-time updates
+      });
     });
 
-    const unsubscribeTimeline = onSnapshot(collection(db, 'timeline'), () => {
-      console.log('Timeline changed - refreshing');
-      fetchTimeline();
-    });
+    const unsubscribeTimeline = onSnapshot(
+      query(collection(db, 'timeline'), orderBy('created_at', 'desc')),
+      () => {
+        debouncedFetch(() => {
+          fetchTimeline();
+        });
+      }
+    );
 
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       unsubscribeOrders();
       unsubscribeItems();
       unsubscribeFiles();
@@ -401,7 +479,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   }, [user, fetchOrders, fetchTimeline]);
 
   const refreshOrders = useCallback(async () => {
-    await Promise.all([fetchOrders(), fetchTimeline()]);
+    await Promise.all([fetchOrders(false), fetchTimeline()]);
   }, [fetchOrders, fetchTimeline]);
 
   const getOrderById = useCallback((orderId: string) => {
@@ -502,6 +580,26 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         is_public: true,
       });
 
+      // Auto-log work action
+      if (user?.uid && profile?.full_name) {
+        const item = order.items.find(i => i.item_id === itemId);
+        await autoLogWorkAction(
+          user.uid,
+          profile.full_name,
+          role || 'unknown',
+          order.id!,
+          order.order_id,
+          itemId,
+          newStage,
+          'stage_updated',
+          `Stage updated to ${newStage}${substage ? ` - ${substage}` : ''}`,
+          0,
+          item?.product_name,
+          new Date(),
+          new Date()
+        );
+      }
+
       // Update the item stage
       const itemRef = doc(db, 'order_items', itemId);
       await updateDoc(itemRef, {
@@ -516,7 +614,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         await notifyStageChange(order.order_id, itemId, item.product_name, newStage, user.uid);
       }
 
-      await fetchOrders();
+      await fetchOrders(false);
 
       // Check for priority changes
       const newPriority = computePriority(item.delivery_date);
@@ -561,7 +659,27 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         is_public: true,
       });
 
-      await fetchOrders();
+      // Auto-log work action
+      if (user?.uid && profile?.full_name) {
+        const item = order.items.find(i => i.item_id === itemId);
+        await autoLogWorkAction(
+          user.uid,
+          profile.full_name,
+          role || 'unknown',
+          order.id!,
+          order.order_id,
+          itemId,
+          'production',
+          'substage_started',
+          `Started production substage: ${substage}`,
+          0,
+          item?.product_name,
+          new Date(),
+          new Date()
+        );
+      }
+
+      await fetchOrders(false);
 
       toast({
         title: "Production Stage Started",
@@ -599,6 +717,26 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       notes: `Completed ${item.current_substage}`,
       is_public: true,
     });
+
+    // Auto-log work action
+    if (user?.uid && profile?.full_name) {
+      const item = order!.items.find(i => i.item_id === itemId);
+      await autoLogWorkAction(
+        user.uid,
+        profile.full_name,
+        role || 'unknown',
+        order!.id!,
+        order!.order_id,
+        itemId,
+        'production',
+        'substage_completed',
+        `Completed production substage: ${item.current_substage}`,
+        0,
+        item?.product_name,
+        new Date(),
+        new Date()
+      );
+    }
 
     if (isLastSubstage) {
       await updateItemStage(orderId, itemId, 'dispatch');
@@ -686,7 +824,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      await fetchOrders();
+      await fetchOrders(false);
 
       toast({
         title: "Item Dispatched",
@@ -724,7 +862,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         is_public: true,
       });
 
-      await fetchOrders();
+      await fetchOrders(false);
 
       toast({
         title: "Stage Sequence Saved",
@@ -787,7 +925,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         await notifyStageChange(order.order_id, itemId, item.product_name, 'production', user.uid);
       }
 
-      await fetchOrders();
+      await fetchOrders(false);
 
       toast({
         title: "Sent to Production",
@@ -851,7 +989,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      await fetchOrders();
+      await fetchOrders(false);
 
       toast({
         title: "User Assigned",
@@ -909,10 +1047,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         created_at: Timestamp.now(),
       });
 
+      const currentStage = order.items.find(i => i.item_id === itemId)?.current_stage || 'sales';
+      
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
-        stage: order.items.find(i => i.item_id === itemId)?.current_stage || 'sales',
+        stage: currentStage,
         action: replaceExisting ? 'final_proof_uploaded' : 'uploaded_proof',
         performed_by: user?.uid || '',
         performed_by_name: profile?.full_name || 'Unknown',
@@ -921,7 +1061,27 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         is_public: true,
       });
 
-      await fetchOrders();
+      // Auto-log work action
+      if (user?.uid && profile?.full_name) {
+        const item = order.items.find(i => i.item_id === itemId);
+        await autoLogWorkAction(
+          user.uid,
+          profile.full_name,
+          role || 'unknown',
+          order.id!,
+          order.order_id,
+          itemId,
+          currentStage,
+          'file_uploaded',
+          `${replaceExisting ? 'Replaced' : 'Uploaded'} file: ${file.name}`,
+          0,
+          item?.product_name,
+          new Date(),
+          new Date()
+        );
+      }
+
+      await fetchOrders(false);
 
       toast({
         title: replaceExisting ? "File Replaced" : "File Uploaded",
@@ -960,7 +1120,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         is_public: false,
       });
 
-      await fetchOrders();
+      await fetchOrders(false);
 
       toast({
         title: "Note Added",
@@ -997,7 +1157,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       await updateDoc(orderRef, updateData);
 
-      await fetchOrders();
+      await fetchOrders(false);
 
       toast({
         title: "Order Updated",
@@ -1050,7 +1210,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       
       await batch.commit();
 
-      await fetchOrders();
+      await fetchOrders(false);
 
       toast({
         title: "Order Deleted",
@@ -1065,6 +1225,44 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       });
     }
   }, [orders, isAdmin, role, fetchOrders]);
+
+  const updateItemDeliveryDate = useCallback(async (orderId: string, itemId: string, deliveryDate: Date) => {
+    try {
+      const itemRef = doc(db, 'order_items', itemId);
+      const itemDoc = await getDoc(itemRef);
+      const itemData = itemDoc.data();
+      
+      await updateDoc(itemRef, {
+        delivery_date: Timestamp.fromDate(deliveryDate),
+        updated_at: Timestamp.now(),
+      });
+
+      await addTimelineEntry({
+        order_id: orderId,
+        item_id: itemId,
+        stage: (itemData?.current_stage as Stage) || 'sales',
+        action: 'note_added',
+        performed_by: user?.uid || '',
+        performed_by_name: profile?.full_name || 'Unknown',
+        notes: `Delivery date updated to ${format(deliveryDate, 'MMM d, yyyy')}`,
+        is_public: true,
+      });
+
+      await fetchOrders(false);
+
+      toast({
+        title: "Delivery Date Updated",
+        description: `Delivery date updated to ${format(deliveryDate, 'MMM d, yyyy')}`,
+      });
+    } catch (error) {
+      console.error('Error updating delivery date:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update delivery date",
+        variant: "destructive",
+      });
+    }
+  }, [user, profile, addTimelineEntry, fetchOrders]);
 
   return (
     <OrderContext.Provider value={{
@@ -1089,6 +1287,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       markAsDispatched,
       sendToProduction,
       setProductionStageSequence,
+      updateItemDeliveryDate,
       refreshOrders,
       getCompletedOrders,
     }}>

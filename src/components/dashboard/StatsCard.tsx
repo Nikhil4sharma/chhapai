@@ -16,18 +16,18 @@ interface StatsCardProps {
 
 export function StatsCard({ title, value, icon: Icon, trend, variant = 'default', className }: StatsCardProps) {
   return (
-    <Card className={cn("card-hover", className)}>
+    <Card className={cn("card-hover transition-all duration-300", className)}>
       <CardContent className="p-6">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-sm font-medium text-muted-foreground">{title}</p>
             <p className={cn(
-              "text-3xl font-bold mt-1 font-display",
+              "text-3xl font-bold mt-1 font-display transition-all duration-500 ease-in-out",
               variant === 'primary' && "text-primary",
               variant === 'warning' && "text-warning",
               variant === 'danger' && "text-priority-red",
             )}>
-              {value}
+              <span className="inline-block transition-all duration-300 ease-in-out">{value}</span>
             </p>
             {trend && (
               <p className={cn(

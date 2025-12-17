@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ShoppingCart, Eye, EyeOff, Loader2 } from 'lucide-react';
 import {
   Dialog,
@@ -12,8 +12,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
-// Note: WooCommerce integration requires Firebase Cloud Functions
-// This needs to be implemented separately
+import { useAuth } from '@/contexts/AuthContext';
+import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
+import { db } from '@/integrations/firebase/config';
 
 interface WooCommerceCredentialsDialogProps {
   open: boolean;
@@ -28,6 +29,7 @@ export function WooCommerceCredentialsDialog({
   currentStoreUrl,
   onSuccess,
 }: WooCommerceCredentialsDialogProps) {
+  const { isAdmin } = useAuth();
   const [credentials, setCredentials] = useState({
     store_url: '',
     consumer_key: '',
@@ -37,7 +39,47 @@ export function WooCommerceCredentialsDialog({
   const [showSecret, setShowSecret] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // Load existing credentials when dialog opens (admin only)
+  useEffect(() => {
+    if (open && isAdmin) {
+      loadCredentials();
+    }
+  }, [open, isAdmin]);
+
+  const loadCredentials = async () => {
+    try {
+      const credsRef = doc(db, 'woocommerce_credentials', 'config');
+      const credsSnap = await getDoc(credsRef);
+      
+      if (credsSnap.exists()) {
+        const data = credsSnap.data();
+        setCredentials({
+          store_url: data.store_url || '',
+          consumer_key: data.consumer_key ? '••••••••••••••••' : '', // Mask existing key
+          consumer_secret: data.consumer_secret ? '••••••••••••••••' : '', // Mask existing secret
+        });
+      } else {
+        // Pre-fill store URL if provided
+        if (currentStoreUrl) {
+          setCredentials(prev => ({ ...prev, store_url: currentStoreUrl }));
+        }
+      }
+    } catch (error) {
+      console.error('Error loading credentials:', error);
+    }
+  };
+
   const handleSubmit = async () => {
+    // Check admin access
+    if (!isAdmin) {
+      toast({
+        title: "Access Denied",
+        description: "Only administrators can update WooCommerce credentials",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (!credentials.store_url.trim() || !credentials.consumer_key.trim() || !credentials.consumer_secret.trim()) {
       toast({
         title: "Validation Error",
@@ -47,42 +89,65 @@ export function WooCommerceCredentialsDialog({
       return;
     }
 
+    // Validate URL format
+    let normalizedUrl = credentials.store_url.trim();
+    if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+      normalizedUrl = 'https://' + normalizedUrl;
+    }
+    normalizedUrl = normalizedUrl.replace(/\/$/, '');
+
     setIsLoading(true);
     try {
-      const { data, error } = await supabase.functions.invoke('woocommerce', {
-        body: { 
-          action: 'update-credentials',
-          ...credentials,
+      // Validate credentials by testing connection
+      const testAuth = btoa(`${credentials.consumer_key}:${credentials.consumer_secret}`);
+      const testUrl = `${normalizedUrl}/wp-json/wc/v3/system_status`;
+      
+      const testResponse = await fetch(testUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Basic ${testAuth}`,
+          'Content-Type': 'application/json',
         },
       });
 
-      if (error) throw error;
-
-      if (data.success) {
-        toast({
-          title: "Credentials Updated",
-          description: `Connected to ${data.storeUrl}`,
-        });
-        onSuccess();
-        onOpenChange(false);
-        setCredentials({ store_url: '', consumer_key: '', consumer_secret: '' });
-      } else {
-        toast({
-          title: "Update Failed",
-          description: data.error || "Could not validate credentials",
-          variant: "destructive",
-        });
+      if (!testResponse.ok) {
+        throw new Error(`Connection failed: ${testResponse.status} ${testResponse.statusText}`);
       }
-    } catch (error: any) {
+
+      // Save credentials to Firestore (admin-only collection)
+      const credsRef = doc(db, 'woocommerce_credentials', 'config');
+      await setDoc(credsRef, {
+        store_url: normalizedUrl,
+        consumer_key: credentials.consumer_key,
+        consumer_secret: credentials.consumer_secret,
+        updated_at: Timestamp.now(),
+        updated_by: 'admin', // In production, use actual user ID
+      }, { merge: true });
+
       toast({
-        title: "Error",
-        description: error.message || "Failed to update credentials",
+        title: "Credentials Updated",
+        description: `Successfully connected to ${normalizedUrl}`,
+      });
+      
+      onSuccess();
+      onOpenChange(false);
+      setCredentials({ store_url: '', consumer_key: '', consumer_secret: '' });
+    } catch (error: any) {
+      console.error('Error updating credentials:', error);
+      toast({
+        title: "Update Failed",
+        description: error.message || "Could not validate or save credentials. Please check your API keys.",
         variant: "destructive",
       });
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Don't show dialog if not admin
+  if (!isAdmin) {
+    return null;
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -95,7 +160,7 @@ export function WooCommerceCredentialsDialog({
           <DialogDescription>
             {currentStoreUrl 
               ? `Currently connected to: ${currentStoreUrl}` 
-              : 'Enter your WooCommerce API credentials'
+              : 'Enter your WooCommerce API credentials (Admin Only)'
             }
           </DialogDescription>
         </DialogHeader>
@@ -117,14 +182,19 @@ export function WooCommerceCredentialsDialog({
           <div className="space-y-2">
             <Label htmlFor="consumer_key">Consumer Key</Label>
             <div className="relative">
-              <Input
-                id="consumer_key"
-                type={showKey ? 'text' : 'password'}
-                placeholder="ck_xxxxxxxxxxxxxxxx"
-                value={credentials.consumer_key}
-                onChange={(e) => setCredentials({ ...credentials, consumer_key: e.target.value })}
-                className="pr-10"
-              />
+            <Input
+              id="consumer_key"
+              type={showKey ? 'text' : 'password'}
+              placeholder="ck_xxxxxxxxxxxxxxxx"
+              value={credentials.consumer_key}
+              onChange={(e) => {
+                // Only update if not masked value
+                if (!e.target.value.includes('••••')) {
+                  setCredentials({ ...credentials, consumer_key: e.target.value });
+                }
+              }}
+              className="pr-10"
+            />
               <Button
                 type="button"
                 variant="ghost"
@@ -140,14 +210,19 @@ export function WooCommerceCredentialsDialog({
           <div className="space-y-2">
             <Label htmlFor="consumer_secret">Consumer Secret</Label>
             <div className="relative">
-              <Input
-                id="consumer_secret"
-                type={showSecret ? 'text' : 'password'}
-                placeholder="cs_xxxxxxxxxxxxxxxx"
-                value={credentials.consumer_secret}
-                onChange={(e) => setCredentials({ ...credentials, consumer_secret: e.target.value })}
-                className="pr-10"
-              />
+            <Input
+              id="consumer_secret"
+              type={showSecret ? 'text' : 'password'}
+              placeholder="cs_xxxxxxxxxxxxxxxx"
+              value={credentials.consumer_secret}
+              onChange={(e) => {
+                // Only update if not masked value
+                if (!e.target.value.includes('••••')) {
+                  setCredentials({ ...credentials, consumer_secret: e.target.value });
+                }
+              }}
+              className="pr-10"
+            />
               <Button
                 type="button"
                 variant="ghost"

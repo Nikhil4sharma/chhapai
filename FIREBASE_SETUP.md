@@ -109,3 +109,5 @@ After deployment, you'll get a URL like:
 - **Permission errors**: Check Firestore rules match your use case
 - **Storage errors**: Verify Storage rules allow authenticated users
 
+
+

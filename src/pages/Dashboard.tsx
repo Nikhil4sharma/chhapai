@@ -29,7 +29,7 @@ type SortOption = 'newest' | 'oldest' | 'priority' | 'delivery';
 type FilterOption = 'all' | 'red' | 'yellow' | 'blue';
 
 export default function Dashboard() {
-  const { getOrdersByDepartment, getCompletedOrders, isLoading } = useOrders();
+  const { orders: allOrders, getOrdersByDepartment, getCompletedOrders, isLoading } = useOrders();
   const { isAdmin, role, profile } = useAuth();
   const navigate = useNavigate();
   
@@ -45,6 +45,9 @@ export default function Dashboard() {
   const orders = getOrdersByDepartment();
   const completedOrders = getCompletedOrders();
   const urgentOrders = orders.filter(o => o.priority_computed === 'red');
+  
+  // Total orders count should include all orders (completed + non-completed)
+  const totalOrdersCount = allOrders.length;
   
   // Apply sorting and filtering
   const sortOrders = (orderList: typeof orders) => {
@@ -94,36 +97,50 @@ export default function Dashboard() {
 
   const getTotalPages = (total: number) => Math.ceil(total / ITEMS_PER_PAGE);
   
-  // Calculate stats
-  const stats = {
-    totalOrders: orders.length,
-    urgentItems: 0,
-    byStage: {
-      sales: 0,
-      design: 0,
-      prepress: 0,
-      production: 0,
-      dispatch: 0,
-      completed: 0,
-    },
-  };
+  // Calculate stats with useMemo for realtime updates
+  const stats = useMemo(() => {
+    const calculated = {
+      totalOrders: totalOrdersCount,
+      urgentItems: 0,
+      byStage: {
+        sales: 0,
+        design: 0,
+        prepress: 0,
+        production: 0,
+        dispatch: 0,
+        completed: 0,
+      },
+      byDepartment: {
+        sales: 0,
+        design: 0,
+        prepress: 0,
+        production: 0,
+      },
+    };
 
-  orders.forEach(order => {
-    order.items.forEach(item => {
-      stats.byStage[item.current_stage]++;
-      if (item.priority_computed === 'red') {
-        stats.urgentItems++;
-      }
+    orders.forEach(order => {
+      order.items.forEach(item => {
+        calculated.byStage[item.current_stage]++;
+        if (item.priority_computed === 'red') {
+          calculated.urgentItems++;
+        }
+        // Count by assigned department
+        if (item.assigned_department && calculated.byDepartment[item.assigned_department as keyof typeof calculated.byDepartment] !== undefined) {
+          calculated.byDepartment[item.assigned_department as keyof typeof calculated.byDepartment]++;
+        }
+      });
     });
-  });
 
-  completedOrders.forEach(order => {
-    order.items.forEach(item => {
-      if (item.current_stage === 'completed') {
-        stats.byStage.completed++;
-      }
+    completedOrders.forEach(order => {
+      order.items.forEach(item => {
+        if (item.current_stage === 'completed') {
+          calculated.byStage.completed++;
+        }
+      });
     });
-  });
+
+    return calculated;
+  }, [orders, completedOrders, totalOrdersCount]);
 
   const handleCardClick = (path: string) => {
     navigate(path);
@@ -195,7 +212,7 @@ export default function Dashboard() {
           <Tooltip>
             <TooltipTrigger asChild>
               <div 
-                className="cursor-pointer transition-transform hover:scale-[1.02]"
+                className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
                 onClick={() => handleCardClick('/sales')}
               >
                 <StatsCard
@@ -212,7 +229,7 @@ export default function Dashboard() {
           <Tooltip>
             <TooltipTrigger asChild>
               <div 
-                className="cursor-pointer transition-transform hover:scale-[1.02]"
+                className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
                 onClick={() => handleCardClick('/production')}
               >
                 <StatsCard
@@ -229,7 +246,7 @@ export default function Dashboard() {
           <Tooltip>
             <TooltipTrigger asChild>
               <div 
-                className="cursor-pointer transition-transform hover:scale-[1.02]"
+                className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
                 onClick={() => handleCardClick('/production')}
               >
                 <StatsCard
@@ -246,7 +263,7 @@ export default function Dashboard() {
           <Tooltip>
             <TooltipTrigger asChild>
               <div 
-                className="cursor-pointer transition-transform hover:scale-[1.02]"
+                className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
                 onClick={() => handleCardClick('/dispatch')}
               >
                 <StatsCard

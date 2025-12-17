@@ -84,3 +84,5 @@ Login करने के बाद check करें:
 3. "Start in production mode" select करें
 4. Location choose करें और "Enable" click करें
 
+
+
