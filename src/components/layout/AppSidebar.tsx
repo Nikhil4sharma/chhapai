@@ -231,15 +231,30 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   ];
 
   // Filter nav items based on role
-  // CRITICAL: Don't filter during auth loading - show all items until role is loaded
+  // CRITICAL: Show all items if:
+  // 1. Auth is loading
+  // 2. User exists but role is not yet loaded (reload scenario)
   // This prevents sidebar from disappearing on page reload
   const visibleNavItems = navItems.filter(item => {
-    if (!item.roles) return true; // Dashboard is visible to all
+    // Public items (no roles restriction) - always visible
+    if (!item.roles) return true;
+    
     // If auth is still loading, show all items (optimistic rendering)
     if (authLoading) return true;
+    
+    // CRITICAL FIX: If user exists but role is null/undefined, show all items
+    // This handles page reload where session exists but role fetch is pending
+    if (user && !role) {
+      return true; // Show all items until role is loaded
+    }
+    
+    // If no user at all, hide role-based items
+    if (!user) return false;
+    
+    // Admin sees everything
     if (isAdmin) return true;
-    // Only filter if we have a role
-    if (!role) return false;
+    
+    // Filter by role (role must exist at this point)
     return item.roles.includes(role);
   });
 
