@@ -12,7 +12,7 @@ if (!supabaseAnonKey || supabaseAnonKey.trim() === '') {
 
 Please create a .env file in project root with:
 VITE_SUPABASE_URL=https://hswgdeldouyclpeqbbgq.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key-here
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhzd2dkZWxkb3V5Y2xwZXFiYmdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMzU2NjAsImV4cCI6MjA4MTcxMTY2MH0.1Np96vCvDdFy_s2LSneyoorOLUvlpUw2AcAAemX3BnI
 
 Get your anon key from:
 https://app.supabase.com/project/hswgdeldouyclpeqbbgq/settings/api

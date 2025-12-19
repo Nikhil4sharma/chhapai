@@ -41,7 +41,7 @@ Following functions still use Firebase and need to be migrated:
 - [ ] `setProductionStageSequence` - Update via Supabase
 
 ### File Operations
-- [ ] `uploadFile` - Already uses Cloudinary, but Firebase Storage references need removal
+- [x] `uploadFile` - ✅ Migrated to Supabase Storage (Cloudinary removed)
 
 ### Delete Operations
 - [ ] `deleteOrder` - Delete via Supabase (needs batch delete for items, files, timeline)

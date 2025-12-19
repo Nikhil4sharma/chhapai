@@ -126,7 +126,7 @@ export function FileHistory({ files, orderId, itemId, onFileDeleted }: FileHisto
     try {
       const fileName = file.file_name || `file-${file.file_id}`;
       
-      // For Cloudinary URLs, fetch the file and create a blob for proper download
+      // For Supabase Storage URLs, fetch the file and create a blob for proper download
       const response = await fetch(file.url);
       if (!response.ok) {
         throw new Error('Failed to fetch file');

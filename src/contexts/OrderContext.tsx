@@ -17,7 +17,7 @@ import {
   subscribeToOrderItemsChanges,
 } from '@/services/supabaseOrdersService';
 import { autoLogWorkAction } from '@/utils/workLogHelper';
-import { uploadFileToCloudinary } from '@/services/cloudinaryUpload';
+import { uploadOrderFile, deleteFileFromSupabase } from '@/services/supabaseStorage';
 import { MIGRATION_START_DATE } from '@/constants/migration';
 
 interface OrderContextType {
@@ -1449,39 +1449,61 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const fileType = file.type.includes('pdf') ? 'proof' : 
                        file.type.includes('image') ? 'image' : 'other';
 
-      // Upload to Cloudinary
-      const uploadResult = await uploadFileToCloudinary(file, orderId, fileType);
+      // Upload to Supabase Storage
+      const uploadResult = await uploadOrderFile(file, orderId, fileType);
       
-      const downloadURL = uploadResult.secure_url;
-      const filePath = uploadResult.public_id;
+      const downloadURL = uploadResult.url;
+      const filePath = uploadResult.path;
 
       if (!downloadURL) {
-        throw new Error('Failed to get file URL from Cloudinary');
+        throw new Error('Failed to get file URL from Supabase Storage');
       }
 
       if (replaceExisting) {
-        // Delete existing files for this item
-        const existingFilesQuery = query(collection(db, 'order_files'), where('item_id', '==', itemId));
-        const existingFilesSnapshot = await getDocs(existingFilesQuery);
-        const batch = writeBatch(db);
-        existingFilesSnapshot.docs.forEach(doc => {
-          batch.delete(doc.ref);
-        });
-        await batch.commit();
+        // Delete existing files for this item from Supabase
+        const { data: existingFiles } = await supabase
+          .from('order_files')
+          .select('id, file_url')
+          .eq('item_id', itemId);
+
+        if (existingFiles && existingFiles.length > 0) {
+          // Delete file records from database
+          await supabase
+            .from('order_files')
+            .delete()
+            .eq('item_id', itemId);
+
+          // Delete files from storage (extract path from URL if needed)
+          for (const fileRecord of existingFiles) {
+            try {
+              // Extract path from URL or use stored path
+              const urlPath = fileRecord.file_url.split('/order-files/')[1]?.split('?')[0];
+              if (urlPath) {
+                await deleteFileFromSupabase(urlPath);
+              }
+            } catch (err) {
+              console.warn('Error deleting old file from storage:', err);
+            }
+          }
+        }
       }
 
-      // Store file metadata in Firestore
-      await setDoc(doc(collection(db, 'order_files')), {
-        order_id: order.id,
-        item_id: itemId,
-        file_url: downloadURL, // Store Cloudinary URL
-        file_name: file.name,
-        file_type: fileType,
-        uploaded_by: user?.uid,
-        is_public: true,
-        created_at: Timestamp.now(),
-        cloudinary_public_id: filePath, // Store public_id for future reference
-      });
+      // Store file metadata in Supabase
+      const { error: insertError } = await supabase
+        .from('order_files')
+        .insert({
+          order_id: order.id,
+          item_id: itemId,
+          file_url: downloadURL,
+          file_name: file.name,
+          file_type: fileType,
+          uploaded_by: user?.id || null,
+          is_public: true,
+        });
+
+      if (insertError) {
+        throw new Error(`Failed to save file metadata: ${insertError.message}`);
+      }
 
       const currentItem = order.items.find(i => i.item_id === itemId);
       const currentStage = currentItem?.current_stage || 'sales';

@@ -8,8 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '@/integrations/firebase/config';
+import { uploadAvatar } from '@/services/supabaseStorage';
 
 export default function Profile() {
   const { user, profile, role, updatePassword, updateProfile, updateEmail } = useAuth();
@@ -162,19 +161,12 @@ export default function Profile() {
 
     setIsUploadingAvatar(true);
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `avatars/${user.uid}/avatar.${fileExt}`;
-
-      // Upload to Firebase Storage
-      const fileRef = ref(storage, fileName);
-      await uploadBytes(fileRef, file);
-
-      // Get download URL
-      const downloadURL = await getDownloadURL(fileRef);
+      // Upload to Supabase Storage
+      const uploadResult = await uploadAvatar(file, user.id);
 
       // Update profile with avatar URL
       const { error: updateError } = await updateProfile({
-        avatar_url: downloadURL,
+        avatar_url: uploadResult.url,
       });
 
       if (updateError) throw updateError;
