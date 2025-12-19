@@ -5,8 +5,24 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://hswgdeldouyclp
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 if (!supabaseAnonKey || supabaseAnonKey.trim() === '') {
-  const errorMsg = '❌ VITE_SUPABASE_ANON_KEY is required! Please set it in .env file.';
+  const errorMsg = `❌ VITE_SUPABASE_ANON_KEY is required!
+
+Please create a .env file in project root with:
+VITE_SUPABASE_URL=https://hswgdeldouyclpeqbbgq.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key-here
+
+Get your anon key from:
+https://app.supabase.com/project/hswgdeldouyclpeqbbgq/settings/api
+(Copy the "anon public" key)
+
+Then restart the dev server (npm run dev)`;
   console.error(errorMsg);
+  // In development, show warning but don't crash - allow user to set key
+  if (import.meta.env.DEV) {
+    console.warn('⚠️ Running without Supabase key - please set VITE_SUPABASE_ANON_KEY in .env file');
+    console.warn('⚠️ App will not work properly until key is set!');
+  }
+  // Still throw error - user must set the key for app to work
   throw new Error(errorMsg);
 }
 
