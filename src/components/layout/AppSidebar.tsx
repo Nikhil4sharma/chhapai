@@ -40,7 +40,7 @@ interface AppSidebarProps {
 
 export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   const location = useLocation();
-  const { isAdmin, role, profile, user } = useAuth();
+  const { isAdmin, role, profile, user, isLoading: authLoading } = useAuth();
   const { orders, getCompletedOrders, getOrdersForDepartment } = useOrders();
 
   // Calculate real-time badges from orders - count items per department
@@ -231,10 +231,16 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   ];
 
   // Filter nav items based on role
+  // CRITICAL: Don't filter during auth loading - show all items until role is loaded
+  // This prevents sidebar from disappearing on page reload
   const visibleNavItems = navItems.filter(item => {
     if (!item.roles) return true; // Dashboard is visible to all
+    // If auth is still loading, show all items (optimistic rendering)
+    if (authLoading) return true;
     if (isAdmin) return true;
-    return item.roles.includes(role || '');
+    // Only filter if we have a role
+    if (!role) return false;
+    return item.roles.includes(role);
   });
 
   const NavItemComponent = ({ item }: { item: NavItem }) => {
