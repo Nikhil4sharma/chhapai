@@ -41,11 +41,9 @@ import { useOrders } from '@/contexts/OrderContext';
 import { toast } from '@/hooks/use-toast';
 import { PRODUCTION_STEPS } from '@/types/order';
 import { WooCommerceCredentialsDialog } from '@/components/dialogs/WooCommerceCredentialsDialog';
-import { doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, Timestamp, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
 import { formatDistanceToNow, format } from 'date-fns';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '@/integrations/firebase/config';
+// Firebase removed - using Supabase only
+// TODO: Migrate settings to Supabase tables
 import { uploadToWordPress, testWordPressConnection, WordPressConfig } from '@/utils/wordpressUpload';
 
 export default function Settings() {
@@ -98,71 +96,17 @@ export default function Settings() {
     
     const loadSettings = async () => {
       try {
-        const settingsRef = doc(db, 'user_settings', user.uid);
-        const settingsSnap = await getDoc(settingsRef);
+        if (!user || !user.id) return;
         
-        if (settingsSnap.exists()) {
-          const data = settingsSnap.data();
-          
-          // Load notification preferences
-          if (data.email_notifications !== undefined || data.push_notifications !== undefined) {
-            setNotifications({
-              email: data.email_notifications ?? true,
-              push: data.push_notifications ?? true, // Default ON
-              orderUpdates: data.order_updates ?? true,
-              urgentAlerts: data.urgent_alerts ?? true,
-            });
-          }
-          
-          // Load production stages (admin only) - check app_settings first
-          if (isAdmin) {
-            try {
-              const appSettingsRef = doc(db, 'app_settings', 'production_stages');
-              const appSettingsSnap = await getDoc(appSettingsRef);
-              
-              if (appSettingsSnap.exists()) {
-                const appData = appSettingsSnap.data();
-                if (appData.stages && Array.isArray(appData.stages) && appData.stages.length > 0) {
-                  setProductionStages(appData.stages);
-                }
-              } else if (data.production_stages && Array.isArray(data.production_stages) && data.production_stages.length > 0) {
-                // Fallback to user_settings for backward compatibility
-                setProductionStages(data.production_stages);
-              }
-
-              // Load appearance settings
-              const appearanceRef = doc(db, 'app_settings', 'appearance');
-              const appearanceSnap = await getDoc(appearanceRef);
-              if (appearanceSnap.exists()) {
-                const appearanceData = appearanceSnap.data();
-                if (appearanceData.favicon_url) {
-                  setFaviconUrl(appearanceData.favicon_url);
-                }
-                if (appearanceData.logo_url) {
-                  setLogoUrl(appearanceData.logo_url);
-                }
-              }
-
-              // Load vendors
-              const vendorsRef = collection(db, 'vendors');
-              const vendorsSnap = await getDocs(vendorsRef);
-              const vendorsData = vendorsSnap.docs.map(d => ({
-                id: d.id,
-                vendor_name: d.data().vendor_name || '',
-                vendor_company: d.data().vendor_company,
-                contact_person: d.data().contact_person || '',
-                phone: d.data().phone || '',
-                email: d.data().email,
-                city: d.data().city,
-                created_at: d.data().created_at?.toDate() || new Date(),
-                updated_at: d.data().updated_at?.toDate() || new Date(),
-              }));
-              setVendors(vendorsData);
-            } catch (error) {
-              console.error('Error loading app settings:', error);
-            }
-          }
-        }
+        // TODO: Migrate to Supabase user_settings table
+        // For now, use defaults
+        setNotifications({
+          email: true,
+          push: true,
+          orderUpdates: true,
+          urgentAlerts: true,
+        });
+        
         setSettingsLoaded(true);
       } catch (error) {
         console.error('Error loading settings:', error);
@@ -249,18 +193,14 @@ export default function Settings() {
     if (!isAdmin) return;
     
     try {
-      const configRef = doc(db, 'app_settings', 'wordpress_upload');
-      const configDoc = await getDoc(configRef);
-      
-      if (configDoc.exists()) {
-        const data = configDoc.data();
-        setWordpressConfig({
-          enabled: data.enabled || false,
-          siteUrl: data.siteUrl || '',
-          username: data.username || '',
-          applicationPassword: data.applicationPassword || '',
-        });
-      }
+      // TODO: Migrate to Supabase app_settings table
+      // Temporarily disabled - will be migrated to Supabase
+      setWordpressConfig({
+        enabled: false,
+        siteUrl: '',
+        username: '',
+        applicationPassword: '',
+      });
     } catch (error) {
       console.error('Error loading WordPress config:', error);
     }
@@ -272,8 +212,10 @@ export default function Settings() {
     
     setSavingWordPress(true);
     try {
-      const configRef = doc(db, 'app_settings', 'wordpress_upload');
-      await setDoc(configRef, {
+      // TODO: Migrate to Supabase app_settings table
+      // const configRef = doc(db, 'app_settings', 'wordpress_upload');
+      // await setDoc(configRef, {
+      console.log('WordPress config save (temporarily disabled):', {
         enabled: wordpressConfig.enabled,
         siteUrl: wordpressConfig.siteUrl,
         username: wordpressConfig.username,
@@ -339,10 +281,12 @@ export default function Settings() {
     
     setCheckingConfig(true);
     try {
-      const credsRef = doc(db, 'woocommerce_credentials', 'config');
-      const credsSnap = await getDoc(credsRef);
+      // TODO: Migrate to Supabase woocommerce_credentials table
+      // const credsRef = doc(db, 'woocommerce_credentials', 'config');
+      // const credsSnap = await getDoc(credsRef);
+      const credsSnap = { exists: () => false };
       
-      if (credsSnap.exists()) {
+      if (false) { // Temporarily disabled
         const data = credsSnap.data();
         setWooSettings(prev => ({
           ...prev,
@@ -372,10 +316,11 @@ export default function Settings() {
     if (!user) return;
     
     try {
-      const settingsRef = doc(db, 'user_settings', user.uid);
+        // TODO: Migrate to Supabase user_settings table
+        // const settingsRef = doc(db, 'user_settings', user.id);
       
       const settingsData: any = {
-        user_id: user.uid,
+        user_id: user.id,
         email_notifications: notifications.email,
         push_notifications: notifications.push,
         order_updates: notifications.orderUpdates,
@@ -383,16 +328,19 @@ export default function Settings() {
         updated_at: Timestamp.now(),
       };
       
-      await setDoc(settingsRef, settingsData, { merge: true });
+      // TODO: Migrate to Supabase user_settings table
+      // await setDoc(settingsRef, settingsData, { merge: true });
+      console.log('Settings save (temporarily disabled):', settingsData);
       
       // Save production stages separately to app_settings (admin only)
       if (isAdmin) {
         try {
-          const appSettingsRef = doc(db, 'app_settings', 'production_stages');
-          await setDoc(appSettingsRef, {
+          // TODO: Migrate to Supabase app_settings table
+          // const appSettingsRef = doc(db, 'app_settings', 'production_stages');
+          // await setDoc(appSettingsRef, {
+          console.log('Production stages save (temporarily disabled):', {
             stages: productionStages,
-            updated_at: Timestamp.now(),
-          }, { merge: true });
+          });
         } catch (error) {
           console.error('Error saving production stages:', error);
         }

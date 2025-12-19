@@ -1,31 +1,31 @@
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
-import { getAnalytics } from 'firebase/analytics';
+// Firebase is being phased out - using Supabase only
+// This file provides stubs to prevent import errors
+// All Firebase functionality should be migrated to Supabase
 
-const firebaseConfig = {
-  apiKey: "AIzaSyDl6qUY1BZXWdHlQ42pgXloFilnqbhGqOk",
-  authDomain: "chhapai-order-flow.firebaseapp.com",
-  projectId: "chhapai-order-flow",
-  storageBucket: "chhapai-order-flow.firebasestorage.app",
-  messagingSenderId: "820561152102",
-  appId: "1:820561152102:web:0ac516cf658696712f45a7",
-  measurementId: "G-4EMX9HKBN4"
-};
+// Create mock objects to prevent errors
+const createMockFirestore = () => ({
+  collection: () => ({ doc: () => ({ get: () => Promise.resolve({ exists: false }), set: () => Promise.resolve(), update: () => Promise.resolve(), delete: () => Promise.resolve() }) }),
+  doc: () => ({ get: () => Promise.resolve({ exists: false }), set: () => Promise.resolve(), update: () => Promise.resolve(), delete: () => Promise.resolve() }),
+  query: () => ({}),
+  where: () => ({}),
+  orderBy: () => ({}),
+  limit: () => ({}),
+  getDocs: () => Promise.resolve({ docs: [], empty: true }),
+  onSnapshot: () => () => {},
+  Timestamp: { now: () => ({ toDate: () => new Date() }) },
+});
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+const createMockStorage = () => ({
+  ref: () => ({ put: () => Promise.resolve(), getDownloadURL: () => Promise.resolve('') }),
+  uploadBytes: () => Promise.resolve({}),
+  getDownloadURL: () => Promise.resolve(''),
+});
 
-// Initialize Firebase services
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
+// Export mock objects
+export const auth = null;
+export const db = createMockFirestore() as any;
+export const storage = createMockStorage() as any;
+export default null;
 
-// Initialize Analytics (only in browser environment)
-if (typeof window !== 'undefined') {
-  getAnalytics(app);
-}
-
-export default app;
+console.warn('Firebase is disabled - using Supabase only. Please migrate all Firebase dependencies to Supabase.');
 

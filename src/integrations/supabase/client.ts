@@ -4,6 +4,9 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://hswgdeldouyclpeqbbgq.supabase.co';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+// Create a mock client if key is missing (for graceful degradation)
+let supabaseClient: any = null;
+
 if (!supabaseAnonKey || supabaseAnonKey.trim() === '') {
   const errorMsg = `❌ VITE_SUPABASE_ANON_KEY is required!
 
@@ -17,23 +20,65 @@ https://app.supabase.com/project/hswgdeldouyclpeqbbgq/settings/api
 
 Then restart the dev server (npm run dev)`;
   console.error(errorMsg);
-  // In development, show warning but don't crash - allow user to set key
+  // In development, create a mock client to prevent app crash
   if (import.meta.env.DEV) {
-    console.warn('⚠️ Running without Supabase key - please set VITE_SUPABASE_ANON_KEY in .env file');
+    console.warn('⚠️ Running without Supabase key - creating mock client');
     console.warn('⚠️ App will not work properly until key is set!');
+    // Create a minimal mock client
+    supabaseClient = {
+      auth: {
+        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+        signInWithPassword: () => Promise.resolve({ error: new Error('Supabase key not set') }),
+        signUp: () => Promise.resolve({ error: new Error('Supabase key not set') }),
+        signOut: () => Promise.resolve({ error: null }),
+        updateUser: () => Promise.resolve({ error: null }),
+      },
+      from: () => ({
+        select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+        insert: () => Promise.resolve({ error: null }),
+        update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+      }),
+    };
+  } else {
+    // In production, throw error
+    throw new Error(errorMsg);
   }
-  // Still throw error - user must set the key for app to work
-  throw new Error(errorMsg);
 }
 
-// Create Supabase client
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-  },
-});
+// Create Supabase client (or use mock if key is missing)
+if (!supabaseClient) {
+  try {
+    supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    });
+  } catch (error) {
+    console.error('Error creating Supabase client:', error);
+    // Fallback to mock client
+    supabaseClient = {
+      auth: {
+        getSession: () => Promise.resolve({ data: { session: null }, error: null }),
+        onAuthStateChange: () => ({ data: { subscription: { unsubscribe: () => {} } } }),
+        signInWithPassword: () => Promise.resolve({ error: new Error('Supabase client error') }),
+        signUp: () => Promise.resolve({ error: new Error('Supabase client error') }),
+        signOut: () => Promise.resolve({ error: null }),
+        updateUser: () => Promise.resolve({ error: null }),
+      },
+      from: () => ({
+        select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+        insert: () => Promise.resolve({ error: null }),
+        update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+      }),
+    };
+  }
+}
+
+// Export the client
+export const supabase = supabaseClient;
 
 // Database types (PostgreSQL tables se match karega)
 export type Database = {
@@ -259,4 +304,3 @@ export type Database = {
     };
   };
 };
-

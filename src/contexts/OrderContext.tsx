@@ -286,6 +286,18 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         .limit(500);
 
       if (error) {
+        // Handle table not found error gracefully (404, PGRST205, or any table-related error)
+        if (error.code === 'PGRST205' || 
+            error.code === '42P01' ||
+            error.message?.includes('Could not find the table') ||
+            error.message?.includes('does not exist') ||
+            error.message?.includes('relation') ||
+            error.status === 404 ||
+            error.statusCode === 404) {
+          console.warn('Timeline table not found in Supabase, using empty timeline');
+          setTimeline([]);
+          return;
+        }
         console.error('Error fetching timeline:', error);
         setTimeline([]);
         return;
@@ -501,7 +513,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           }
           
           // Use helper function for department matching and visibility
-          return itemMatchesDepartment(item, 'production', roleLower, isAdmin, user?.uid);
+          return itemMatchesDepartment(item, 'production', roleLower, isAdmin, user?.id);
         })
       );
     }
@@ -510,7 +522,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     // Use helper function to reduce code duplication
     const filtered = activeOrders.filter(order =>
       order.items.some(item => 
-        itemMatchesDepartment(item, roleLower, roleLower, isAdmin, user?.uid)
+        itemMatchesDepartment(item, roleLower, roleLower, isAdmin, user?.id)
       )
     );
     
@@ -518,7 +530,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       totalActiveOrders: activeOrders.length,
       role: role,
       roleLower: roleLower,
-      user_id: user?.uid,
+      user_id: user?.id,
     });
     
     return filtered;
@@ -548,7 +560,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           
           // If assigned to a user, only that user sees it
           if (item.assigned_to) {
-            return item.assigned_to === user?.uid;
+            return item.assigned_to === user?.id;
           }
           
           // No user assigned, visible to all production users in this substage
@@ -613,7 +625,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     
     // Debug logging
     console.log(`[getOrdersForDepartment] Checking access for department: ${department}`, {
-      user_id: user?.uid,
+      user_id: user?.id,
       role: role,
       roleLower: userRoleLower,
       profileDepartment: profile?.department,
@@ -770,20 +782,20 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         stage: newStage,
         substage: substage,
         action: 'assigned',
-        performed_by: user?.uid || '',
+        performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Moved to ${newStage}${substage ? ` - ${substage}` : ''}`,
         is_public: true,
       });
 
       // Auto-log work action with proper time calculation
-      if (user?.uid && profile?.full_name) {
+      if (user?.id && profile?.full_name) {
         const item = order.items.find(i => i.item_id === itemId);
         const startTime = new Date();
         const endTime = new Date();
         // Calculate minimum 1 minute for stage updates
         await autoLogWorkAction(
-          user.uid,
+          user.id,
           profile.full_name,
           role || 'unknown',
           order.id!,
@@ -816,8 +828,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       console.log(`[updateItemStage] Order ${order.order_id}, Item ${itemId}: Stage=${newStage}, AssignedDept=${assignedDept}`, updateData);
 
       // Send notifications for stage change
-      if (user?.uid) {
-        await notifyStageChange(order.order_id, itemId, item.product_name, newStage, user.uid);
+      if (user?.id) {
+        await notifyStageChange(order.order_id, itemId, item.product_name, newStage, user.id);
       }
 
       await fetchOrders(false);
@@ -864,19 +876,19 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         stage: 'production',
         substage: substage,
         action: 'substage_started',
-        performed_by: user?.uid || '',
+        performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Started ${substage}`,
         is_public: true,
       });
 
       // Auto-log work action
-      if (user?.uid && profile?.full_name) {
+      if (user?.id && profile?.full_name) {
         const item = order.items.find(i => i.item_id === itemId);
         const startTime = new Date();
         const endTime = new Date();
         await autoLogWorkAction(
-          user.uid,
+          user.id,
           profile.full_name,
           role || 'unknown',
           order.id!,
@@ -938,7 +950,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const startTime = new Date();
       const endTime = new Date();
       await autoLogWorkAction(
-        user.uid,
+        user.id,
         profile.full_name,
         role || 'unknown',
         order!.id!,
@@ -958,7 +970,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       await updateItemStage(orderId, itemId, 'dispatch');
       
       // Notify about ready for dispatch
-      if (user?.uid) {
+      if (user?.id) {
         const adminsQuery = query(collection(db, 'user_roles'), where('role', '==', 'admin'));
         const adminsSnapshot = await getDocs(adminsQuery);
         
@@ -1006,19 +1018,19 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item.product_name,
         stage: 'dispatch',
         action: 'dispatched',
-        performed_by: user?.uid || '',
+        performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: 'Item dispatched',
         is_public: true,
       });
 
       // Notify about dispatch
-      if (user?.uid && item) {
+      if (user?.id && item) {
         const adminsQuery = query(collection(db, 'user_roles'), where('role', '==', 'admin'));
         const adminsSnapshot = await getDocs(adminsQuery);
         
         for (const adminDoc of adminsSnapshot.docs) {
-          if (adminDoc.data().user_id !== user.uid) {
+          if (adminDoc.data().user_id !== user.id) {
             await createNotification(
               adminDoc.data().user_id,
               'Order Dispatched',
@@ -1078,7 +1090,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item?.product_name,
         stage: 'prepress',
         action: 'assigned',
-        performed_by: user?.uid || '',
+        performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Production sequence set: ${sequence.join(' → ')}`,
         is_public: true,
@@ -1140,15 +1152,15 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         stage: 'production',
         substage: firstStage,
         action: 'sent_to_production',
-        performed_by: user?.uid || '',
+        performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Sent to production with sequence: ${sequence.join(' → ')}`,
         is_public: true,
       });
 
       // Send notifications for stage change
-      if (user?.uid) {
-        await notifyStageChange(order.order_id, itemId, item.product_name, 'production', user.uid);
+      if (user?.id) {
+        await notifyStageChange(order.order_id, itemId, item.product_name, 'production', user.id);
       }
 
       await fetchOrders(false);
@@ -1222,7 +1234,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
                 product_name: item.product_name,
                 stage: item.current_stage,
                 action: 'assigned',
-                performed_by: user?.uid || '',
+                performed_by: user?.id || '',
                 performed_by_name: profile?.full_name || 'Unknown',
                 notes: `Unassigned from ${item.assigned_to_name || 'user'} (department changed to ${department})`,
                 is_public: true,
@@ -1258,15 +1270,15 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item.product_name,
         stage: newStage,
         action: 'assigned',
-        performed_by: user?.uid || '',
+        performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Assigned to ${department} department`,
         is_public: true,
       });
 
       // Send notifications for stage change
-      if (user?.uid) {
-        await notifyStageChange(order.order_id, itemId, item.product_name, newStage, user.uid);
+      if (user?.id) {
+        await notifyStageChange(order.order_id, itemId, item.product_name, newStage, user.id);
       }
 
       // Refresh orders to show updated data immediately
@@ -1302,7 +1314,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         job_details: jobDetails,
         current_outsource_stage: 'outsourced',
         assigned_at: new Date(),
-        assigned_by: user.uid,
+        assigned_by: user.id,
         assigned_by_name: profile.full_name || 'Unknown',
         assigned_by_role: (profile.role as UserRole) || 'admin',
         follow_up_notes: [],
@@ -1329,7 +1341,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           },
           current_outsource_stage: 'outsourced',
           assigned_at: Timestamp.now(),
-          assigned_by: user.uid,
+          assigned_by: user.id,
           assigned_by_name: profile.full_name || 'Unknown',
           assigned_by_role: (profile.role as UserRole) || 'admin',
           follow_up_notes: [],
@@ -1349,7 +1361,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item.product_name,
         stage: 'outsource',
         action: 'assigned',
-        performed_by: user.uid,
+        performed_by: user.id,
         performed_by_name: profile.full_name || 'Unknown',
         notes: `Assigned to Outsource - Vendor: ${vendor.vendor_name}, Work Type: ${jobDetails.work_type}, Expected: ${format(jobDetails.expected_ready_date, 'MMM d, yyyy')}`,
         is_public: true,
@@ -1387,7 +1399,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item?.product_name,
         stage: item?.current_stage || 'sales',
         action: 'assigned',
-        performed_by: user?.uid || '',
+        performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Assigned to ${userName}`,
         is_public: true,
@@ -1480,7 +1492,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: currentItem?.product_name,
         stage: currentStage,
         action: replaceExisting ? 'final_proof_uploaded' : 'uploaded_proof',
-        performed_by: user?.uid || '',
+        performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `${replaceExisting ? 'Replaced with' : 'Uploaded'} ${file.name}`,
         attachments: [{ url: downloadURL, type: file.type }],
@@ -1488,12 +1500,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       });
 
       // Auto-log work action
-      if (user?.uid && profile?.full_name) {
+      if (user?.id && profile?.full_name) {
         const item = order.items.find(i => i.item_id === itemId);
         const startTime = new Date();
         const endTime = new Date();
         await autoLogWorkAction(
-          user.uid,
+          user.id,
           profile.full_name,
           role || 'unknown',
           order.id!,
@@ -1544,7 +1556,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         order_id: order.id!,
         stage: 'sales',
         action: 'note_added',
-        performed_by: user?.uid || '',
+        performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: note,
         is_public: false,
@@ -1728,7 +1740,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item?.product_name,
         stage: (itemData?.current_stage as Stage) || 'sales',
         action: 'note_added',
-        performed_by: user?.uid || '',
+        performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
         notes: `Delivery date updated to ${format(deliveryDate, 'MMM d, yyyy')}`,
         is_public: true,
@@ -1795,7 +1807,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item.product_name,
         stage: 'outsource',
         action: 'assigned',
-        performed_by: user.uid,
+        performed_by: user.id,
         performed_by_name: profile.full_name || 'Unknown',
         notes: `Stage updated: ${OUTSOURCE_STAGE_LABELS[currentStage]} → ${OUTSOURCE_STAGE_LABELS[newStage]}`,
         is_public: true,
@@ -1833,7 +1845,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         note_id: noteId,
         note: note.trim(),
         created_at: Timestamp.now(),
-        created_by: user.uid,
+        created_by: user.id,
         created_by_name: profile.full_name || 'Unknown',
       };
 
@@ -1859,7 +1871,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item.product_name,
         stage: 'outsource',
         action: 'note_added',
-        performed_by: user.uid,
+        performed_by: user.id,
         performed_by_name: profile.full_name || 'Unknown',
         notes: `Follow-up note: ${note.trim()}`,
         is_public: true,
@@ -1910,7 +1922,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item.product_name,
         stage: 'outsource',
         action: 'assigned',
-        performed_by: user.uid,
+        performed_by: user.id,
         performed_by_name: profile.full_name || 'Unknown',
         notes: `Vendor dispatched via ${courierName}. Tracking: ${trackingNumber}`,
         is_public: true,
@@ -1959,7 +1971,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item.product_name,
         stage: 'outsource',
         action: 'assigned',
-        performed_by: user.uid,
+        performed_by: user.id,
         performed_by_name: profile.full_name || 'Unknown',
         notes: `Received from vendor. Receiver: ${receiverName}`,
         is_public: true,
@@ -2020,7 +2032,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         product_name: item.product_name,
         stage: 'outsource',
         action: 'note_added',
-        performed_by: user.uid,
+        performed_by: user.id,
         performed_by_name: profile.full_name || 'Unknown',
         notes: `QC ${result.toUpperCase()}: ${notes.trim()}`,
         is_public: true,
@@ -2082,7 +2094,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           product_name: item.product_name,
           stage: 'production',
           action: 'sent_to_production',
-          performed_by: user.uid,
+          performed_by: user.id,
           performed_by_name: profile.full_name || 'Unknown',
           notes: `Sent to Production after QC Pass`,
           is_public: true,
@@ -2103,7 +2115,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           product_name: item.product_name,
           stage: 'dispatch',
           action: 'assigned',
-          performed_by: user.uid,
+          performed_by: user.id,
           performed_by_name: profile.full_name || 'Unknown',
           notes: `Ready for Dispatch after QC Pass`,
           is_public: true,

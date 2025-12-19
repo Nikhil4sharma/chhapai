@@ -362,7 +362,19 @@ export async function fetchTimelineEntries(orderId: string, itemId?: string): Pr
 
     const { data, error } = await query;
 
-    if (error) throw error;
+    // Handle table not found error gracefully
+    if (error) {
+      if (error.code === 'PGRST205' || 
+          error.code === '42P01' ||
+          error.message?.includes('Could not find the table') ||
+          error.message?.includes('does not exist') ||
+          error.status === 404 ||
+          error.statusCode === 404) {
+        console.warn('Timeline table not found in Supabase, returning empty array');
+        return [];
+      }
+      throw error;
+    }
 
     return (data || []).map(entry => ({
       timeline_id: entry.id,
@@ -408,7 +420,19 @@ export async function addTimelineEntry(entry: Omit<TimelineEntry, 'timeline_id' 
         is_public: entry.is_public !== false,
       });
 
-    if (error) throw error;
+    // Handle table not found error gracefully
+    if (error) {
+      if (error.code === 'PGRST205' || 
+          error.code === '42P01' ||
+          error.message?.includes('Could not find the table') ||
+          error.message?.includes('does not exist') ||
+          error.status === 404 ||
+          error.statusCode === 404) {
+        console.warn('Timeline table not found in Supabase, skipping timeline entry');
+        return; // Silently skip if table doesn't exist
+      }
+      throw error;
+    }
   } catch (error) {
     console.error('Error in addTimelineEntry:', error);
     throw error;

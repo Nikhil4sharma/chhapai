@@ -30,7 +30,9 @@ export function NotificationsDropdown() {
     clearAllNotifications,
   } = useNotifications();
 
-  const getIcon = (type: AppNotification['type']) => {
+  const getIcon = (type?: AppNotification['type']) => {
+    if (!type) return <Package className="h-4 w-4 text-primary" />;
+    
     switch (type) {
       case 'urgent':
         return <AlertTriangle className="h-4 w-4 text-priority-red" />;

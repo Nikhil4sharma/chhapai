@@ -83,3 +83,4 @@ Firebase free plan ka quota exceed ho gaya tha kyunki bahut saare unnecessary re
   2. Pagination implement karo
   3. Firebase Blaze plan consider karo (pay-as-you-go, free tier included)
 
+

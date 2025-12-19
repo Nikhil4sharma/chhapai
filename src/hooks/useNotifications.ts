@@ -1,21 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
-  limit, 
-  getDocs, 
-  doc, 
-  setDoc, 
-  updateDoc, 
-  deleteDoc,
-  onSnapshot,
-  Timestamp
-} from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
+// Firebase removed - using Supabase only
+// TODO: Migrate notifications to Supabase notifications table
 
 export interface AppNotification {
   id: string;
@@ -38,26 +25,15 @@ export function useNotifications() {
 
   // Load notifications
   const fetchNotifications = useCallback(async () => {
-    if (!user) return;
+    if (!user || !user.id) {
+      setIsLoading(false);
+      return;
+    }
     
+    // TODO: Migrate to Supabase notifications table
+    // For now, return empty array to prevent errors
     try {
-      const notificationsQuery = query(
-        collection(db, 'notifications'),
-        where('user_id', '==', user.uid),
-        orderBy('created_at', 'desc'),
-        limit(50)
-      );
-      const snapshot = await getDocs(notificationsQuery);
-
-      setNotifications(snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          created_at: data.created_at?.toDate() || new Date(),
-          type: data.type as AppNotification['type'],
-        } as AppNotification;
-      }));
+      setNotifications([]);
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
@@ -67,25 +43,13 @@ export function useNotifications() {
 
   // Load user notification settings
   const fetchSettings = useCallback(async () => {
-    if (!user) return;
+    if (!user || !user.id) return;
     
+    // TODO: Migrate to Supabase user_settings table
+    // For now, use defaults
     try {
-      const settingsQuery = query(
-        collection(db, 'user_settings'),
-        where('user_id', '==', user.uid)
-      );
-      const snapshot = await getDocs(settingsQuery);
-
-      if (!snapshot.empty) {
-        const settings = snapshot.docs[0].data();
-        setSoundEnabled(settings.sound_enabled ?? true);
-        // Push notifications default to true if not set
-        setPushEnabled(settings.push_notifications !== undefined ? settings.push_notifications : true);
-      } else {
-        // No settings exist - use defaults (both ON)
-        setSoundEnabled(true);
-        setPushEnabled(true);
-      }
+      setSoundEnabled(true);
+      setPushEnabled(true);
     } catch (error) {
       // Settings don't exist yet, use defaults
       console.log('User settings not found, using defaults');
@@ -262,34 +226,14 @@ export function useNotifications() {
 
   // Toggle sound
   const toggleSound = useCallback(async () => {
-    if (!user) return;
+    if (!user || !user.id) return;
     
     const newValue = !soundEnabled;
     setSoundEnabled(newValue);
 
+    // TODO: Migrate to Supabase user_settings table
     try {
-      // First check if settings exist
-      const settingsQuery = query(
-        collection(db, 'user_settings'),
-        where('user_id', '==', user.uid)
-      );
-      const snapshot = await getDocs(settingsQuery);
-      
-      if (!snapshot.empty) {
-        // Update existing
-        const settingsRef = doc(db, 'user_settings', snapshot.docs[0].id);
-        await updateDoc(settingsRef, {
-          sound_enabled: newValue,
-          updated_at: Timestamp.now(),
-        });
-      } else {
-        // Insert new
-        await setDoc(doc(collection(db, 'user_settings')), {
-          user_id: user.uid,
-          sound_enabled: newValue,
-          created_at: Timestamp.now(),
-        });
-      }
+      // No-op for now
     } catch (error) {
       console.error('Error saving settings:', error);
     }
@@ -301,9 +245,9 @@ export function useNotifications() {
       prev.map(n => n.id === id ? { ...n, read: true } : n)
     );
 
+    // TODO: Migrate to Supabase notifications table
     try {
-      const notificationRef = doc(db, 'notifications', id);
-      await updateDoc(notificationRef, { read: true });
+      // No-op for now
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }
@@ -311,22 +255,13 @@ export function useNotifications() {
 
   // Mark all as read
   const markAllAsRead = useCallback(async () => {
-    if (!user) return;
+    if (!user || !user.id) return;
 
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
 
+    // TODO: Migrate to Supabase notifications table
     try {
-      const notificationsQuery = query(
-        collection(db, 'notifications'),
-        where('user_id', '==', user.uid),
-        where('read', '==', false)
-      );
-      const snapshot = await getDocs(notificationsQuery);
-      
-      const batch = snapshot.docs.map(doc => 
-        updateDoc(doc.ref, { read: true })
-      );
-      await Promise.all(batch);
+      // No-op for now
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
@@ -336,8 +271,9 @@ export function useNotifications() {
   const removeNotification = useCallback(async (id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
 
+    // TODO: Migrate to Supabase notifications table
     try {
-      await deleteDoc(doc(db, 'notifications', id));
+      // No-op for now
     } catch (error) {
       console.error('Error deleting notification:', error);
     }
@@ -345,21 +281,11 @@ export function useNotifications() {
 
   // Clear all notifications
   const clearAllNotifications = useCallback(async () => {
-    if (!user) return;
+    if (!user || !user.id) return;
 
+    // TODO: Migrate to Supabase notifications table
     try {
-      // Get all user notifications
-      const notificationsQuery = query(
-        collection(db, 'notifications'),
-        where('user_id', '==', user.uid)
-      );
-      const snapshot = await getDocs(notificationsQuery);
-      
-      // Delete all notifications
-      const deletePromises = snapshot.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deletePromises);
-      
-      // Clear local state
+      // Clear local state only
       setNotifications([]);
     } catch (error) {
       console.error('Error clearing all notifications:', error);
@@ -368,80 +294,13 @@ export function useNotifications() {
 
   // Subscribe to real-time notifications
   useEffect(() => {
-    if (!user) return;
+    if (!user || !user.id) return;
 
     fetchNotifications();
     fetchSettings();
 
-    const notificationsQuery = query(
-      collection(db, 'notifications'),
-      where('user_id', '==', user.uid),
-      orderBy('created_at', 'desc'),
-      limit(50)
-    );
-
-    // Track initial load to prevent playing sounds for existing notifications
-    let isInitialLoad = true;
-    const loginTime = Date.now();
-
-    const unsubscribe = onSnapshot(notificationsQuery, (snapshot) => {
-      // Handle all changes, not just 'added'
-      const allNotifications: AppNotification[] = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          ...data,
-          created_at: data.created_at?.toDate() || new Date(),
-          type: data.type as AppNotification['type'],
-        } as AppNotification;
-      });
-
-      // Update notifications list
-      setNotifications(allNotifications);
-
-      // Check for new notifications - only play sound for truly NEW notifications (created after login)
-      snapshot.docChanges().forEach((change) => {
-        if (change.type === 'added') {
-          const newNotification = {
-            id: change.doc.id,
-            ...change.doc.data(),
-            created_at: change.doc.data().created_at?.toDate() || new Date(),
-            type: change.doc.data().type as AppNotification['type'],
-          } as AppNotification;
-
-          // Only play sound for notifications created AFTER login (within last 2 seconds of login time)
-          // This prevents playing sounds for old notifications when user logs in
-          const notificationTime = newNotification.created_at.getTime();
-          const isNewNotification = !isInitialLoad || (notificationTime > loginTime - 2000);
-
-          if (isNewNotification) {
-            // Play sound for urgent/delayed/info notifications
-            if (soundEnabled && (newNotification.type === 'urgent' || newNotification.type === 'delayed' || newNotification.type === 'info')) {
-              playSound();
-            }
-
-            // Show browser push notification only if enabled in settings
-            if (pushEnabled) {
-              // Always try to show notification - function will handle permission
-              console.log('Attempting to show push notification:', newNotification.title);
-              showPushNotification(
-                newNotification.title,
-                newNotification.message
-              );
-            } else {
-              console.log('Push notifications disabled, skipping browser notification');
-            }
-          }
-        }
-      });
-
-      // Mark initial load as complete after first snapshot
-      if (isInitialLoad) {
-        isInitialLoad = false;
-      }
-    });
-
-    return () => unsubscribe();
+    // TODO: Add Supabase realtime subscriptions when notifications table is migrated
+    // No Firebase subscriptions needed - using Supabase only
   }, [user, fetchNotifications, fetchSettings, playSound, requestPushPermission, showPushNotification, pushEnabled, soundEnabled]);
 
   // NOTE: Auto-requesting permission is removed because browsers require user interaction
@@ -477,17 +336,10 @@ export async function createNotification(
   orderId?: string,
   itemId?: string
 ) {
+  // TODO: Migrate to Supabase notifications table
   try {
-    await setDoc(doc(collection(db, 'notifications')), {
-      user_id: userId,
-      title,
-      message,
-      type,
-      order_id: orderId || null,
-      item_id: itemId || null,
-      read: false,
-      created_at: Timestamp.now(),
-    });
+    // No-op for now - will be implemented with Supabase
+    console.log('Notification would be created:', { userId, title, message, type, orderId, itemId });
   } catch (error) {
     console.error('Error creating notification:', error);
   }

@@ -41,21 +41,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = role === 'admin';
 
   useEffect(() => {
+    // Set a timeout to prevent infinite loading
+    const loadingTimeout = setTimeout(() => {
+      console.warn('Auth loading timeout - setting isLoading to false');
+      setIsLoading(false);
+    }, 5000); // 5 second timeout
+
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchUserData(session.user.id);
-      } else {
+    supabase.auth.getSession()
+      .then(({ data: { session }, error }) => {
+        clearTimeout(loadingTimeout);
+        if (error) {
+          console.error('Error getting session:', error);
+          setIsLoading(false);
+          return;
+        }
+        setSession(session);
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          fetchUserData(session.user.id);
+        } else {
+          setIsLoading(false);
+        }
+      })
+      .catch((error) => {
+        clearTimeout(loadingTimeout);
+        console.error('Error in getSession:', error);
         setIsLoading(false);
-      }
-    });
+      });
 
     // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      clearTimeout(loadingTimeout);
       setSession(session);
       setUser(session?.user ?? null);
       
@@ -68,11 +87,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      clearTimeout(loadingTimeout);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const fetchUserData = async (userId: string) => {
     try {
+      // Set timeout for fetch operations
+      const fetchTimeout = setTimeout(() => {
+        console.warn('fetchUserData timeout - setting isLoading to false');
+        setIsLoading(false);
+      }, 10000); // 10 second timeout
+
       // Fetch profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
@@ -111,6 +139,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (roleData) {
         setRole(roleData.role as AppRole);
       }
+
+      clearTimeout(fetchTimeout);
     } catch (error) {
       console.error('Error fetching user data:', error);
     } finally {
