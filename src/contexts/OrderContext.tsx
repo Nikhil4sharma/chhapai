@@ -278,6 +278,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
   const fetchTimeline = useCallback(async () => {
     try {
+      if (!user) {
+        console.warn('[fetchTimeline] No user, skipping fetch');
+        setTimeline([]);
+        return;
+      }
+
       // Fetch all timeline entries (RLS automatically filters based on user access)
       const { data: timelineData, error } = await supabase
         .from('timeline')
@@ -289,16 +295,19 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         // Handle table not found error gracefully (404, PGRST205, or any table-related error)
         if (error.code === 'PGRST205' || 
             error.code === '42P01' ||
+            error.code === 'PGRST116' ||
             error.message?.includes('Could not find the table') ||
             error.message?.includes('does not exist') ||
             error.message?.includes('relation') ||
+            error.message?.includes('permission denied') ||
+            error.message?.includes('new row violates row-level security') ||
             error.status === 404 ||
             error.statusCode === 404) {
-          console.warn('Timeline table not found in Supabase, using empty timeline');
+          console.warn('[fetchTimeline] Timeline access issue, using empty timeline:', error.message);
           setTimeline([]);
           return;
         }
-        console.error('Error fetching timeline:', error);
+        console.error('[fetchTimeline] Error fetching timeline:', error);
         setTimeline([]);
         return;
       }
