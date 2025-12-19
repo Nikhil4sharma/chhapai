@@ -7,11 +7,12 @@ interface StageBadgeProps {
   className?: string;
 }
 
-const stageVariants: Record<Stage, 'stage-sales' | 'stage-design' | 'stage-prepress' | 'stage-production' | 'stage-dispatch' | 'stage-completed'> = {
+const stageVariants: Record<Stage, 'stage-sales' | 'stage-design' | 'stage-prepress' | 'stage-production' | 'stage-outsource' | 'stage-dispatch' | 'stage-completed'> = {
   sales: 'stage-sales',
   design: 'stage-design',
   prepress: 'stage-prepress',
   production: 'stage-production',
+  outsource: 'stage-outsource',
   dispatch: 'stage-dispatch',
   completed: 'stage-completed',
 };

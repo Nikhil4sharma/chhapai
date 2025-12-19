@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { Play, CheckSquare, Camera, Clock, CheckCircle, ArrowRight, Truck } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Play, CheckSquare, Camera, Clock, CheckCircle, ArrowRight, Truck, AlertTriangle, User, Package } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
@@ -26,22 +26,136 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
+import { AddDelayReasonDialog } from '@/components/dialogs/AddDelayReasonDialog';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/integrations/firebase/config';
+
+interface ProductionUser {
+  user_id: string;
+  full_name: string;
+  department: string;
+}
 
 export default function Production() {
-  const { orders, updateItemStage, updateItemSubstage, completeSubstage, uploadFile } = useOrders();
+  const { orders, updateItemStage, updateItemSubstage, completeSubstage, uploadFile, getTimelineForOrder, addNote } = useOrders();
+  const { profile, isAdmin, user } = useAuth();
+  const [selectedUserTab, setSelectedUserTab] = useState<string>('all');
+  const [productionUsers, setProductionUsers] = useState<ProductionUser[]>([]);
+
+  // Fetch production users for admin tabs
+  useEffect(() => {
+    if (isAdmin) {
+      const fetchProductionUsers = async () => {
+        try {
+          const profilesQuery = query(
+            collection(db, 'profiles'),
+            where('department', '==', 'production')
+          );
+          const snapshot = await getDocs(profilesQuery);
+          const users = snapshot.docs.map(doc => ({
+            user_id: doc.data().user_id,
+            full_name: doc.data().full_name || 'Unknown',
+            department: doc.data().department || 'production',
+          }));
+          setProductionUsers(users);
+        } catch (error) {
+          console.error('Error fetching production users:', error);
+        }
+      };
+      fetchProductionUsers();
+    }
+  }, [isAdmin]);
   const [activeTab, setActiveTab] = useState('all');
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<{ orderId: string; itemId: string } | null>(null);
+  const [delayDialogOpen, setDelayDialogOpen] = useState(false);
+  const [selectedItemForDelay, setSelectedItemForDelay] = useState<{ orderId: string; itemId: string; productName: string; stageName: string } | null>(null);
 
-  // Get items in production stage
-  const productionItems = orders.flatMap(order => 
-    order.items
-      .filter(item => item.current_stage === 'production')
-      .map(item => ({
-        order,
-        item,
-      }))
-  );
+  // CRITICAL FIX: Start from ALL orders, filter items by assigned_department and current_stage
+  // Department is stored on order_items.assigned_department, NOT on orders
+  // This ensures orders persist after assignment and don't disappear on re-render
+  const allProductionItems = useMemo(() => {
+    const department = 'production';
+    const deptLower = department.toLowerCase().trim();
+    
+    // Check user's department - use role first, then profile.department
+    const userDepartment = (role || profile?.department || '').toLowerCase().trim();
+    const isProductionUser = userDepartment === deptLower || isAdmin;
+    
+    return orders
+      .filter(order => !order.is_completed && !order.archived_from_wc)
+      .flatMap(order => 
+        order.items
+          .filter(item => {
+            // Filter by assigned_department AND current_stage
+            const itemDept = (item.assigned_department || '').toLowerCase().trim();
+            const itemStage = (item.current_stage || '').toLowerCase().trim();
+            const isProductionItem = itemDept === deptLower || itemStage === deptLower;
+            
+            if (!isProductionItem) return false;
+            
+            // If user has assigned production_stage, only show items in that stage
+            if (!isAdmin && profile?.production_stage) {
+              if (item.current_substage !== profile.production_stage) {
+                return false;
+              }
+            }
+            
+            // CRITICAL FIX: Visibility logic
+            // - Admin sees ALL items in production department
+            // - If item.assigned_to IS NULL → visible to ALL users in production department
+            // - If item.assigned_to IS SET:
+            //   - Admin sees it
+            //   - ONLY that assigned user sees it (even if they're in production department)
+            if (isAdmin) {
+              return true; // Admin sees everything
+            }
+            
+            // For non-admin users, check assignment
+            if (item.assigned_to) {
+              // Item is assigned - only the assigned user can see it
+              // CRITICAL: Must check if user is in production department AND is the assigned user
+              return isProductionUser && item.assigned_to === user?.uid;
+            }
+            
+            // No user assigned - visible to all users in production department
+            return isProductionUser;
+          })
+          .map(item => ({
+            order,
+            item,
+          }))
+      );
+  }, [orders, isAdmin, profile, user, role]);
+
+  // Filter by selected user tab (for admin)
+  const productionItems = useMemo(() => {
+    if (!isAdmin || selectedUserTab === 'all') {
+      return allProductionItems;
+    }
+    return allProductionItems.filter(({ item }) => item.assigned_to === selectedUserTab);
+  }, [allProductionItems, isAdmin, selectedUserTab]);
+  
+  // Get urgent items for production department
+  const urgentProductionItems = useMemo(() => {
+    return allProductionItems.filter(({ item }) => item.priority_computed === 'red');
+  }, [allProductionItems]);
+
+  // Separate assigned items (assigned_to is set) from unassigned items
+  const assignedProductionItems = useMemo(() => {
+    return allProductionItems.filter(({ item }) => item.assigned_to === user?.uid);
+  }, [allProductionItems, user]);
+
+  // Calculate realtime stats for Production dashboard
+  const productionStats = useMemo(() => {
+    return {
+      totalItems: allProductionItems.length,
+      urgentItems: urgentProductionItems.length,
+      assignedToMe: assignedProductionItems.length,
+      yellowPriority: allProductionItems.filter(({ item }) => item.priority_computed === 'yellow').length,
+      bluePriority: allProductionItems.filter(({ item }) => item.priority_computed === 'blue').length,
+    };
+  }, [allProductionItems, urgentProductionItems, assignedProductionItems]);
 
   const getItemsBySubstage = (substage: string | null) => {
     if (substage === 'all') return productionItems;
@@ -113,6 +227,80 @@ export default function Production() {
           </div>
         </div>
 
+        {/* Realtime Stats Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Items</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-primary" />
+                <span className="text-2xl font-bold">{productionStats.totalItems}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Urgent</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-red-500" />
+                <span className="text-2xl font-bold text-red-500">{productionStats.urgentItems}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Assigned to Me</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <User className="h-5 w-5 text-blue-500" />
+                <span className="text-2xl font-bold text-blue-500">{productionStats.assignedToMe}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Yellow Priority</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-yellow-500" />
+                <span className="text-2xl font-bold text-yellow-500">{productionStats.yellowPriority}</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* User Tabs for Admin */}
+        {isAdmin && productionUsers.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-sm font-medium text-muted-foreground">Filter by User:</span>
+            <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
+              <TabsList className="flex-wrap h-auto">
+                <TabsTrigger value="all" className="text-sm">
+                  All Users
+                  <Badge variant="secondary" className="ml-2">
+                    {allProductionItems.length}
+                  </Badge>
+                </TabsTrigger>
+                {productionUsers.map((productionUser) => {
+                  const userItemCount = allProductionItems.filter(({ item }) => item.assigned_to === productionUser.user_id).length;
+                  return (
+                    <TabsTrigger key={productionUser.user_id} value={productionUser.user_id} className="text-sm">
+                      {productionUser.full_name}
+                      <Badge variant="secondary" className="ml-2">{userItemCount}</Badge>
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </Tabs>
+          </div>
+        )}
+
         {/* Production Stages Tabs - Scrollable content */}
         <div className="flex-1 min-h-0 flex flex-col">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
@@ -154,8 +342,8 @@ export default function Production() {
                   </Card>
                 ) : (
                   getItemsBySubstage(tabValue === 'all' ? 'all' : tabValue).map(({ order, item }) => (
-                    <Card key={`${order.order_id}-${item.item_id}`} className="card-hover overflow-hidden">
-                      <CardContent className="p-0">
+                    <Card key={`${order.order_id}-${item.item_id}`} className="card-hover overflow-visible transition-all duration-200 hover:shadow-lg relative">
+                      <CardContent className="p-0 overflow-visible">
                         <div 
                           className={`h-1 ${
                             item.priority_computed === 'blue' ? 'bg-priority-blue' :
@@ -167,20 +355,26 @@ export default function Production() {
                         <div className="p-4">
                           <div className="flex flex-col lg:flex-row lg:items-center gap-4">
                             <div className="flex-1 min-w-0">
+                              {/* Order ID - Always visible */}
                               <Link 
                                 to={`/orders/${order.order_id}`}
-                                className="flex items-center gap-2 mb-1 flex-wrap hover:underline"
+                                className="text-sm font-bold text-primary hover:underline"
                               >
+                                {order.order_id}
+                              </Link>
+                              
+                              <div className="flex items-center gap-2 mb-1 flex-wrap mt-1">
                                 <h3 className="font-semibold truncate text-foreground">{item.product_name}</h3>
+                                <span className="text-sm text-muted-foreground">— Qty {item.quantity}</span>
                                 <PriorityBadge priority={item.priority_computed} showLabel />
                                 {item.current_substage && (
                                   <Badge variant="stage-production">
                                     {item.current_substage}
                                   </Badge>
                                 )}
-                              </Link>
+                              </div>
                               <p className="text-sm text-muted-foreground mb-2">
-                                {order.order_id} • {order.customer.name} • Qty: {item.quantity}
+                                {order.customer.name}
                               </p>
                               
                               <div className="flex flex-wrap gap-2">
@@ -196,26 +390,55 @@ export default function Production() {
                               )}
 
                               {/* Progress indicator - uses item's stage sequence */}
-                              <div className="mt-3 flex items-center gap-1">
-                                {getItemStages(item).map((step: any, index: number) => {
-                                  const currentIndex = getCurrentSubstageIndex(item);
-                                  const isCompleted = index < currentIndex;
-                                  const isCurrent = index === currentIndex;
-                                  return (
-                                    <Tooltip key={step.key}>
-                                      <TooltipTrigger asChild>
-                                        <div 
-                                          className={`h-2 flex-1 rounded-full transition-colors ${
-                                            isCompleted ? 'bg-green-500' :
-                                            isCurrent ? 'bg-primary' :
-                                            'bg-secondary'
-                                          }`}
-                                        />
-                                      </TooltipTrigger>
-                                      <TooltipContent>{step.label}</TooltipContent>
-                                    </Tooltip>
+                              <div className="mt-3 space-y-2">
+                                <div className="flex items-center gap-1">
+                                  {getItemStages(item).map((step: any, index: number) => {
+                                    const currentIndex = getCurrentSubstageIndex(item);
+                                    const isCompleted = index < currentIndex;
+                                    const isCurrent = index === currentIndex;
+                                    return (
+                                      <Tooltip key={step.key}>
+                                        <TooltipTrigger asChild>
+                                          <div 
+                                            className={`h-2 flex-1 rounded-full transition-colors ${
+                                              isCompleted ? 'bg-green-500' :
+                                              isCurrent ? 'bg-primary' :
+                                              'bg-secondary'
+                                            }`}
+                                          />
+                                        </TooltipTrigger>
+                                        <TooltipContent>{step.label}</TooltipContent>
+                                      </Tooltip>
+                                    );
+                                  })}
+                                </div>
+                                
+                                {/* Show current stage info - who handled it and when */}
+                                {item.current_substage && (() => {
+                                  const timeline = getTimelineForOrder(order.order_id, item.item_id);
+                                  const stageEntries = timeline.filter(e => 
+                                    e.substage === item.current_substage && 
+                                    (e.action === 'substage_started' || e.action === 'substage_completed')
                                   );
-                                })}
+                                  const latestEntry = stageEntries[0];
+                                  
+                                  if (latestEntry) {
+                                    return (
+                                      <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+                                        <div className="flex items-center gap-1">
+                                          <User className="h-3 w-3" />
+                                          <span>{latestEntry.performed_by_name}</span>
+                                        </div>
+                                        <span>•</span>
+                                        <div className="flex items-center gap-1">
+                                          <Clock className="h-3 w-3" />
+                                          <span>Started: {format(latestEntry.created_at, 'MMM d, HH:mm')}</span>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                  return null;
+                                })()}
                               </div>
                             </div>
 
@@ -268,6 +491,22 @@ export default function Production() {
                                         Jump to {step.label}
                                       </DropdownMenuItem>
                                     ))}
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem 
+                                      onClick={() => {
+                                        setSelectedItemForDelay({
+                                          orderId: order.order_id,
+                                          itemId: item.item_id,
+                                          productName: item.product_name,
+                                          stageName: item.current_substage || 'production'
+                                        });
+                                        setDelayDialogOpen(true);
+                                      }}
+                                      className="text-yellow-600 dark:text-yellow-400"
+                                    >
+                                      <AlertTriangle className="h-4 w-4 mr-2" />
+                                      Add Delay Reason
+                                    </DropdownMenuItem>
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem onClick={() => handleSendToDispatch(order.order_id, item.item_id)}>
                                       <Truck className="h-4 w-4 mr-2" />
@@ -322,6 +561,25 @@ export default function Production() {
             onUpload={handleUpload}
             orderId={selectedItem.orderId}
             itemId={selectedItem.itemId}
+          />
+        )}
+
+        {/* Delay Reason Dialog */}
+        {selectedItemForDelay && (
+          <AddDelayReasonDialog
+            open={delayDialogOpen}
+            onOpenChange={setDelayDialogOpen}
+            productName={selectedItemForDelay.productName}
+            stageName={selectedItemForDelay.stageName}
+            onSave={async (reason) => {
+              // Add delay reason as a note
+              await addNote(selectedItemForDelay.orderId, `[DELAY - ${selectedItemForDelay.stageName}] ${reason}`);
+              toast({
+                title: "Delay Reason Recorded",
+                description: "Delay reason has been saved to order notes",
+              });
+              setSelectedItemForDelay(null);
+            }}
           />
         )}
       </div>

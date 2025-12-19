@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@300;400;500;600;700;800;900&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Inter:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -47,6 +47,7 @@
     --stage-design: 330 81% 60%;
     --stage-prepress: 25 95% 53%;
     --stage-production: 142 71% 45%;
+    --stage-outsource: 280 80% 50%;
     --stage-dispatch: 217 91% 60%;
     --stage-completed: 160 84% 39%;
 
@@ -125,11 +126,11 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Raleway', 'Inter', sans-serif;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'DM Sans', sans-serif;
+    font-family: 'Raleway', 'DM Sans', sans-serif;
     @apply font-semibold tracking-tight;
   }
 }
@@ -137,6 +138,16 @@
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Logo dark mode filter - inspired by Chhapai logo design */
+  .logo-dark-mode {
+    filter: none;
+    transition: filter 0.2s ease;
+  }
+  
+  .dark .logo-dark-mode {
+    filter: invert(1) brightness(1.1) contrast(1.1);
   }
 
   /* Priority Badge Styles */
@@ -167,6 +178,10 @@
 
   .stage-production {
     @apply bg-stage-production/10 text-stage-production border-stage-production/30;
+  }
+
+  .stage-outsource {
+    @apply bg-stage-outsource/10 text-stage-outsource border-stage-outsource/30;
   }
 
   .stage-dispatch {
@@ -241,5 +256,57 @@
   /* Hover card portal - ensure it's above all other content */
   [data-radix-popper-content-wrapper] {
     z-index: 100 !important;
+  }
+
+  /* Safe area insets for mobile browsers (Android Chrome, iOS Safari) */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .safe-area-inset-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  /* Mobile safe area padding - ensures footer is always visible */
+  .pb-safe-mobile {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
+  }
+
+  /* Ensure footer is always visible on mobile - prevent hiding */
+  @media (max-width: 768px) {
+    .pb-safe {
+      padding-bottom: max(env(safe-area-inset-bottom, 0), 1rem);
+    }
+    
+    .pb-safe-mobile {
+      padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
+    }
+    
+    /* Ensure footer stays visible on mobile browsers */
+    footer {
+      position: relative !important;
+      transform: none !important;
+      opacity: 1 !important;
+      visibility: visible !important;
+      min-height: 4rem;
+    }
+    
+    /* Ensure footer content has proper spacing */
+    footer > div {
+      padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.75rem);
+    }
+  }
+
+  /* Prevent footer from being hidden by browser UI */
+  @supports (padding: env(safe-area-inset-bottom)) {
+    footer {
+      padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.5rem);
+    }
+    
+    @media (max-width: 768px) {
+      footer {
+        padding-bottom: max(env(safe-area-inset-bottom, 0px), 1rem);
+      }
+    }
   }
 }

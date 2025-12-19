@@ -256,7 +256,7 @@ serve(async (req) => {
     }
 
     if (action === 'sync-orders') {
-      console.log('Syncing orders from WooCommerce:', storeUrl);
+      console.log('Syncing orders from WooCommerce with advanced safeguards:', storeUrl);
       
       // Fetch processing orders from WooCommerce
       const apiUrl = `${storeUrl}/wp-json/wc/v3/orders?status=processing&per_page=50`;
@@ -281,21 +281,44 @@ serve(async (req) => {
         });
       }
 
-      const orders = await response.json();
-      console.log(`Fetched ${orders.length} processing orders from WooCommerce`);
+      const wooOrders = await response.json();
+      console.log(`Fetched ${wooOrders.length} processing orders from WooCommerce`);
 
-      // Process and store orders
+      // Process and store orders with safeguards
       const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const adminSupabase = createClient(supabaseUrl, serviceRoleKey);
 
+      // Generate unique sync ID
+      const syncId = `sync-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const syncedAt = new Date().toISOString();
+      
+      // Extract WooCommerce order IDs from current sync
+      const wooOrderIds = wooOrders.map((o: any) => o.id);
+      
       let importedCount = 0;
       let updatedCount = 0;
-      let skippedCount = 0;
+      let restoredCount = 0;
+      let archivedCount = 0;
       const errors: string[] = [];
 
-      for (const wooOrder of orders) {
+      // STEP 1: Process all WooCommerce orders (with duplicate prevention by woo_order_id)
+      for (const wooOrder of wooOrders) {
         try {
           const wooOrderId = wooOrder.id;
+          
+          // SAFEGUARD 8: Duplicate Prevention - Check by woo_order_id only
+          const { data: existingByWooId } = await adminSupabase
+            .from('orders')
+            .select('id, source, archived_from_wc')
+            .eq('woo_order_id', wooOrderId)
+            .maybeSingle();
+
+          // SAFEGUARD 7: Manual Orders Protection - Never touch manual orders
+          if (existingByWooId && existingByWooId.source === 'manual') {
+            console.log(`Skipping manual order with woo_order_id ${wooOrderId} - manual orders are protected`);
+            continue;
+          }
+
           const orderId = `WC-${wooOrderId}`;
           
           // Extract billing details
@@ -348,17 +371,12 @@ serve(async (req) => {
             }
           }
           
-          // Check if order already exists
-          const { data: existing } = await adminSupabase
-            .from('orders')
-            .select('id')
-            .eq('order_id', orderId)
-            .maybeSingle();
-
           let orderDbId: string;
+          const isRestored = existingByWooId && existingByWooId.archived_from_wc === true;
 
-          if (existing) {
-            // Update existing order with latest data
+          if (existingByWooId) {
+            // SAFEGUARD 1: Only update WooCommerce orders (source = 'woocommerce')
+            // SAFEGUARD 3: Stage-agnostic - update regardless of current stage
             const { error: updateError } = await adminSupabase
               .from('orders')
               .update({
@@ -383,9 +401,11 @@ serve(async (req) => {
                 tax_sgst: taxSgst,
                 delivery_date: deliveryDate,
                 woo_order_id: wooOrderId,
-                updated_at: new Date().toISOString(),
+                last_seen_in_wc_sync: syncedAt,
+                archived_from_wc: false, // Restore if was archived
+                updated_at: syncedAt,
               })
-              .eq('id', existing.id);
+              .eq('id', existingByWooId.id);
 
             if (updateError) {
               console.error(`Failed to update order ${orderId}:`, updateError);
@@ -393,12 +413,30 @@ serve(async (req) => {
               continue;
             }
             
-            orderDbId = existing.id;
-            updatedCount++;
+            orderDbId = existingByWooId.id;
             
-            console.log(`Updated order ${orderId} with latest WooCommerce data`);
+            if (isRestored) {
+              restoredCount++;
+              console.log(`Restored archived order ${orderId} (WC Order #${wooOrderId})`);
+              
+              // Create timeline entry for restoration
+              await adminSupabase
+                .from('timeline')
+                .insert({
+                  order_id: orderDbId,
+                  action: 'note_added',
+                  stage: 'sales',
+                  performed_by: user.id,
+                  performed_by_name: 'WooCommerce Sync',
+                  notes: `Order restored from WooCommerce sync (was previously archived). WC Order #${wooOrderId}`,
+                  is_public: true,
+                });
+            } else {
+              updatedCount++;
+              console.log(`Updated order ${orderId} with latest WooCommerce data`);
+            }
           } else {
-            // Create new order
+            // SAFEGUARD 5: Missing Order Logic - Create new order
             const { data: newOrder, error: orderError } = await adminSupabase
               .from('orders')
               .insert({
@@ -424,8 +462,10 @@ serve(async (req) => {
                 tax_sgst: taxSgst,
                 delivery_date: deliveryDate,
                 woo_order_id: wooOrderId,
-                source: 'woocommerce',
+                source: 'woocommerce', // SAFEGUARD 1: Mark as woocommerce source
                 priority: 'blue',
+                last_seen_in_wc_sync: syncedAt,
+                archived_from_wc: false,
                 created_by: user.id,
               })
               .select()
@@ -440,10 +480,23 @@ serve(async (req) => {
             orderDbId = newOrder.id;
             importedCount++;
             
-            console.log(`Created new order ${orderId}`);
+            console.log(`Created new order ${orderId} (WC Order #${wooOrderId})`);
+            
+            // Create timeline entry for new order
+            await adminSupabase
+              .from('timeline')
+              .insert({
+                order_id: orderDbId,
+                action: 'created',
+                stage: 'sales',
+                performed_by: user.id,
+                performed_by_name: 'WooCommerce Sync',
+                notes: `Order imported from WooCommerce (WC Order #${wooOrderId})`,
+                is_public: true,
+              });
           }
 
-          // Process line items (products)
+          // Process line items (products) - SAFEGUARD 3: Stage-agnostic, update items regardless
           for (const item of wooOrder.line_items || []) {
             const { specifications, rawMeta } = parseProductMeta(item.meta_data || []);
             const lineTotal = parseFloat(item.total) || 0;
@@ -457,7 +510,7 @@ serve(async (req) => {
               .maybeSingle();
 
             if (existingItem) {
-              // Update existing item with latest meta
+              // Update existing item with latest meta (preserve stage/assignment)
               await adminSupabase
                 .from('order_items')
                 .update({
@@ -466,7 +519,7 @@ serve(async (req) => {
                   specifications: specifications,
                   woo_meta: rawMeta,
                   line_total: lineTotal,
-                  updated_at: new Date().toISOString(),
+                  updated_at: syncedAt,
                 })
                 .eq('id', existingItem.id);
                 
@@ -496,21 +549,6 @@ serve(async (req) => {
               }
             }
           }
-
-          // Create timeline entry only for new orders
-          if (!existing) {
-            await adminSupabase
-              .from('timeline')
-              .insert({
-                order_id: orderDbId,
-                action: 'created',
-                stage: 'sales',
-                performed_by: user.id,
-                performed_by_name: 'WooCommerce Sync',
-                notes: `Order imported from WooCommerce (WC Order #${wooOrderId})`,
-                is_public: true,
-              });
-          }
           
         } catch (orderError: unknown) {
           const errorMsg = orderError instanceof Error ? orderError.message : 'Unknown error';
@@ -519,14 +557,90 @@ serve(async (req) => {
         }
       }
 
-      console.log(`Sync complete: ${importedCount} imported, ${updatedCount} updated, ${errors.length} errors`);
+      // STEP 2: SAFEGUARD 6 - Archive orders not found in current sync (but preserve them)
+      // Only archive WooCommerce orders that are not in the current sync
+      const { data: existingWooOrders } = await adminSupabase
+        .from('orders')
+        .select('id, order_id, woo_order_id, source, archived_from_wc')
+        .eq('source', 'woocommerce')
+        .not('woo_order_id', 'is', null);
+
+      if (existingWooOrders) {
+        for (const existingOrder of existingWooOrders) {
+          // SAFEGUARD 7: Never archive manual orders
+          if (existingOrder.source === 'manual') {
+            continue;
+          }
+
+          // If Woo order ID not in current sync, archive it
+          if (existingOrder.woo_order_id && !wooOrderIds.includes(existingOrder.woo_order_id)) {
+            // Only archive if not already archived
+            if (!existingOrder.archived_from_wc) {
+              const { error: archiveError } = await adminSupabase
+                .from('orders')
+                .update({
+                  archived_from_wc: true,
+                  updated_at: syncedAt,
+                })
+                .eq('id', existingOrder.id);
+
+              if (archiveError) {
+                console.error(`Failed to archive order ${existingOrder.order_id}:`, archiveError);
+                errors.push(`Archive ${existingOrder.order_id}: ${archiveError.message}`);
+              } else {
+                archivedCount++;
+                console.log(`Archived order ${existingOrder.order_id} (WC Order #${existingOrder.woo_order_id}) - not found in current sync`);
+                
+                // Create timeline entry for archiving
+                await adminSupabase
+                  .from('timeline')
+                  .insert({
+                    order_id: existingOrder.id,
+                    action: 'note_added',
+                    stage: 'sales',
+                    performed_by: user.id,
+                    performed_by_name: 'WooCommerce Sync',
+                    notes: `Order archived from WooCommerce sync (not found in current sync). Order preserved with full history.`,
+                    is_public: true,
+                  });
+              }
+            }
+          }
+        }
+      }
+
+      // STEP 3: SAFEGUARD 4 - Create sync log entry
+      const syncStatus = errors.length > 0 ? (errors.length === wooOrders.length ? 'failed' : 'partial') : 'completed';
+      
+      const { error: logError } = await adminSupabase
+        .from('order_sync_logs')
+        .insert({
+          sync_id: syncId,
+          synced_at: syncedAt,
+          woo_order_ids: wooOrderIds,
+          sync_status: syncStatus,
+          imported_count: importedCount,
+          updated_count: updatedCount,
+          archived_count: archivedCount,
+          restored_count: restoredCount,
+          errors: errors.length > 0 ? errors : [],
+          performed_by: user.id,
+        });
+
+      if (logError) {
+        console.error('Failed to create sync log:', logError);
+      }
+
+      console.log(`Sync complete: ${importedCount} imported, ${updatedCount} updated, ${restoredCount} restored, ${archivedCount} archived, ${errors.length} errors`);
       
       return new Response(JSON.stringify({ 
         success: true, 
+        sync_id: syncId,
         imported: importedCount,
         updated: updatedCount,
-        skipped: skippedCount,
-        total: orders.length,
+        restored: restoredCount,
+        archived: archivedCount,
+        total: wooOrders.length,
         errors: errors.length > 0 ? errors : undefined,
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },

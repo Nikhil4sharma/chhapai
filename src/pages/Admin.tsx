@@ -100,7 +100,7 @@ export default function Admin() {
 
       // Create profile in Firestore
       const profileRef = doc(db, 'profiles', newUser.uid);
-      await setDoc(profileRef, {
+      const profileData: any = {
         user_id: newUser.uid,
         full_name: newFullName,
         department: newDepartment,
@@ -108,7 +108,9 @@ export default function Admin() {
         avatar_url: null,
         created_at: Timestamp.now(),
         updated_at: Timestamp.now(),
-      });
+      };
+      
+      await setDoc(profileRef, profileData);
 
       // Create role in Firestore
       const roleRef = doc(db, 'user_roles', `${newUser.uid}_${newRole}`);
@@ -128,6 +130,7 @@ export default function Admin() {
       setNewFullName('');
       setNewRole('sales');
       setNewDepartment('sales');
+      setNewProductionStage('');
       fetchUsers();
     } catch (error: any) {
       console.error('Error creating user:', error);
@@ -224,6 +227,7 @@ export default function Admin() {
       });
     }
   };
+
 
   const getRoleBadgeVariant = (role: AppRole) => {
     switch (role) {
@@ -337,6 +341,7 @@ export default function Admin() {
                 </Select>
                 <p className="text-xs text-muted-foreground">Which orders they can see</p>
               </div>
+
 
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>

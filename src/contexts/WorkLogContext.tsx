@@ -47,10 +47,14 @@ export function WorkLogProvider({ children }: { children: React.ReactNode }) {
     try {
       let q;
       if (role === 'admin') {
-        // Admin can see all logs
-        q = query(collection(db, 'user_work_logs'), orderBy('created_at', 'desc'), limit(1000));
+        // Admin can see all logs - use index with user_id and created_at
+        q = query(
+          collection(db, 'user_work_logs'),
+          orderBy('created_at', 'desc'),
+          limit(1000)
+        );
       } else {
-        // Users can only see their own logs
+        // Users can only see their own logs - use index with user_id and created_at
         q = query(
           collection(db, 'user_work_logs'),
           where('user_id', '==', user.uid),
@@ -99,7 +103,7 @@ export function WorkLogProvider({ children }: { children: React.ReactNode }) {
         // Admin and Sales can see all notes
         q = query(collection(db, 'work_notes'), orderBy('created_at', 'desc'), limit(1000));
       } else {
-        // Other users can see notes for their assigned orders
+        // Other users can see notes for their assigned orders - use index with user_id and created_at
         q = query(
           collection(db, 'work_notes'),
           where('user_id', '==', user.uid),
@@ -140,27 +144,80 @@ export function WorkLogProvider({ children }: { children: React.ReactNode }) {
       fetchWorkLogs();
       fetchWorkNotes();
 
-      // Real-time subscriptions
-      const unsubscribeLogs = onSnapshot(
-        query(collection(db, 'user_work_logs'), orderBy('created_at', 'desc'), limit(1000)),
-        () => {
-          fetchWorkLogs();
-        }
-      );
+      // Real-time subscriptions with proper filtering based on user role
+      let unsubscribeLogs: (() => void) | null = null;
+      let unsubscribeNotes: (() => void) | null = null;
 
-      const unsubscribeNotes = onSnapshot(
-        query(collection(db, 'work_notes'), orderBy('created_at', 'desc'), limit(1000)),
-        () => {
-          fetchWorkNotes();
-        }
-      );
+      // Setup work logs listener with proper filtering
+      if (role === 'admin') {
+        // Admin can see all logs
+        unsubscribeLogs = onSnapshot(
+          query(collection(db, 'user_work_logs'), orderBy('created_at', 'desc'), limit(1000)),
+          () => {
+            fetchWorkLogs();
+          },
+          (error) => {
+            console.error('Error in work_logs snapshot listener:', error);
+            // Don't show error to user for permission issues in listeners
+          }
+        );
+      } else {
+        // Users can only see their own logs
+        unsubscribeLogs = onSnapshot(
+          query(
+            collection(db, 'user_work_logs'),
+            where('user_id', '==', user.uid),
+            orderBy('created_at', 'desc'),
+            limit(500)
+          ),
+          () => {
+            fetchWorkLogs();
+          },
+          (error) => {
+            console.error('Error in work_logs snapshot listener:', error);
+            // Don't show error to user for permission issues in listeners
+          }
+        );
+      }
+
+      // Setup work notes listener with proper filtering
+      if (role === 'admin' || role === 'sales') {
+        // Admin and Sales can see all notes
+        unsubscribeNotes = onSnapshot(
+          query(collection(db, 'work_notes'), orderBy('created_at', 'desc'), limit(1000)),
+          () => {
+            fetchWorkNotes();
+          },
+          (error) => {
+            console.error('Error in work_notes snapshot listener:', error);
+            // Don't show error to user for permission issues in listeners
+          }
+        );
+      } else {
+        // Other users can only see their own notes
+        unsubscribeNotes = onSnapshot(
+          query(
+            collection(db, 'work_notes'),
+            where('user_id', '==', user.uid),
+            orderBy('created_at', 'desc'),
+            limit(500)
+          ),
+          () => {
+            fetchWorkNotes();
+          },
+          (error) => {
+            console.error('Error in work_notes snapshot listener:', error);
+            // Don't show error to user for permission issues in listeners
+          }
+        );
+      }
 
       return () => {
-        unsubscribeLogs();
-        unsubscribeNotes();
+        if (unsubscribeLogs) unsubscribeLogs();
+        if (unsubscribeNotes) unsubscribeNotes();
       };
     }
-  }, [user, fetchWorkLogs, fetchWorkNotes]);
+  }, [user, role, fetchWorkLogs, fetchWorkNotes]);
 
   const addWorkNote = useCallback(async (
     orderId: string,

@@ -31,6 +31,84 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "user_work_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "user_work_logs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "work_date",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "work_notes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "user_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "created_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "delay_reasons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "order_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "item_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "reported_at",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "delay_reasons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "order_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "reported_at",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

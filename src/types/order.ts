@@ -1,10 +1,12 @@
 export type Priority = 'blue' | 'yellow' | 'red';
 
-export type Stage = 'sales' | 'design' | 'prepress' | 'production' | 'dispatch' | 'completed';
+export type Stage = 'sales' | 'design' | 'prepress' | 'production' | 'outsource' | 'dispatch' | 'completed';
 
 export type SubStage = 'foiling' | 'printing' | 'pasting' | 'cutting' | 'letterpress' | 'embossing' | 'packing' | null;
 
-export type UserRole = 'sales' | 'design' | 'prepress' | 'production' | 'admin';
+export type OutsourceStage = 'outsourced' | 'vendor_in_progress' | 'vendor_dispatched' | 'received_from_vendor' | 'quality_check' | 'decision_pending';
+
+export type UserRole = 'sales' | 'design' | 'prepress' | 'production' | 'outsource' | 'admin';
 
 export interface Customer {
   name: string;
@@ -60,6 +62,12 @@ export interface ProductSpecifications {
   [key: string]: string | undefined; // Allow dynamic WooCommerce meta keys
 }
 
+export interface DispatchInfo {
+  courier_company: string;
+  tracking_number: string;
+  dispatch_date: string;
+}
+
 export interface OrderItem {
   item_id: string;
   order_id: string;
@@ -85,9 +93,11 @@ export interface OrderItem {
   files: OrderFile[];
   is_ready_for_production: boolean;
   is_dispatched: boolean;
+  dispatch_info?: DispatchInfo;
   created_at: Date;
   updated_at: Date;
   production_stage_sequence?: string[];
+  outsource_info?: OutsourceInfo;
 }
 
 export interface Order {
@@ -107,6 +117,8 @@ export interface Order {
   order_level_delivery_date?: Date;
   priority_computed: Priority;
   items: OrderItem[];
+  archived_from_wc?: boolean; // True if order was archived from WooCommerce sync
+  last_seen_in_wc_sync?: Date; // Timestamp when order was last seen in WooCommerce sync
   meta?: {
     wp_order_id?: number;
     imported?: boolean;
@@ -155,6 +167,56 @@ export const STAGE_LABELS: Record<Stage, string> = {
   design: 'Design',
   prepress: 'Prepress',
   production: 'Production',
+  outsource: 'Outsource',
   dispatch: 'Dispatch',
   completed: 'Completed',
 };
+
+export const OUTSOURCE_STAGE_LABELS: Record<OutsourceStage, string> = {
+  outsourced: 'Outsourced',
+  vendor_in_progress: 'Vendor In Progress',
+  vendor_dispatched: 'Vendor Dispatched',
+  received_from_vendor: 'Received from Vendor',
+  quality_check: 'Quality Check',
+  decision_pending: 'Decision Pending',
+};
+
+export interface VendorDetails {
+  vendor_name: string;
+  vendor_company?: string;
+  contact_person: string;
+  phone: string;
+  email?: string;
+  city?: string;
+}
+
+export interface OutsourceJobDetails {
+  work_type: string;
+  expected_ready_date: Date;
+  quantity_sent: number;
+  special_instructions?: string;
+}
+
+export interface OutsourceInfo {
+  vendor: VendorDetails;
+  job_details: OutsourceJobDetails;
+  current_outsource_stage: OutsourceStage;
+  assigned_at: Date;
+  assigned_by: string;
+  assigned_by_name: string;
+  assigned_by_role: UserRole;
+  vendor_dispatch_date?: Date;
+  courier_name?: string;
+  tracking_number?: string;
+  received_date?: Date;
+  receiver_name?: string;
+  qc_result?: 'pass' | 'fail';
+  qc_notes?: string;
+  follow_up_notes?: Array<{
+    note_id: string;
+    note: string;
+    created_at: Date;
+    created_by: string;
+    created_by_name: string;
+  }>;
+}

@@ -21,6 +21,7 @@ import {
 import { Order } from '@/types/order';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface EditOrderDialogProps {
   open: boolean;
@@ -35,6 +36,9 @@ export function EditOrderDialog({
   order,
   onSave 
 }: EditOrderDialogProps) {
+  const { isAdmin, role } = useAuth();
+  const canEditDeliveryDate = isAdmin || role === 'sales';
+  
   const [formData, setFormData] = useState({
     customer_name: order.customer.name,
     customer_phone: order.customer.phone,
@@ -125,32 +129,45 @@ export function EditOrderDialog({
             />
           </div>
 
-          <div className="space-y-2">
-            <Label>Delivery Date</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "w-full justify-start text-left font-normal",
-                    !deliveryDate && "text-muted-foreground"
-                  )}
-                >
-                  <Calendar className="mr-2 h-4 w-4" />
-                  {deliveryDate ? format(deliveryDate, "PPP") : "Select date"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <CalendarPicker
-                  mode="single"
-                  selected={deliveryDate}
-                  onSelect={setDeliveryDate}
-                  initialFocus
-                  className="pointer-events-auto"
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
+          {/* Only Sales and Admin can edit delivery date */}
+          {canEditDeliveryDate && (
+            <div className="space-y-2">
+              <Label>Delivery Date</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className={cn(
+                      "w-full justify-start text-left font-normal",
+                      !deliveryDate && "text-muted-foreground"
+                    )}
+                  >
+                    <Calendar className="mr-2 h-4 w-4" />
+                    {deliveryDate ? format(deliveryDate, "PPP") : "Select date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarPicker
+                    mode="single"
+                    selected={deliveryDate}
+                    onSelect={setDeliveryDate}
+                    initialFocus
+                    className="pointer-events-auto"
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          )}
+          
+          {/* Show delivery date as read-only for non-Sales/Admin users */}
+          {!canEditDeliveryDate && (
+            <div className="space-y-2">
+              <Label>Delivery Date</Label>
+              <div className="text-sm text-muted-foreground">
+                {deliveryDate ? format(deliveryDate, "PPP") : "Not set"}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="global_notes">Order Notes</Label>

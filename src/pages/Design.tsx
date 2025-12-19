@@ -1,15 +1,20 @@
-import { useState } from 'react';
-import { Upload, CheckCircle, Clock, ArrowRight, Send } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Upload, CheckCircle, Clock, ArrowRight, Send, Building2, Settings, MessageSquare, FileText, RotateCcw, AlertTriangle, Package, User } from 'lucide-react';
+import { OrderCard } from '@/components/orders/OrderCard';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
 import { FilePreview } from '@/components/orders/FilePreview';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWorkLogs } from '@/contexts/WorkLogContext';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/integrations/firebase/config';
 import {
   Tooltip,
   TooltipContent,
@@ -23,21 +28,211 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
+import { ProductionStageSequenceDialog } from '@/components/dialogs/ProductionStageSequenceDialog';
+import { OutsourceAssignmentDialog } from '@/components/dialogs/OutsourceAssignmentDialog';
+import { AddWorkNoteDialog } from '@/components/dialogs/AddWorkNoteDialog';
+import { VendorDetails, OutsourceJobDetails, Order, OrderItem } from '@/types/order';
+
+interface DesignUser {
+  user_id: string;
+  full_name: string;
+  department: string;
+}
 
 export default function Design() {
-  const { orders, updateItemStage, uploadFile, sendToProduction } = useOrders();
+  const { orders, updateItemStage, uploadFile, sendToProduction, assignToOutsource } = useOrders();
+  const { getWorkNotesByOrder } = useWorkLogs();
+  const { isAdmin, role, user, profile } = useAuth();
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<{ orderId: string; itemId: string } | null>(null);
+  const [productionStageDialogOpen, setProductionStageDialogOpen] = useState(false);
+  const [selectedItemForProduction, setSelectedItemForProduction] = useState<{ orderId: string; itemId: string; productName: string; currentSequence?: string[] | null } | null>(null);
+  const [outsourceDialogOpen, setOutsourceDialogOpen] = useState(false);
+  const [selectedItemForOutsource, setSelectedItemForOutsource] = useState<{ orderId: string; itemId: string; productName: string; quantity: number } | null>(null);
+  const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+  const [selectedItemForNote, setSelectedItemForNote] = useState<{ orderId: string; itemId: string; productName: string } | null>(null);
+  const [selectedUserTab, setSelectedUserTab] = useState<string>('all');
+  const [designUsers, setDesignUsers] = useState<DesignUser[]>([]);
 
-  // Get items in design stage
-  const designItems = orders.flatMap(order => 
-    order.items
-      .filter(item => item.current_stage === 'design')
-      .map(item => ({
-        order,
-        item,
-      }))
-  );
+  // Fetch design users for admin tabs
+  useEffect(() => {
+    if (isAdmin) {
+      const fetchDesignUsers = async () => {
+        try {
+          const profilesQuery = query(
+            collection(db, 'profiles'),
+            where('department', '==', 'design')
+          );
+          const snapshot = await getDocs(profilesQuery);
+          const users = snapshot.docs.map(doc => ({
+            user_id: doc.data().user_id,
+            full_name: doc.data().full_name || 'Unknown',
+            department: doc.data().department || 'design',
+          }));
+          setDesignUsers(users);
+        } catch (error) {
+          console.error('Error fetching design users:', error);
+        }
+      };
+      fetchDesignUsers();
+    }
+  }, [isAdmin]);
+
+  // CRITICAL FIX: Start from ALL orders, filter items by assigned_department and current_stage
+  // Department is stored on order_items.assigned_department, NOT on orders
+  // This ensures orders persist after assignment and don't disappear on re-render
+  const allDesignItems = useMemo(() => {
+    const department = 'design';
+    const deptLower = department.toLowerCase().trim();
+    
+    // Check user's department - use role first, then profile.department
+    const userDepartment = (role || profile?.department || '').toLowerCase().trim();
+    const isDesignUser = userDepartment === deptLower || isAdmin;
+    
+    return orders
+      .filter(order => !order.is_completed && !order.archived_from_wc)
+      .flatMap(order => 
+        order.items
+          .filter(item => {
+            // Filter by assigned_department AND current_stage
+            const itemDept = (item.assigned_department || '').toLowerCase().trim();
+            const itemStage = (item.current_stage || '').toLowerCase().trim();
+            const isDesignItem = itemDept === deptLower || itemStage === deptLower;
+            
+            if (!isDesignItem) return false;
+            
+            // CRITICAL FIX: Visibility logic
+            // - Admin sees ALL items in design department
+            // - If item.assigned_to IS NULL → visible to ALL users in design department
+            // - If item.assigned_to IS SET:
+            //   - Admin sees it
+            //   - ONLY that assigned user sees it (even if they're in design department)
+            if (isAdmin) {
+              return true; // Admin sees everything
+            }
+            
+            // For non-admin users, check assignment
+            if (item.assigned_to) {
+              // Item is assigned - only the assigned user can see it
+              // CRITICAL: Must check if user is in design department AND is the assigned user
+              return isDesignUser && item.assigned_to === user?.uid;
+            }
+            
+            // No user assigned - visible to all users in design department
+            return isDesignUser;
+          })
+          .map(item => ({
+            order,
+            item,
+          }))
+      );
+  }, [orders, isAdmin, user, role, profile]);
+
+  // Separate assigned items (assigned_to is set) from unassigned items
+  const assignedDesignItems = useMemo(() => {
+    return allDesignItems.filter(({ item }) => item.assigned_to === user?.uid);
+  }, [allDesignItems, user]);
+
+  // Get urgent items for design department
+  const urgentDesignItems = useMemo(() => {
+    return allDesignItems.filter(({ item }) => item.priority_computed === 'red');
+  }, [allDesignItems]);
+
+  // Calculate realtime stats for Design dashboard
+  const designStats = useMemo(() => {
+    return {
+      totalItems: allDesignItems.length,
+      urgentItems: urgentDesignItems.length,
+      assignedToMe: assignedDesignItems.length,
+      yellowPriority: allDesignItems.filter(({ item }) => item.priority_computed === 'yellow').length,
+      bluePriority: allDesignItems.filter(({ item }) => item.priority_computed === 'blue').length,
+    };
+  }, [allDesignItems, urgentDesignItems, assignedDesignItems]);
+
+  // Tab state for filtering
+  const [activeTab, setActiveTab] = useState<'all' | 'assigned' | 'urgent'>('all');
+
+  // Filter items based on active tab
+  const designItems = useMemo(() => {
+    if (activeTab === 'assigned') {
+      return assignedDesignItems;
+    } else if (activeTab === 'urgent') {
+      return urgentDesignItems;
+    }
+    // 'all' tab - show all design items
+    // For admin, also respect user filter
+    if (isAdmin && selectedUserTab !== 'all') {
+      return allDesignItems.filter(({ item }) => item.assigned_to === selectedUserTab);
+    }
+    return allDesignItems;
+  }, [allDesignItems, assignedDesignItems, urgentDesignItems, activeTab, isAdmin, selectedUserTab]);
+
+  // CRITICAL FIX: Group items back into orders for UI rendering
+  // Each grouped order must include ONLY its relevant items
+  const designOrdersGrouped = useMemo(() => {
+    const orderMap = new Map<string, { order: Order; items: OrderItem[] }>();
+    
+    designItems.forEach(({ order, item }) => {
+      if (!orderMap.has(order.order_id)) {
+        orderMap.set(order.order_id, { order, items: [] });
+      }
+      orderMap.get(order.order_id)!.items.push(item);
+    });
+    
+    // Convert to array and create orders with only relevant items
+    return Array.from(orderMap.values()).map(({ order, items }) => ({
+      ...order,
+      items: items, // Only show items that match the current filter
+    }));
+  }, [designItems]);
+
+  // Debug logging for design department
+  useEffect(() => {
+    console.log('[Design] ========== DEBUG INFO ==========');
+    console.log('[Design] User Info:', {
+      user_id: user?.uid,
+      role: role,
+      profile_department: profile?.department,
+      isAdmin: isAdmin,
+      isDesignUser: (role || profile?.department || '').toLowerCase().trim() === 'design',
+    });
+    console.log('[Design] Orders Count:', orders.length);
+    console.log('[Design] All Design Items Count:', allDesignItems.length);
+    console.log('[Design] Filtered Design Items Count:', designItems.length);
+    console.log('[Design] Grouped Orders Count:', designOrdersGrouped.length);
+    
+    // Show sample items
+    if (allDesignItems.length > 0) {
+      console.log('[Design] Sample Design Items (first 3):', allDesignItems.slice(0, 3).map(({ item, order }) => ({
+        order_id: order.order_id,
+        item_id: item.item_id,
+        product_name: item.product_name,
+        assigned_department: item.assigned_department,
+        current_stage: item.current_stage,
+        assigned_to: item.assigned_to,
+        user_can_see: !item.assigned_to || item.assigned_to === user?.uid,
+      })));
+    } else {
+      console.warn('[Design] No design items found!');
+      // Check if there are any items in orders that should be visible
+      const allItemsInOrders = orders.flatMap(o => o.items);
+      const designItemsInOrders = allItemsInOrders.filter(item => {
+        const dept = (item.assigned_department || '').toLowerCase().trim();
+        const stage = (item.current_stage || '').toLowerCase().trim();
+        return dept === 'design' || stage === 'design';
+      });
+      console.log('[Design] Total items in orders with design dept/stage:', designItemsInOrders.length);
+      if (designItemsInOrders.length > 0) {
+        console.log('[Design] Sample items that should be visible:', designItemsInOrders.slice(0, 3).map(item => ({
+          item_id: item.item_id,
+          assigned_department: item.assigned_department,
+          current_stage: item.current_stage,
+          assigned_to: item.assigned_to,
+        })));
+      }
+    }
+    console.log('[Design] =================================');
+  }, [orders, allDesignItems, designItems, designOrdersGrouped, user, role, profile, isAdmin]);
 
   const handleMarkComplete = (orderId: string, itemId: string) => {
     updateItemStage(orderId, itemId, 'prepress');
@@ -47,8 +242,30 @@ export default function Design() {
     });
   };
 
-  const handleSendToPrepress = (orderId: string, itemId: string) => {
-    updateItemStage(orderId, itemId, 'prepress');
+  const handleSendToPrepress = async (orderId: string, itemId: string) => {
+    // Check if design notes exist for this item
+    const order = orders.find(o => o.order_id === orderId);
+    const item = order?.items.find(i => i.item_id === itemId);
+    if (!order || !item) return;
+
+    const workNotes = getWorkNotesByOrder(order.id || orderId);
+    const designNotes = workNotes.filter(note => 
+      (note.order_item_id === itemId || note.order_item_id === null) &&
+      note.stage === 'design'
+    );
+
+    if (designNotes.length === 0) {
+      toast({
+        title: "Design Notes Required",
+        description: "Please add design notes before moving to next stage",
+        variant: "destructive",
+      });
+      setSelectedItemForNote({ orderId, itemId, productName: item.product_name });
+      setNoteDialogOpen(true);
+      return;
+    }
+
+    await updateItemStage(orderId, itemId, 'prepress');
     toast({
       title: "Sent to Prepress",
       description: "Item has been sent to Prepress department",
@@ -56,7 +273,30 @@ export default function Design() {
   };
 
   const handleSendToProduction = (orderId: string, itemId: string) => {
-    sendToProduction(orderId, itemId);
+    const order = orders.find(o => o.order_id === orderId);
+    const item = order?.items.find(i => i.item_id === itemId);
+    if (!order || !item) return;
+    
+    setSelectedItemForProduction({
+      orderId,
+      itemId,
+      productName: item.product_name,
+      currentSequence: (item as any).production_stage_sequence
+    });
+    setProductionStageDialogOpen(true);
+  };
+
+  const handleOutsourceClick = (orderId: string, itemId: string, productName: string, quantity: number) => {
+    setSelectedItemForOutsource({ orderId, itemId, productName, quantity });
+    setOutsourceDialogOpen(true);
+  };
+
+  const handleOutsourceAssign = async (vendor: VendorDetails, jobDetails: OutsourceJobDetails) => {
+    if (selectedItemForOutsource) {
+      await assignToOutsource(selectedItemForOutsource.orderId, selectedItemForOutsource.itemId, vendor, jobDetails);
+      setOutsourceDialogOpen(false);
+      setSelectedItemForOutsource(null);
+    }
   };
 
   const handleUploadClick = (orderId: string, itemId: string) => {
@@ -78,139 +318,125 @@ export default function Design() {
           <div>
             <h1 className="text-2xl font-display font-bold text-foreground">Design Dashboard</h1>
             <p className="text-muted-foreground">
-              {designItems.length} item{designItems.length !== 1 ? 's' : ''} assigned to design
+              {designItems.length} item{designItems.length !== 1 ? 's' : ''} {activeTab === 'assigned' ? 'assigned to you' : activeTab === 'urgent' ? 'urgent' : 'in design'}
             </p>
           </div>
         </div>
 
-        {/* Design Queue - Scrollable */}
-        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 space-y-4">
-          {designItems.length === 0 ? (
+        {/* Realtime Stats Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Items</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-primary" />
+                <span className="text-2xl font-bold">{designStats.totalItems}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Urgent</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-red-500" />
+                <span className="text-2xl font-bold text-red-500">{designStats.urgentItems}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Assigned to Me</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <User className="h-5 w-5 text-blue-500" />
+                <span className="text-2xl font-bold text-blue-500">{designStats.assignedToMe}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Yellow Priority</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-yellow-500" />
+                <span className="text-2xl font-bold text-yellow-500">{designStats.yellowPriority}</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Main Tabs: All, Assigned, Urgent */}
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'all' | 'assigned' | 'urgent')} className="w-full">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="all" className="text-sm">
+              All Orders
+              <Badge variant="secondary" className="ml-2">
+                {allDesignItems.length}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="assigned" className="text-sm">
+              Assigned to Me
+              <Badge variant="secondary" className="ml-2">
+                {assignedDesignItems.length}
+              </Badge>
+            </TabsTrigger>
+            <TabsTrigger value="urgent" className="text-sm">
+              Urgent
+              <Badge variant="destructive" className="ml-2">
+                {urgentDesignItems.length}
+              </Badge>
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {/* User Tabs for Admin (only show on 'all' tab) */}
+        {isAdmin && designUsers.length > 0 && activeTab === 'all' && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-sm font-medium text-muted-foreground">Filter by User:</span>
+            <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
+              <TabsList className="flex-wrap h-auto">
+                <TabsTrigger value="all" className="text-sm">
+                  All Users
+                  <Badge variant="secondary" className="ml-2">
+                    {allDesignItems.length}
+                  </Badge>
+                </TabsTrigger>
+                {designUsers.map((designUser) => {
+                  const userItemCount = allDesignItems.filter(({ item }) => item.assigned_to === designUser.user_id).length;
+                  return (
+                    <TabsTrigger key={designUser.user_id} value={designUser.user_id} className="text-sm">
+                      {designUser.full_name}
+                      <Badge variant="secondary" className="ml-2">{userItemCount}</Badge>
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </Tabs>
+          </div>
+        )}
+
+        {/* Design Queue - Scrollable - Show Orders Grouped (not items individually) */}
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2">
+          {designOrdersGrouped.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
                 <h3 className="font-semibold text-lg mb-2">All caught up!</h3>
-                <p className="text-muted-foreground">No items currently need design work.</p>
+                <p className="text-muted-foreground">No orders currently need design work.</p>
               </CardContent>
             </Card>
           ) : (
-            designItems.map(({ order, item }) => (
-              <Card key={`${order.order_id}-${item.item_id}`} className="card-hover overflow-hidden transition-all duration-200 hover:shadow-lg">
-                <CardContent className="p-0">
-                  <div 
-                    className={`h-1 ${
-                      item.priority_computed === 'blue' ? 'bg-priority-blue' :
-                      item.priority_computed === 'yellow' ? 'bg-priority-yellow' :
-                      'bg-priority-red'
-                    }`}
-                  />
-                  
-                  <div className="p-4 sm:p-5">
-                    <div className="flex flex-col lg:flex-row lg:items-start gap-4">
-                      <div className="flex-1 min-w-0">
-                        <Link 
-                          to={`/orders/${order.order_id}`}
-                          className="flex items-center gap-2 mb-1 hover:underline"
-                        >
-                          <h3 className="font-semibold truncate text-foreground">{item.product_name}</h3>
-                          <PriorityBadge priority={item.priority_computed} showLabel />
-                        </Link>
-                        <p className="text-sm text-muted-foreground mb-2">
-                          {order.order_id} • {order.customer.name} • Qty: {item.quantity}
-                        </p>
-                        
-                        <div className="flex flex-wrap gap-2">
-                          {item.specifications.paper && (
-                            <Badge variant="outline" className="text-xs">{item.specifications.paper}</Badge>
-                          )}
-                          {item.specifications.size && (
-                            <Badge variant="outline" className="text-xs">{item.specifications.size}</Badge>
-                          )}
-                          {item.specifications.finishing && (
-                            <Badge variant="outline" className="text-xs">{item.specifications.finishing}</Badge>
-                          )}
-                        </div>
-                        {item.files && item.files.length > 0 && (
-                          <FilePreview files={item.files} compact />
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Clock className="h-4 w-4" />
-                        <span>Due: {format(item.delivery_date, 'MMM d, yyyy')}</span>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex flex-wrap gap-2">
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button 
-                                variant="outline" 
-                                size="sm"
-                                className="bg-purple-50 hover:bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/20 dark:hover:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800"
-                                onClick={() => handleUploadClick(order.order_id, item.item_id)}
-                              >
-                                <Upload className="h-4 w-4 mr-2" />
-                                <span className="hidden sm:inline">Upload Proof</span>
-                                <span className="sm:hidden">Upload</span>
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent side="top">
-                              <p>Upload design proof file</p>
-                            </TooltipContent>
-                          </Tooltip>
-
-                          <DropdownMenu>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <DropdownMenuTrigger asChild>
-                                  <Button 
-                                    size="sm"
-                                    className="bg-green-600 hover:bg-green-700 text-white border-green-700"
-                                  >
-                                    <CheckCircle className="h-4 w-4 mr-2" />
-                                    <span className="hidden sm:inline">Complete</span>
-                                    <span className="sm:hidden">Done</span>
-                                  </Button>
-                                </DropdownMenuTrigger>
-                              </TooltipTrigger>
-                              <TooltipContent side="top">
-                                <p>Mark design as complete</p>
-                              </TooltipContent>
-                            </Tooltip>
-                            <DropdownMenuContent align="end" className="bg-popover w-56">
-                              <DropdownMenuItem 
-                                onClick={() => handleSendToPrepress(order.order_id, item.item_id)}
-                                className="cursor-pointer"
-                              >
-                                <ArrowRight className="h-4 w-4 mr-2 text-blue-500" />
-                                <span>Send to Prepress</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem 
-                                onClick={() => handleSendToProduction(order.order_id, item.item_id)}
-                                className="cursor-pointer"
-                              >
-                                <ArrowRight className="h-4 w-4 mr-2 text-orange-500" />
-                                <span>Send to Production</span>
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TooltipProvider>
-                      </div>
-                    </div>
-
-                    {item.specifications.notes && (
-                      <div className="mt-3 p-3 bg-secondary/50 rounded-lg">
-                        <p className="text-sm text-foreground">
-                          <span className="font-medium">Notes:</span> {item.specifications.notes}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-4">
+              {designOrdersGrouped.map((order) => (
+                <OrderCard key={order.order_id} order={order} />
+              ))}
+            </div>
           )}
         </div>
 
@@ -222,6 +448,48 @@ export default function Design() {
             onUpload={handleUpload}
             orderId={selectedItem.orderId}
             itemId={selectedItem.itemId}
+          />
+        )}
+
+        {/* Production Stage Sequence Dialog */}
+        {selectedItemForProduction && (
+          <ProductionStageSequenceDialog
+            open={productionStageDialogOpen}
+            onOpenChange={setProductionStageDialogOpen}
+            productName={selectedItemForProduction.productName}
+            orderId={selectedItemForProduction.orderId}
+            currentSequence={selectedItemForProduction.currentSequence}
+            onConfirm={(sequence) => {
+              sendToProduction(selectedItemForProduction.orderId, selectedItemForProduction.itemId, sequence);
+              setProductionStageDialogOpen(false);
+              setSelectedItemForProduction(null);
+            }}
+          />
+        )}
+
+        {/* Outsource Assignment Dialog */}
+        {selectedItemForOutsource && (
+          <OutsourceAssignmentDialog
+            open={outsourceDialogOpen}
+            onOpenChange={setOutsourceDialogOpen}
+            onAssign={handleOutsourceAssign}
+            productName={selectedItemForOutsource.productName}
+            quantity={selectedItemForOutsource.quantity}
+          />
+        )}
+
+        {/* Design Notes Dialog */}
+        {selectedItemForNote && (
+          <AddWorkNoteDialog
+            open={noteDialogOpen}
+            onOpenChange={(open) => {
+              setNoteDialogOpen(open);
+              if (!open) setSelectedItemForNote(null);
+            }}
+            orderId={orders.find(o => o.order_id === selectedItemForNote.orderId)?.id || selectedItemForNote.orderId}
+            itemId={selectedItemForNote.itemId}
+            stage="design"
+            productName={selectedItemForNote.productName}
           />
         )}
       </div>

@@ -81,66 +81,119 @@ export function SearchBar({ className, isMobile }: SearchBarProps) {
           <Search className="h-5 w-5" />
         </Button>
 
-        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-          <DialogContent className="sm:max-w-md p-0 gap-0">
-            <DialogHeader className="p-4 pb-0">
-              <DialogTitle className="sr-only">Search Orders</DialogTitle>
-            </DialogHeader>
-            <div className="p-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  ref={inputRef}
-                  placeholder="Search orders, customers..."
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="pl-10 pr-10"
-                  autoFocus
-                />
-                {query && (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="absolute right-2 top-1/2 -translate-y-1/2"
-                    onClick={() => setQuery('')}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                )}
+        {isOpen && (
+          <div className="fixed inset-0 z-50">
+            {/* Overlay */}
+            <div 
+              className="fixed inset-0 bg-black/80 animate-in fade-in-0"
+              onClick={() => setIsOpen(false)}
+            />
+            
+            {/* Search Dialog - Top Positioned */}
+            <div className="fixed top-4 left-4 right-4 z-50 bg-background border border-border rounded-lg shadow-lg max-h-[90vh] flex flex-col animate-in fade-in-0 zoom-in-95 slide-in-from-top-2">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-border">
+                <h2 className="text-lg font-semibold">Search Orders</h2>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setIsOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
               </div>
-            </div>
-
-            {results.length > 0 && (
-              <ScrollArea className="max-h-[300px] border-t border-border">
-                <div className="p-2">
-                  {results.map((order) => (
-                    <button
-                      key={order.order_id}
-                      className="w-full p-3 text-left rounded-lg hover:bg-secondary/50 transition-colors"
-                      onClick={() => handleSelect(order.order_id)}
+              
+              {/* Search Input */}
+              <div className="p-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    ref={inputRef}
+                    placeholder="Search orders, customers, products..."
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    className="pl-10 pr-10 h-11"
+                    autoFocus
+                  />
+                  {query && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute right-2 top-1/2 -translate-y-1/2"
+                      onClick={() => setQuery('')}
                     >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-foreground">{order.order_id}</span>
-                        <PriorityBadge priority={order.priority_computed} />
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <User className="h-3 w-3" />
-                        {order.customer.name}
-                      </div>
-                    </button>
-                  ))}
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
                 </div>
-              </ScrollArea>
-            )}
-
-            {query.length >= 2 && results.length === 0 && (
-              <div className="p-6 text-center text-muted-foreground border-t border-border">
-                <Search className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p>No results found</p>
               </div>
-            )}
-          </DialogContent>
-        </Dialog>
+
+              {/* Results */}
+              {results.length > 0 && (
+                <ScrollArea className="flex-1 border-t border-border">
+                  <div className="p-2 space-y-1">
+                    {results.map((order) => (
+                      <button
+                        key={order.order_id}
+                        className="w-full p-3 text-left rounded-lg hover:bg-secondary/50 transition-colors border border-transparent hover:border-border"
+                        onClick={() => handleSelect(order.order_id)}
+                      >
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <Package className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+                            <span className="font-semibold text-foreground truncate">{order.order_id}</span>
+                          </div>
+                          <PriorityBadge priority={order.priority_computed} />
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <User className="h-3.5 w-3.5 flex-shrink-0" />
+                            <span className="truncate">{order.customer.name}</span>
+                          </div>
+                          {order.customer.phone && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span className="truncate">{order.customer.phone}</span>
+                            </div>
+                          )}
+                          {order.order_level_delivery_date && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Calendar className="h-3.5 w-3.5 flex-shrink-0" />
+                              <span>Delivery: {format(order.order_level_delivery_date, 'MMM d, yyyy')}</span>
+                            </div>
+                          )}
+                          {order.items.length > 0 && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>{order.items.length} item{order.items.length > 1 ? 's' : ''}</span>
+                              {order.items[0]?.product_name && (
+                                <span className="truncate">• {order.items[0].product_name}</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </ScrollArea>
+              )}
+
+              {/* No Results */}
+              {query.length >= 2 && results.length === 0 && (
+                <div className="p-8 text-center text-muted-foreground border-t border-border">
+                  <Search className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                  <p className="font-medium mb-1">No results found</p>
+                  <p className="text-xs">Try searching with order ID, customer name, or product name</p>
+                </div>
+              )}
+
+              {/* Minimum Characters */}
+              {query.length > 0 && query.length < 2 && (
+                <div className="p-6 text-center text-muted-foreground border-t border-border">
+                  <p className="text-sm">Type at least 2 characters to search</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </>
     );
   }

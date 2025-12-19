@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { FileCheck, CheckCircle, Clock, ArrowRight, Upload, Eye, FileText, Image as ImageIcon, Settings } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { FileCheck, CheckCircle, Clock, ArrowRight, Upload, Eye, FileText, Image as ImageIcon, Settings, Building2, AlertTriangle, Package, User } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
 import { useOrders } from '@/contexts/OrderContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import {
@@ -28,9 +29,47 @@ import {
 } from '@/components/ui/dialog';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
 import { ProductionStageSequenceDialog } from '@/components/dialogs/ProductionStageSequenceDialog';
+import { OutsourceAssignmentDialog } from '@/components/dialogs/OutsourceAssignmentDialog';
+import { VendorDetails, OutsourceJobDetails, Order, OrderItem } from '@/types/order';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '@/integrations/firebase/config';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
+interface PrepressUser {
+  user_id: string;
+  full_name: string;
+  department: string;
+}
 
 export default function Prepress() {
-  const { orders, updateItemStage, uploadFile, sendToProduction } = useOrders();
+  const { orders, updateItemStage, uploadFile, sendToProduction, assignToOutsource } = useOrders();
+  const { isAdmin, role, user, profile } = useAuth();
+  const [selectedUserTab, setSelectedUserTab] = useState<string>('all');
+  const [prepressUsers, setPrepressUsers] = useState<PrepressUser[]>([]);
+
+  // Fetch prepress users for admin tabs
+  useEffect(() => {
+    if (isAdmin) {
+      const fetchPrepressUsers = async () => {
+        try {
+          const profilesQuery = query(
+            collection(db, 'profiles'),
+            where('department', '==', 'prepress')
+          );
+          const snapshot = await getDocs(profilesQuery);
+          const users = snapshot.docs.map(doc => ({
+            user_id: doc.data().user_id,
+            full_name: doc.data().full_name || 'Unknown',
+            department: doc.data().department || 'prepress',
+          }));
+          setPrepressUsers(users);
+        } catch (error) {
+          console.error('Error fetching prepress users:', error);
+        }
+      };
+      fetchPrepressUsers();
+    }
+  }, [isAdmin]);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [stageSequenceDialogOpen, setStageSequenceDialogOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<{ 
@@ -39,17 +78,114 @@ export default function Prepress() {
     productName: string;
     currentSequence?: string[] | null;
   } | null>(null);
+  const [outsourceDialogOpen, setOutsourceDialogOpen] = useState(false);
+  const [selectedItemForOutsource, setSelectedItemForOutsource] = useState<{
+    orderId: string;
+    itemId: string;
+    productName: string;
+    quantity: number;
+  } | null>(null);
   const [previewFile, setPreviewFile] = useState<{ url: string; name: string; type: string } | null>(null);
 
-  // Get items in prepress stage
-  const prepressItems = orders.flatMap(order => 
-    order.items
-      .filter(item => item.current_stage === 'prepress')
-      .map(item => ({
-        order,
-        item,
-      }))
-  );
+  // CRITICAL FIX: Start from ALL orders, filter items by assigned_department and current_stage
+  // Department is stored on order_items.assigned_department, NOT on orders
+  // This ensures orders persist after assignment and don't disappear on re-render
+  const allPrepressItems = useMemo(() => {
+    const department = 'prepress';
+    const deptLower = department.toLowerCase().trim();
+    
+    // Check user's department - use role first, then profile.department
+    const userDepartment = (role || profile?.department || '').toLowerCase().trim();
+    const isPrepressUser = userDepartment === deptLower || isAdmin;
+    
+    return orders
+      .filter(order => !order.is_completed && !order.archived_from_wc)
+      .flatMap(order => 
+        order.items
+          .filter(item => {
+            // Filter by assigned_department AND current_stage
+            const itemDept = (item.assigned_department || '').toLowerCase().trim();
+            const itemStage = (item.current_stage || '').toLowerCase().trim();
+            const isPrepressItem = itemDept === deptLower || itemStage === deptLower;
+            
+            if (!isPrepressItem) return false;
+            
+            // CRITICAL FIX: Visibility logic
+            // - Admin sees ALL items in prepress department
+            // - If item.assigned_to IS NULL → visible to ALL users in prepress department
+            // - If item.assigned_to IS SET:
+            //   - Admin sees it
+            //   - ONLY that assigned user sees it (even if they're in prepress department)
+            if (isAdmin) {
+              return true; // Admin sees everything
+            }
+            
+            // For non-admin users, check assignment
+            if (item.assigned_to) {
+              // Item is assigned - only the assigned user can see it
+              // CRITICAL: Must check if user is in prepress department AND is the assigned user
+              return isPrepressUser && item.assigned_to === user?.uid;
+            }
+            
+            // No user assigned - visible to all users in prepress department
+            return isPrepressUser;
+          })
+          .map(item => ({
+            order,
+            item,
+          }))
+      );
+  }, [orders, isAdmin, user, role, profile]);
+
+  // Filter by selected user tab (for admin)
+  const prepressItems = useMemo(() => {
+    if (!isAdmin || selectedUserTab === 'all') {
+      return allPrepressItems;
+    }
+    // For admin with specific user tab: filter by selected user
+    return allPrepressItems.filter(({ item }) => item.assigned_to === selectedUserTab);
+  }, [allPrepressItems, isAdmin, selectedUserTab]);
+
+  // CRITICAL FIX: Group items back into orders for UI rendering
+  // Each grouped order must include ONLY its relevant items
+  const prepressOrdersGrouped = useMemo(() => {
+    const orderMap = new Map<string, { order: Order; items: OrderItem[] }>();
+    
+    prepressItems.forEach(({ order, item }) => {
+      if (!orderMap.has(order.order_id)) {
+        orderMap.set(order.order_id, { order, items: [] });
+      }
+      orderMap.get(order.order_id)!.items.push(item);
+    });
+    
+    // Convert to array and create orders with only relevant items
+    return Array.from(orderMap.values()).map(({ order, items }) => ({
+      ...order,
+      items: items, // Only show items that match the current filter
+    }));
+  }, [prepressItems]);
+  
+  // Get urgent items for prepress department
+  const urgentPrepressItems = useMemo(() => {
+    return allPrepressItems.filter(({ item }) => item.priority_computed === 'red');
+  }, [allPrepressItems]);
+
+  // Separate assigned items (assigned_to is set) from unassigned items
+  const assignedPrepressItems = useMemo(() => {
+    return allPrepressItems.filter(({ item }) => item.assigned_to === user?.uid);
+  }, [allPrepressItems, user]);
+
+  // Calculate realtime stats for Prepress dashboard
+  const prepressStats = useMemo(() => {
+    return {
+      totalItems: allPrepressItems.length,
+      urgentItems: urgentPrepressItems.length,
+      assignedToMe: assignedPrepressItems.length,
+      yellowPriority: allPrepressItems.filter(({ item }) => item.priority_computed === 'yellow').length,
+      bluePriority: allPrepressItems.filter(({ item }) => item.priority_computed === 'blue').length,
+    };
+  }, [allPrepressItems, urgentPrepressItems, assignedPrepressItems]);
+
 
   const handleSendToProduction = (orderId: string, itemId: string, productName: string, currentSequence?: string[] | null) => {
     setSelectedItem({ orderId, itemId, productName, currentSequence });
@@ -68,6 +204,28 @@ export default function Prepress() {
       title: "Sent Back to Design",
       description: "Item requires design revisions",
     });
+  };
+
+  const handleOutsourceClick = (orderId: string, itemId: string, productName: string, quantity: number) => {
+    setSelectedItemForOutsource({ orderId, itemId, productName, quantity });
+    setOutsourceDialogOpen(true);
+  };
+
+  const handleOutsourceAssign = async (vendor: VendorDetails, jobDetails: OutsourceJobDetails) => {
+    if (selectedItemForOutsource) {
+      await assignToOutsource(
+        selectedItemForOutsource.orderId,
+        selectedItemForOutsource.itemId,
+        vendor,
+        jobDetails
+      );
+      setOutsourceDialogOpen(false);
+      setSelectedItemForOutsource(null);
+      toast({
+        title: "Assigned to Outsource",
+        description: `${selectedItemForOutsource.productName} has been assigned to ${vendor.vendor_name}`,
+      });
+    }
   };
 
   const handleUploadClick = (orderId: string, itemId: string, productName: string) => {
@@ -89,6 +247,10 @@ export default function Prepress() {
     return type === 'image' || type.includes('image');
   };
 
+  const isPdfFile = (name: string, type: string) => {
+    return name?.toLowerCase().endsWith('.pdf') || type === 'application/pdf' || type?.includes('pdf');
+  };
+
   return (
     <TooltipProvider>
       <div className="h-full flex flex-col gap-4">
@@ -102,191 +264,96 @@ export default function Prepress() {
           </div>
         </div>
 
-        {/* Prepress Queue - Scrollable */}
-        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 space-y-4">
-          {prepressItems.length === 0 ? (
+        {/* Realtime Stats Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Items</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-primary" />
+                <span className="text-2xl font-bold">{prepressStats.totalItems}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Urgent</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-red-500" />
+                <span className="text-2xl font-bold text-red-500">{prepressStats.urgentItems}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Assigned to Me</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <User className="h-5 w-5 text-blue-500" />
+                <span className="text-2xl font-bold text-blue-500">{prepressStats.assignedToMe}</span>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Yellow Priority</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-yellow-500" />
+                <span className="text-2xl font-bold text-yellow-500">{prepressStats.yellowPriority}</span>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* User Tabs for Admin */}
+        {isAdmin && prepressUsers.length > 0 && (
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-sm font-medium text-muted-foreground">Filter by User:</span>
+            <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
+              <TabsList className="flex-wrap h-auto">
+                <TabsTrigger value="all" className="text-sm">
+                  All Users
+                  <Badge variant="secondary" className="ml-2">
+                    {allPrepressItems.length}
+                  </Badge>
+                </TabsTrigger>
+                {prepressUsers.map((prepressUser) => {
+                  const userItemCount = allPrepressItems.filter(({ item }) => item.assigned_to === prepressUser.user_id).length;
+                  return (
+                    <TabsTrigger key={prepressUser.user_id} value={prepressUser.user_id} className="text-sm">
+                      {prepressUser.full_name}
+                      <Badge variant="secondary" className="ml-2">{userItemCount}</Badge>
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </Tabs>
+          </div>
+        )}
+
+        {/* Prepress Queue - Scrollable - Show Orders Grouped (not items individually) */}
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2">
+          {prepressOrdersGrouped.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">
                 <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
                 <h3 className="font-semibold text-lg mb-2">All caught up!</h3>
-                <p className="text-muted-foreground">No items currently in prepress.</p>
+                <p className="text-muted-foreground">No orders currently in prepress.</p>
               </CardContent>
             </Card>
           ) : (
-            prepressItems.map(({ order, item }) => (
-              <Card key={`${order.order_id}-${item.item_id}`} className="card-hover overflow-hidden">
-                <CardContent className="p-0">
-                  <div 
-                    className={`h-1 ${
-                      item.priority_computed === 'blue' ? 'bg-priority-blue' :
-                      item.priority_computed === 'yellow' ? 'bg-priority-yellow' :
-                      'bg-priority-red'
-                    }`}
-                  />
-                  
-                  <div className="p-4">
-                    <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                      <div className="flex-1 min-w-0">
-                        {/* Order ID - Always visible */}
-                        <Link 
-                          to={`/orders/${order.order_id}`}
-                          className="text-sm font-bold text-primary hover:underline"
-                        >
-                          {order.order_id}
-                        </Link>
-                        
-                        <div className="flex items-center gap-2 mb-1 flex-wrap mt-1">
-                          <h3 className="font-semibold truncate text-foreground">{item.product_name}</h3>
-                          <span className="text-sm text-muted-foreground">— Qty {item.quantity}</span>
-                          <PriorityBadge priority={item.priority_computed} showLabel />
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-2">
-                          {order.customer.name}
-                        </p>
-                        
-                        <div className="flex flex-wrap gap-2">
-                          {item.specifications.paper && (
-                            <Badge variant="outline" className="text-xs">{item.specifications.paper}</Badge>
-                          )}
-                          {item.specifications.size && (
-                            <Badge variant="outline" className="text-xs">{item.specifications.size}</Badge>
-                          )}
-                          {item.specifications.finishing && (
-                            <Badge variant="outline" className="text-xs">{item.specifications.finishing}</Badge>
-                          )}
-                        </div>
-
-                        {/* Files with Preview */}
-                        {item.files.length > 0 && (
-                          <div className="mt-3">
-                            <p className="text-xs text-muted-foreground mb-2">Files ({item.files.length})</p>
-                            <div className="flex flex-wrap gap-2">
-                              {item.files.map((file) => (
-                                <div
-                                  key={file.file_id}
-                                  className="group relative"
-                                >
-                                  {isImageFile(file.type) ? (
-                                    <button
-                                      onClick={() => openFilePreview({ url: file.url, file_name: file.file_name || 'Image', type: file.type })}
-                                      className="flex items-center gap-2 bg-primary/5 hover:bg-primary/10 border border-primary/20 rounded-lg p-2 transition-colors"
-                                    >
-                                      <div className="w-12 h-12 rounded overflow-hidden bg-muted flex items-center justify-center">
-                                        <img 
-                                          src={file.url} 
-                                          alt={file.file_name || 'Preview'}
-                                          className="w-full h-full object-cover"
-                                          onError={(e) => {
-                                            e.currentTarget.style.display = 'none';
-                                            e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                                          }}
-                                        />
-                                        <ImageIcon className="h-6 w-6 text-muted-foreground hidden" />
-                                      </div>
-                                      <div className="text-left">
-                                        <p className="text-xs font-medium text-foreground truncate max-w-[100px]">
-                                          {file.file_name || 'Image'}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                          <Eye className="h-3 w-3" />
-                                          Preview
-                                        </p>
-                                      </div>
-                                    </button>
-                                  ) : (
-                                    <a
-                                      href={file.url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="flex items-center gap-2 bg-primary/5 hover:bg-primary/10 border border-primary/20 rounded-lg p-2 transition-colors"
-                                    >
-                                      <div className="w-12 h-12 rounded overflow-hidden bg-muted flex items-center justify-center">
-                                        <FileText className="h-6 w-6 text-primary" />
-                                      </div>
-                                      <div className="text-left">
-                                        <p className="text-xs font-medium text-foreground truncate max-w-[100px]">
-                                          {file.file_name || 'Document'}
-                                        </p>
-                                        <p className="text-xs text-primary flex items-center gap-1">
-                                          <Eye className="h-3 w-3" />
-                                          Open
-                                        </p>
-                                      </div>
-                                    </a>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Clock className="h-4 w-4" />
-                        <span>Due: {format(item.delivery_date, 'MMM d, yyyy')}</span>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex gap-2">
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button 
-                              variant="outline" 
-                              size="sm"
-                              onClick={() => handleUploadClick(order.order_id, item.item_id, item.product_name)}
-                            >
-                              <Upload className="h-4 w-4 mr-2" />
-                              Upload Final
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent>Upload final print-ready file</TooltipContent>
-                        </Tooltip>
-
-                        <DropdownMenu>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <DropdownMenuTrigger asChild>
-                                <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                                  <Settings className="h-4 w-4 mr-2" />
-                                  Send to Production
-                                </Button>
-                              </DropdownMenuTrigger>
-                            </TooltipTrigger>
-                            <TooltipContent>Define stages and send to production</TooltipContent>
-                          </Tooltip>
-                          <DropdownMenuContent align="end" className="bg-popover">
-                            <DropdownMenuItem onClick={() => handleSendToProduction(
-                              order.order_id, 
-                              item.item_id, 
-                              item.product_name,
-                              (item as any).production_stage_sequence
-                            )}>
-                              <Settings className="h-4 w-4 mr-2" />
-                              Define Stages & Send
-                            </DropdownMenuItem>
-                            <DropdownMenuItem 
-                              onClick={() => handleSendBackToDesign(order.order_id, item.item_id)}
-                              className="text-orange-500"
-                            >
-                              <ArrowRight className="h-4 w-4 mr-2 rotate-180" />
-                              Send Back to Design
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </div>
-
-                    {item.specifications.notes && (
-                      <div className="mt-3 p-3 bg-secondary/50 rounded-lg">
-                        <p className="text-sm text-foreground">
-                          <span className="font-medium">Notes:</span> {item.specifications.notes}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pb-4">
+              {prepressOrdersGrouped.map((order) => (
+                <OrderCard key={order.order_id} order={order} />
+              ))}
+            </div>
           )}
         </div>
 
@@ -313,6 +380,17 @@ export default function Prepress() {
           />
         )}
 
+        {/* Outsource Assignment Dialog */}
+        {selectedItemForOutsource && (
+          <OutsourceAssignmentDialog
+            open={outsourceDialogOpen}
+            onOpenChange={setOutsourceDialogOpen}
+            onAssign={handleOutsourceAssign}
+            productName={selectedItemForOutsource.productName}
+            quantity={selectedItemForOutsource.quantity}
+          />
+        )}
+
         {/* File Preview Dialog */}
         <Dialog open={!!previewFile} onOpenChange={() => setPreviewFile(null)}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
@@ -324,7 +402,16 @@ export default function Prepress() {
             </DialogHeader>
             {previewFile && (
               <div className="flex items-center justify-center bg-muted/50 rounded-lg p-4 min-h-[400px]">
-                {isImageFile(previewFile.type) ? (
+                {isPdfFile(previewFile.name, previewFile.type) ? (
+                  <div className="w-full h-[70vh]">
+                    <iframe
+                      src={`https://docs.google.com/viewer?url=${encodeURIComponent(previewFile.url)}&embedded=true`}
+                      className="w-full h-full rounded-lg border border-border"
+                      title={previewFile.name}
+                      allow="fullscreen"
+                    />
+                  </div>
+                ) : isImageFile(previewFile.type) ? (
                   <img 
                     src={previewFile.url} 
                     alt={previewFile.name}

@@ -25,6 +25,8 @@ import { Badge } from '@/components/ui/badge';
 interface OrderTimelineProps {
   entries: TimelineEntry[];
   className?: string;
+  onEntryClick?: (entryId: string) => void;
+  highlightedId?: string | null;
 }
 
 const actionIcons: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -69,7 +71,7 @@ const actionColors: Record<string, string> = {
   note_added: 'bg-muted border-border text-muted-foreground',
 };
 
-export function OrderTimeline({ entries, className }: OrderTimelineProps) {
+export function OrderTimeline({ entries, className, onEntryClick, highlightedId }: OrderTimelineProps) {
   if (entries.length === 0) {
     return (
       <div className={cn("text-center py-8 text-muted-foreground", className)}>
@@ -94,6 +96,8 @@ export function OrderTimeline({ entries, className }: OrderTimelineProps) {
           const Icon = actionIcons[entry.action] || MessageSquare;
           const colorClass = actionColors[entry.action] || 'bg-muted border-border text-muted-foreground';
           
+          const isHighlighted = highlightedId === entry.timeline_id;
+          
           return (
             <div 
               key={entry.timeline_id} 
@@ -106,19 +110,36 @@ export function OrderTimeline({ entries, className }: OrderTimelineProps) {
               {/* Icon with Avatar */}
               <div className={cn(
                 "absolute left-0 top-0 h-10 w-10 rounded-full border-2 flex items-center justify-center shadow-sm",
-                colorClass
+                colorClass,
+                isHighlighted && "ring-4 ring-primary/50 ring-offset-2 scale-110 transition-all duration-300"
               )}>
                 <Icon className="h-4 w-4" />
               </div>
               
               {/* Content Card */}
-              <div className="bg-card border border-border rounded-lg p-4 sm:p-5 shadow-sm hover:shadow-md transition-all duration-200">
+              <div 
+                className={cn(
+                  "bg-card border rounded-lg p-4 sm:p-5 shadow-sm transition-all duration-200",
+                  isHighlighted 
+                    ? "border-primary shadow-lg ring-2 ring-primary/30 bg-primary/5 scale-[1.02]" 
+                    : "border-border hover:shadow-md hover:border-primary/20",
+                  onEntryClick && "cursor-pointer"
+                )}
+                onClick={() => onEntryClick?.(entry.timeline_id)}
+              >
                 {/* Header */}
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h4 className="font-semibold text-sm text-foreground">
                       {actionLabels[entry.action] || entry.action}
                     </h4>
+                    {/* Show product name if available (for multi-product orders) */}
+                    {entry.product_name && (
+                      <Badge variant="outline" className="text-xs font-medium bg-primary/5 text-primary border-primary/20">
+                        <Package className="h-3 w-3 mr-1" />
+                        {entry.product_name}
+                      </Badge>
+                    )}
                     {entry.substage && (
                       <Badge variant="outline" className="text-xs capitalize">
                         <ArrowRight className="h-3 w-3 mr-1" />

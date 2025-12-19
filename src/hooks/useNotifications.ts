@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/integrations/firebase/config';
 import { useAuth } from '@/contexts/AuthContext';
+import { toast } from '@/hooks/use-toast';
 
 export interface AppNotification {
   id: string;
@@ -134,33 +135,66 @@ export function useNotifications() {
   }, [soundEnabled]);
 
   // Request browser push notification permission
+  // IMPORTANT: This must be called from a user interaction (click, touch, etc.)
   const requestPushPermission = useCallback(async () => {
     if (!('Notification' in window)) {
       console.log('Browser does not support notifications');
+      toast({
+        title: "Not Supported",
+        description: "Your browser does not support notifications",
+        variant: "destructive",
+      });
       return false;
     }
     
     if (Notification.permission === 'granted') {
+      console.log('Notification permission already granted');
       return true;
     }
     
     if (Notification.permission === 'denied') {
       console.log('Notification permission denied by user');
+      toast({
+        title: "Permission Denied",
+        description: "Please enable notifications in your browser settings (lock icon → Site settings → Notifications)",
+        variant: "destructive",
+      });
       return false;
     }
     
     // Request permission if not yet decided
+    // This will only work if called from a user interaction
     try {
+      console.log('Requesting notification permission...');
       const permission = await Notification.requestPermission();
+      console.log('Permission result:', permission);
+      
       if (permission === 'granted') {
         console.log('Notification permission granted');
+        toast({
+          title: "Notifications Enabled",
+          description: "You'll receive real-time updates about your orders",
+        });
         return true;
-      } else {
+      } else if (permission === 'denied') {
         console.log('Notification permission denied');
+        toast({
+          title: "Permission Denied",
+          description: "Notifications were blocked. You can enable them later in browser settings.",
+          variant: "destructive",
+        });
+        return false;
+      } else {
+        console.log('Notification permission dismissed');
         return false;
       }
     } catch (error) {
       console.error('Error requesting notification permission:', error);
+      toast({
+        title: "Error",
+        description: "Failed to request notification permission. Please try again.",
+        variant: "destructive",
+      });
       return false;
     }
   }, []);
@@ -169,6 +203,23 @@ export function useNotifications() {
   const showPushNotification = useCallback((title: string, body: string, icon?: string) => {
     if (!('Notification' in window)) {
       console.log('Browser does not support notifications');
+      return;
+    }
+    
+    // Check permission first
+    if (Notification.permission === 'denied') {
+      console.log('Notification permission denied by user');
+      return;
+    }
+    
+    // Request permission if not granted
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().then((permission) => {
+        if (permission === 'granted') {
+          // Retry showing notification after permission granted
+          showPushNotification(title, body, icon);
+        }
+      });
       return;
     }
     
@@ -192,10 +243,18 @@ export function useNotifications() {
         silent: false,
       });
       
+      // Handle notification click
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+      
       // Auto-close after 5 seconds
       setTimeout(() => {
         notification.close();
       }, 5000);
+      
+      console.log('Push notification shown:', title);
     } catch (e) {
       console.error('Push notification failed:', e);
     }
@@ -321,6 +380,10 @@ export function useNotifications() {
       limit(50)
     );
 
+    // Track initial load to prevent playing sounds for existing notifications
+    let isInitialLoad = true;
+    const loginTime = Date.now();
+
     const unsubscribe = onSnapshot(notificationsQuery, (snapshot) => {
       // Handle all changes, not just 'added'
       const allNotifications: AppNotification[] = snapshot.docs.map(doc => {
@@ -336,7 +399,7 @@ export function useNotifications() {
       // Update notifications list
       setNotifications(allNotifications);
 
-      // Check for new notifications
+      // Check for new notifications - only play sound for truly NEW notifications (created after login)
       snapshot.docChanges().forEach((change) => {
         if (change.type === 'added') {
           const newNotification = {
@@ -346,48 +409,46 @@ export function useNotifications() {
             type: change.doc.data().type as AppNotification['type'],
           } as AppNotification;
 
-          // Play sound for urgent/delayed/info notifications
-          if (newNotification.type === 'urgent' || newNotification.type === 'delayed' || newNotification.type === 'info') {
-            playSound();
-          }
+          // Only play sound for notifications created AFTER login (within last 2 seconds of login time)
+          // This prevents playing sounds for old notifications when user logs in
+          const notificationTime = newNotification.created_at.getTime();
+          const isNewNotification = !isInitialLoad || (notificationTime > loginTime - 2000);
 
-          // Show browser push notification only if enabled in settings
-          if (pushEnabled) {
-            if (Notification.permission === 'granted') {
+          if (isNewNotification) {
+            // Play sound for urgent/delayed/info notifications
+            if (soundEnabled && (newNotification.type === 'urgent' || newNotification.type === 'delayed' || newNotification.type === 'info')) {
+              playSound();
+            }
+
+            // Show browser push notification only if enabled in settings
+            if (pushEnabled) {
+              // Always try to show notification - function will handle permission
+              console.log('Attempting to show push notification:', newNotification.title);
               showPushNotification(
                 newNotification.title,
                 newNotification.message
               );
-            } else if (Notification.permission === 'default') {
-              // Re-request permission if not yet decided
-              requestPushPermission().then((granted) => {
-                if (granted) {
-                  showPushNotification(
-                    newNotification.title,
-                    newNotification.message
-                  );
-                }
-              });
+            } else {
+              console.log('Push notifications disabled, skipping browser notification');
             }
           }
         }
       });
+
+      // Mark initial load as complete after first snapshot
+      if (isInitialLoad) {
+        isInitialLoad = false;
+      }
     });
 
     return () => unsubscribe();
-  }, [user, fetchNotifications, fetchSettings, playSound, requestPushPermission, showPushNotification, pushEnabled]);
+  }, [user, fetchNotifications, fetchSettings, playSound, requestPushPermission, showPushNotification, pushEnabled, soundEnabled]);
 
-  // Request push notification permission when push is enabled and settings are loaded
-  useEffect(() => {
-    if (!user || !pushEnabled) return;
-    
-    // Request permission after a short delay to ensure settings are loaded
-    const timer = setTimeout(() => {
-      requestPushPermission();
-    }, 1000);
-    
-    return () => clearTimeout(timer);
-  }, [user, pushEnabled, requestPushPermission]);
+  // NOTE: Auto-requesting permission is removed because browsers require user interaction
+  // Permission must be requested via:
+  // 1. Dashboard alert dialog (on first visit)
+  // 2. Settings page "Test Push Notification" button
+  // 3. Any explicit user action button
 
   const unreadCount = notifications.filter(n => !n.read).length;
 

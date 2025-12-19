@@ -8,6 +8,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { OrderProvider } from "@/contexts/OrderContext";
 import { WorkLogProvider } from "@/contexts/WorkLogContext";
+import { AnalyticsProvider } from "@/contexts/AnalyticsContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Auth from "./pages/Auth";
@@ -21,14 +22,21 @@ const Sales = lazy(() => import("./pages/Sales"));
 const Design = lazy(() => import("./pages/Design"));
 const Prepress = lazy(() => import("./pages/Prepress"));
 const Production = lazy(() => import("./pages/Production"));
+const Outsource = lazy(() => import("./pages/Outsource"));
 const Dispatch = lazy(() => import("./pages/Dispatch"));
 const Dispatched = lazy(() => import("./pages/Dispatched"));
+const Orders = lazy(() => import("./pages/Orders"));
 const OrderDetail = lazy(() => import("./pages/OrderDetail"));
 const Profile = lazy(() => import("./pages/Profile"));
+const HowWeWork = lazy(() => import("./pages/HowWeWork"));
 const Admin = lazy(() => import("./pages/Admin"));
 const Team = lazy(() => import("./pages/Team"));
 const Reports = lazy(() => import("./pages/Reports"));
 const PerformanceReports = lazy(() => import("./pages/PerformanceReports"));
+const AnalyticsDashboard = lazy(() => import("./pages/AnalyticsDashboard"));
+const DepartmentEfficiencyReports = lazy(() => import("./pages/DepartmentEfficiencyReports"));
+const UserProductivityReports = lazy(() => import("./pages/UserProductivityReports"));
+const VendorAnalytics = lazy(() => import("./pages/VendorAnalytics"));
 const Settings = lazy(() => import("./pages/Settings"));
 
 const PageLoader = () => (
@@ -45,7 +53,8 @@ const App = () => (
       <AuthProvider>
         <OrderProvider>
           <WorkLogProvider>
-            <TooltipProvider>
+            <AnalyticsProvider>
+              <TooltipProvider>
             <Toaster />
             <Sonner />
             <BrowserRouter>
@@ -107,6 +116,15 @@ const App = () => (
                     </ProtectedRoute>
                   } />
                   
+                  {/* Outsource - accessible by admin, sales, and prepress */}
+                  <Route path="/outsource" element={
+                    <ProtectedRoute allowedRoles={['admin', 'sales', 'prepress']}>
+                      <Suspense fallback={<PageLoader />}>
+                        <Outsource />
+                      </Suspense>
+                    </ProtectedRoute>
+                  } />
+                  
                   {/* Dispatch - accessible by admin and production */}
                   <Route path="/dispatch" element={
                     <ProtectedRoute allowedRoles={['admin', 'production']}>
@@ -125,6 +143,15 @@ const App = () => (
                     </ProtectedRoute>
                   } />
                   
+                  {/* Orders route - accessible by admin and sales only */}
+                  <Route path="/orders" element={
+                    <ProtectedRoute allowedRoles={['admin', 'sales']}>
+                      <Suspense fallback={<PageLoader />}>
+                        <Orders />
+                      </Suspense>
+                    </ProtectedRoute>
+                  } />
+                  
                   <Route path="/orders/:orderId" element={
                     <Suspense fallback={<PageLoader />}>
                       <OrderDetail />
@@ -133,6 +160,12 @@ const App = () => (
                   <Route path="/profile" element={
                     <Suspense fallback={<PageLoader />}>
                       <Profile />
+                    </Suspense>
+                  } />
+                  
+                  <Route path="/how-we-work" element={
+                    <Suspense fallback={<PageLoader />}>
+                      <HowWeWork />
                     </Suspense>
                   } />
                   
@@ -158,6 +191,34 @@ const App = () => (
                       </Suspense>
                     </ProtectedRoute>
                   } />
+                  <Route path="/analytics" element={
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Suspense fallback={<PageLoader />}>
+                        <AnalyticsDashboard />
+                      </Suspense>
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/reports/department-efficiency" element={
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Suspense fallback={<PageLoader />}>
+                        <DepartmentEfficiencyReports />
+                      </Suspense>
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/reports/user-productivity" element={
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Suspense fallback={<PageLoader />}>
+                        <UserProductivityReports />
+                      </Suspense>
+                    </ProtectedRoute>
+                  } />
+                  <Route path="/reports/vendor-analytics" element={
+                    <ProtectedRoute allowedRoles={['admin']}>
+                      <Suspense fallback={<PageLoader />}>
+                        <VendorAnalytics />
+                      </Suspense>
+                    </ProtectedRoute>
+                  } />
                   <Route path="/performance" element={
                     <Suspense fallback={<PageLoader />}>
                       <PerformanceReports />
@@ -177,6 +238,7 @@ const App = () => (
               </Routes>
             </BrowserRouter>
           </TooltipProvider>
+            </AnalyticsProvider>
           </WorkLogProvider>
         </OrderProvider>
       </AuthProvider>

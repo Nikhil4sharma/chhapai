@@ -1,23 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  User as FirebaseUser,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut as firebaseSignOut,
-  updatePassword as firebaseUpdatePassword,
-  onAuthStateChanged
-} from 'firebase/auth';
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc,
-  collection,
-  query,
-  where,
-  getDocs
-} from 'firebase/firestore';
-import { auth, db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
+import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 
 export type AppRole = 'admin' | 'sales' | 'design' | 'prepress' | 'production';
 
@@ -28,11 +11,12 @@ interface Profile {
   department: string | null;
   phone: string | null;
   avatar_url: string | null;
+  production_stage?: string | null; // Production stage for production users
 }
 
 interface AuthContextType {
-  user: FirebaseUser | null;
-  session: { user: FirebaseUser } | null;
+  user: SupabaseUser | null;
+  session: Session | null;
   profile: Profile | null;
   role: AppRole | null;
   isLoading: boolean;
@@ -42,13 +26,14 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   updatePassword: (newPassword: string) => Promise<{ error: Error | null }>;
   updateProfile: (updates: Partial<Profile>) => Promise<{ error: Error | null }>;
+  updateEmail: (newEmail: string) => Promise<{ error: Error | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<FirebaseUser | null>(null);
-  const [session, setSession] = useState<{ user: FirebaseUser } | null>(null);
+  const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -56,12 +41,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = role === 'admin';
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      setSession(firebaseUser ? { user: firebaseUser } : null);
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        fetchUserData(session.user.id);
+      } else {
+        setIsLoading(false);
+      }
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      setSession(session);
+      setUser(session?.user ?? null);
       
-      if (firebaseUser) {
-        await fetchUserData(firebaseUser.uid);
+      if (session?.user) {
+        await fetchUserData(session.user.id);
       } else {
         setProfile(null);
         setRole(null);
@@ -69,30 +68,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    return () => unsubscribe();
+    return () => subscription.unsubscribe();
   }, []);
 
   const fetchUserData = async (userId: string) => {
     try {
       // Fetch profile
-      const profileDoc = await getDoc(doc(db, 'profiles', userId));
-      if (profileDoc.exists()) {
-        const profileData = profileDoc.data();
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (profileError && profileError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        console.error('Error fetching profile:', profileError);
+      }
+
+      if (profileData) {
         setProfile({
-          id: profileDoc.id,
+          id: profileData.id,
           user_id: userId,
           full_name: profileData.full_name || null,
           department: profileData.department || null,
           phone: profileData.phone || null,
           avatar_url: profileData.avatar_url || null,
+          production_stage: profileData.production_stage || null,
         });
       }
 
       // Fetch role
-      const rolesQuery = query(collection(db, 'user_roles'), where('user_id', '==', userId));
-      const rolesSnapshot = await getDocs(rolesQuery);
-      if (!rolesSnapshot.empty) {
-        const roleData = rolesSnapshot.docs[0].data();
+      const { data: roleData, error: roleError } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId)
+        .limit(1)
+        .single();
+
+      if (roleError && roleError.code !== 'PGRST116') {
+        console.error('Error fetching role:', roleError);
+      }
+
+      if (roleData) {
         setRole(roleData.role as AppRole);
       }
     } catch (error) {
@@ -104,7 +120,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      if (error) throw error;
       return { error: null };
     } catch (error: any) {
       return { error: error as Error };
@@ -113,26 +133,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, fullName: string, roleToAssign: AppRole) => {
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const newUser = userCredential.user;
+      // Create user in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+      });
+
+      if (authError) throw authError;
+      if (!authData.user) throw new Error('User creation failed');
+
+      const userId = authData.user.id;
 
       // Create profile
-      await setDoc(doc(db, 'profiles', newUser.uid), {
-        user_id: newUser.uid,
-        full_name: fullName,
-        department: roleToAssign,
-        phone: null,
-        avatar_url: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          user_id: userId,
+          full_name: fullName,
+        });
 
-      // Assign role
-      await setDoc(doc(db, 'user_roles', `${newUser.uid}_${roleToAssign}`), {
-        user_id: newUser.uid,
-        role: roleToAssign,
-        created_at: new Date().toISOString(),
-      });
+      if (profileError) throw profileError;
+
+      // Create role
+      const { error: roleError } = await supabase
+        .from('user_roles')
+        .insert({
+          user_id: userId,
+          role: roleToAssign,
+        });
+
+      if (roleError) throw roleError;
 
       return { error: null };
     } catch (error: any) {
@@ -141,17 +171,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    await firebaseSignOut(auth);
-    setUser(null);
-    setSession(null);
-    setProfile(null);
-    setRole(null);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setUser(null);
+      setSession(null);
+      setProfile(null);
+      setRole(null);
+    } catch (error) {
+      console.error('Error signing out:', error);
+      throw error;
+    }
   };
 
   const updatePassword = async (newPassword: string) => {
     try {
-      if (!user) throw new Error('Not authenticated');
-      await firebaseUpdatePassword(user, newPassword);
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (error) throw error;
       return { error: null };
     } catch (error: any) {
       return { error: error as Error };
@@ -159,22 +197,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const updateProfile = async (updates: Partial<Profile>) => {
+    if (!user) {
+      return { error: new Error('No user logged in') };
+    }
+
     try {
-      if (!user) return { error: new Error('Not authenticated') };
-      
-      const profileRef = doc(db, 'profiles', user.uid);
-      const updateData: any = {};
-      if (updates.full_name !== undefined) updateData.full_name = updates.full_name;
-      if (updates.phone !== undefined) updateData.phone = updates.phone;
-      if (updates.avatar_url !== undefined) updateData.avatar_url = updates.avatar_url;
-      if (updates.department !== undefined) updateData.department = updates.department;
-      updateData.updated_at = new Date().toISOString();
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          full_name: updates.full_name,
+          department: updates.department,
+          phone: updates.phone,
+          avatar_url: updates.avatar_url,
+          production_stage: updates.production_stage,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', user.id);
 
-      await updateDoc(profileRef, updateData);
+      if (error) throw error;
 
-      if (profile) {
-        setProfile({ ...profile, ...updates });
-      }
+      // Refresh profile data
+      await fetchUserData(user.id);
 
       return { error: null };
     } catch (error: any) {
@@ -182,20 +225,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateEmail = async (newEmail: string) => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        email: newEmail,
+      });
+      if (error) throw error;
+      return { error: null };
+    } catch (error: any) {
+      return { error: error as Error };
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{
-      user,
-      session,
-      profile,
-      role,
-      isLoading,
-      isAdmin,
-      signIn,
-      signUp,
-      signOut,
-      updatePassword,
-      updateProfile,
-    }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        session,
+        profile,
+        role,
+        isLoading,
+        isAdmin,
+        signIn,
+        signUp,
+        signOut,
+        updatePassword,
+        updateProfile,
+        updateEmail,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

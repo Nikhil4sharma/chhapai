@@ -12,13 +12,15 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { storage } from '@/integrations/firebase/config';
 
 export default function Profile() {
-  const { user, profile, role, updatePassword, updateProfile } = useAuth();
+  const { user, profile, role, updatePassword, updateProfile, updateEmail } = useAuth();
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [phone, setPhone] = useState(profile?.phone || '');
+  const [email, setEmail] = useState(user?.email || '');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +47,51 @@ export default function Profile() {
     }
     
     setIsUpdatingProfile(false);
+  };
+
+  const handleUpdateEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!email || !user) return;
+    
+    if (email === user.email) {
+      toast({
+        title: "No Changes",
+        description: "Email is the same as current email",
+      });
+      return;
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      toast({
+        title: "Invalid Email",
+        description: "Please enter a valid email address",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsUpdatingEmail(true);
+    const { error } = await updateEmail(email);
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update email",
+        variant: "destructive",
+      });
+      // Reset email to original
+      setEmail(user.email || '');
+    } else {
+      toast({
+        title: "Success",
+        description: "Email updated successfully. Please check your new email for verification.",
+      });
+    }
+    
+    setIsUpdatingEmail(false);
   };
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
@@ -275,12 +322,32 @@ export default function Profile() {
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="email"
-                  value={user?.email || ''}
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="pl-10"
-                  disabled
+                  placeholder="your.email@example.com"
                 />
               </div>
-              <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-muted-foreground">Update your email address</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleUpdateEmail}
+                  disabled={isUpdatingEmail || email === user?.email}
+                >
+                  {isUpdatingEmail ? (
+                    <>
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    'Update Email'
+                  )}
+                </Button>
+              </div>
             </div>
 
             <Button type="submit" disabled={isUpdatingProfile}>

@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, LogIn, Loader2 } from 'lucide-react';
+import { Eye, EyeOff, LogIn, Loader2, Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/contexts/AuthContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { toast } from '@/hooks/use-toast';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 export default function Auth() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const isMobile = useIsMobile();
+  const { theme, toggleTheme } = useTheme();
   
   const { signIn, user, role, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -66,94 +70,261 @@ export default function Auth() {
     }
   };
 
-
   if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-16 w-16 flex items-center justify-center">
+            <img 
+              src="/chhapai-logo.png" 
+              alt="Chhapai Logo" 
+              className="h-full w-full object-contain logo-dark-mode animate-pulse"
+            />
+          </div>
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-secondary/20 p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-display font-bold text-primary mb-2">Chhapai</h1>
-          <p className="text-muted-foreground">Order Flow & Tracking System</p>
-        </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-secondary/20 p-4 relative">
+      {/* Theme Toggle - Top Right */}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute top-4 right-4 z-10"
+        onClick={toggleTheme}
+        aria-label="Toggle theme"
+      >
+        {theme === 'dark' ? (
+          <Sun className="h-5 w-5" />
+        ) : (
+          <Moon className="h-5 w-5" />
+        )}
+      </Button>
 
-        <Card className="shadow-lg border-border/50">
-          <CardHeader className="space-y-1">
-            <CardTitle className="text-2xl font-display">Welcome back</CardTitle>
-            <CardDescription>
-              Enter your credentials to access your account
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={isLoading}
-                  autoComplete="email"
+      {/* Desktop Layout */}
+      {!isMobile ? (
+        <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
+          {/* Left Side - Branding */}
+          <div className="hidden lg:flex flex-col items-start justify-center space-y-6 px-8">
+            <div className="flex items-center gap-4">
+              <div className="h-20 w-20 flex items-center justify-center">
+                <img 
+                  src="/chhapai-logo.png" 
+                  alt="Chhapai Logo" 
+                  className="h-full w-full object-contain logo-dark-mode"
                 />
               </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    disabled={isLoading}
-                    autoComplete="current-password"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <h1 className="text-5xl font-display font-bold text-foreground mb-1">Chhapai</h1>
+                <p className="text-xl text-muted-foreground">Ideas Realised</p>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <h2 className="text-3xl font-semibold text-foreground">Order Flow & Tracking System</h2>
+              <p className="text-lg text-muted-foreground leading-relaxed">
+                Streamline your order management workflow with real-time tracking, 
+                department coordination, and comprehensive analytics.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-4">
+              <div className="px-4 py-2 bg-primary/10 rounded-lg">
+                <p className="text-sm font-medium text-foreground">Real-time Updates</p>
+              </div>
+              <div className="px-4 py-2 bg-primary/10 rounded-lg">
+                <p className="text-sm font-medium text-foreground">Multi-Department</p>
+              </div>
+              <div className="px-4 py-2 bg-primary/10 rounded-lg">
+                <p className="text-sm font-medium text-foreground">Analytics Dashboard</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Side - Login Form */}
+          <div className="w-full max-w-md mx-auto lg:mx-0">
+            <Card className="shadow-xl border-border/50">
+              <CardHeader className="space-y-1 text-center lg:text-left">
+                <div className="flex items-center justify-center lg:justify-start gap-3 mb-4">
+                  <div className="h-12 w-12 flex items-center justify-center lg:hidden">
+                    <img 
+                      src="/chhapai-logo.png" 
+                      alt="Chhapai Logo" 
+                      className="h-full w-full object-contain logo-dark-mode"
+                    />
+                  </div>
+                  <div>
+                    <CardTitle className="text-2xl font-display">Welcome back</CardTitle>
+                    <CardDescription>
+                      Sign in to continue
+                    </CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="you@company.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      disabled={isLoading}
+                      autoComplete="email"
+                      className="h-11"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="password">Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? 'text' : 'password'}
+                        placeholder="••••••••"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        disabled={isLoading}
+                        autoComplete="current-password"
+                        className="h-11 pr-10"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                        onClick={() => setShowPassword(!showPassword)}
+                        disabled={isLoading}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Button type="submit" className="w-full h-11" disabled={isLoading}>
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Signing in...
+                      </>
                     ) : (
-                      <Eye className="h-4 w-4 text-muted-foreground" />
+                      <>
+                        <LogIn className="mr-2 h-4 w-4" />
+                        Sign in
+                      </>
                     )}
                   </Button>
-                </div>
+                </form>
+              </CardContent>
+            </Card>
+
+            <p className="text-center text-sm text-muted-foreground mt-6">
+              Contact your administrator if you need access
+            </p>
+          </div>
+        </div>
+      ) : (
+        /* Mobile Layout */
+        <div className="w-full max-w-md">
+          <div className="text-center mb-8">
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <div className="h-16 w-16 flex items-center justify-center">
+                <img 
+                  src="/chhapai-logo.png" 
+                  alt="Chhapai Logo" 
+                  className="h-full w-full object-contain logo-dark-mode"
+                />
               </div>
+              <div>
+                <h1 className="text-3xl font-display font-bold text-foreground">Chhapai</h1>
+                <p className="text-sm text-muted-foreground">Ideas Realised</p>
+              </div>
+            </div>
+            <p className="text-muted-foreground text-sm">Order Flow & Tracking System</p>
+          </div>
 
-              <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Signing in...
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="mr-2 h-4 w-4" />
-                    Sign in
-                  </>
-                )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+          <Card className="shadow-lg border-border/50">
+            <CardHeader className="space-y-1">
+              <CardTitle className="text-xl font-display text-center">Welcome back</CardTitle>
+              <CardDescription className="text-center">
+                Enter your credentials to access your account
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email-mobile">Email</Label>
+                  <Input
+                    id="email-mobile"
+                    type="email"
+                    placeholder="you@company.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="email"
+                    className="h-11"
+                  />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="password-mobile">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="password-mobile"
+                      type={showPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      disabled={isLoading}
+                      autoComplete="current-password"
+                      className="h-11 pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword(!showPassword)}
+                      disabled={isLoading}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
 
-        <p className="text-center text-sm text-muted-foreground mt-6">
-          Contact your administrator if you need access
-        </p>
-      </div>
+                <Button type="submit" className="w-full h-11" disabled={isLoading}>
+                  {isLoading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Signing in...
+                    </>
+                  ) : (
+                    <>
+                      <LogIn className="mr-2 h-4 w-4" />
+                      Sign in
+                    </>
+                  )}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <p className="text-center text-sm text-muted-foreground mt-6">
+            Contact your administrator if you need access
+          </p>
+        </div>
+      )}
     </div>
   );
 }

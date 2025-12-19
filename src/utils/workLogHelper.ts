@@ -32,7 +32,14 @@ export async function autoLogWorkAction(
     let calculatedTime = timeSpentMinutes;
     if (startTime && endTime) {
       const diffMs = endTime.getTime() - startTime.getTime();
-      calculatedTime = Math.round(diffMs / (1000 * 60)); // Convert to minutes
+      calculatedTime = Math.max(1, Math.round(diffMs / (1000 * 60))); // Convert to minutes, minimum 1 minute
+    } else if (startTime) {
+      // If only start time is provided, calculate from start to now
+      const diffMs = now.getTime() - startTime.getTime();
+      calculatedTime = Math.max(1, Math.round(diffMs / (1000 * 60))); // Minimum 1 minute
+    } else if (timeSpentMinutes === 0) {
+      // Default to 1 minute if no time specified (for tracking purposes)
+      calculatedTime = 1;
     }
     
     await setDoc(logRef, {

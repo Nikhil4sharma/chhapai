@@ -52,6 +52,15 @@ interface CreateOrderDialogProps {
 
 const DEFAULT_SPEC_KEYS = ['Size', 'Material', 'Finish', 'Color', 'Printing', 'Quantity Details'];
 
+// Helper function to generate unique ID with fallback
+const generateId = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for browsers that don't support crypto.randomUUID
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}-${Math.random().toString(36).substring(2, 9)}`;
+};
+
 export function CreateOrderDialog({ 
   open, 
   onOpenChange,
@@ -75,7 +84,7 @@ export function CreateOrderDialog({
   });
 
   const [products, setProducts] = useState<ProductItem[]>([
-    { id: crypto.randomUUID(), name: '', quantity: 1, specifications: {} }
+    { id: generateId(), name: '', quantity: 1, specifications: {} }
   ]);
 
   const [globalNotes, setGlobalNotes] = useState('');
@@ -94,7 +103,7 @@ export function CreateOrderDialog({
       state: '',
       pincode: '',
     });
-    setProducts([{ id: crypto.randomUUID(), name: '', quantity: 1, specifications: {} }]);
+    setProducts([{ id: generateId(), name: '', quantity: 1, specifications: {} }]);
     setDeliveryDate(undefined);
     setPriority('blue');
     setGlobalNotes('');
@@ -148,7 +157,7 @@ export function CreateOrderDialog({
   };
 
   const addProduct = () => {
-    setProducts([...products, { id: crypto.randomUUID(), name: '', quantity: 1, specifications: {} }]);
+    setProducts([...products, { id: generateId(), name: '', quantity: 1, specifications: {} }]);
   };
 
   const removeProduct = (index: number) => {
@@ -293,6 +302,8 @@ export function CreateOrderDialog({
       });
 
       // Auto-log work action for order creation
+      const startTime = new Date();
+      const endTime = new Date();
       await autoLogWorkAction(
         user.uid,
         user.displayName || 'Unknown',
@@ -303,10 +314,10 @@ export function CreateOrderDialog({
         'sales',
         'order_created',
         `Created manual order with ${products.length} product(s)`,
-        0,
+        1, // Minimum 1 minute
         products.map(p => p.name).join(', '),
-        new Date(),
-        new Date()
+        startTime,
+        endTime
       );
 
       toast({

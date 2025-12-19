@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Users, Palette, FileCheck, Factory, ShoppingCart, Lock } from 'lucide-react';
+import { Users, Palette, FileCheck, Factory, ShoppingCart, Lock, Building2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -32,6 +32,7 @@ const allDepartments = [
   { id: 'design', label: 'Design', icon: Palette, description: 'Creative design work' },
   { id: 'prepress', label: 'Prepress', icon: FileCheck, description: 'Prepare files for production' },
   { id: 'production', label: 'Production', icon: Factory, description: 'Manufacturing process' },
+  { id: 'outsource', label: 'Outsource', icon: Building2, description: 'External vendor work' },
 ];
 
 // Define allowed transitions per role
@@ -44,14 +45,14 @@ const getAllowedDepartments = (userRole: string | null, isAdmin: boolean, curren
   // Department-specific workflow rules
   switch (userRole) {
     case 'sales':
-      // Sales can assign to Design or Prepress
-      return ['design', 'prepress'];
+      // Sales can assign to Design, Prepress, or Outsource
+      return ['design', 'prepress', 'outsource'];
     case 'design':
       // Design can forward to Prepress or Production
       return ['prepress', 'production'];
     case 'prepress':
-      // Prepress can send forward to Production, or send back to Design for revisions
-      return ['production', 'design'];
+      // Prepress can send forward to Production or Outsource, or send back to Design for revisions
+      return ['production', 'design', 'outsource'];
     case 'production':
       // Production cannot reassign departments (only status changes)
       return [];
@@ -120,9 +121,14 @@ export function AssignDepartmentDialog({
           <DialogTitle>Assign to Department</DialogTitle>
           <DialogDescription>
             {isAdmin 
-              ? "Choose which department should handle this item"
-              : `You can assign to: ${allowedDepartments.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(', ')}`
+              ? "Choose which department should handle this item. This will also update the stage automatically."
+              : `You can assign to: ${allowedDepartments.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(', ')}. Stage will be updated automatically.`
             }
+            {selected === 'production' && (
+              <span className="block mt-2 text-xs text-primary font-medium">
+                Note: You'll need to define production stages after assigning.
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
 

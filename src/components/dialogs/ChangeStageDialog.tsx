@@ -29,6 +29,7 @@ interface ChangeStageDialogProps {
   onChangeStage: (stage: Stage, substage?: SubStage) => void;
   currentStage: Stage;
   currentSubstage?: SubStage | null;
+  onSendToProduction?: () => void; // Optional callback for production sequence dialog
 }
 
 const stages: Stage[] = ['sales', 'design', 'prepress', 'production', 'dispatch', 'completed'];
@@ -55,7 +56,8 @@ export function ChangeStageDialog({
   onOpenChange, 
   onChangeStage,
   currentStage,
-  currentSubstage
+  currentSubstage,
+  onSendToProduction
 }: ChangeStageDialogProps) {
   const { isAdmin, role } = useAuth();
   const [selectedStage, setSelectedStage] = useState<Stage>(currentStage);
@@ -148,6 +150,9 @@ export function ChangeStageDialog({
           <DialogDescription>
             Current: {STAGE_LABELS[currentStage]}
             {currentSubstage && ` - ${currentSubstage}`}
+            <span className="block mt-1 text-xs text-muted-foreground">
+              Directly change the stage. Use "Assign Dept" to move between departments with automatic stage updates.
+            </span>
           </DialogDescription>
         </DialogHeader>
 
@@ -200,16 +205,25 @@ export function ChangeStageDialog({
                     <Button 
                       variant="outline"
                       className="w-full justify-start h-auto py-3"
-                      onClick={() => handleQuickAction('production', 'foiling')}
+                      onClick={() => {
+                        if (onSendToProduction) {
+                          // Use callback to open production sequence dialog
+                          onSendToProduction();
+                          onOpenChange(false);
+                        } else {
+                          // Fallback: show error that stages must be defined
+                          alert('Please define production stages first. Use the "Define Stages & Send" option from the order page.');
+                        }
+                      }}
                     >
                       <Factory className="h-4 w-4 mr-3" />
                       <div className="text-left">
                         <div className="font-medium">Send to Production</div>
-                        <div className="text-xs text-muted-foreground">Start production workflow</div>
+                        <div className="text-xs text-muted-foreground">Define stages and start production workflow</div>
                       </div>
                     </Button>
                   </TooltipTrigger>
-                  <TooltipContent>Skip to production stage</TooltipContent>
+                  <TooltipContent>Define production stages before sending</TooltipContent>
                 </Tooltip>
               )}
 

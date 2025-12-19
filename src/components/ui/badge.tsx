@@ -21,6 +21,7 @@ const badgeVariants = cva(
         "stage-design": "border border-stage-design/30 bg-stage-design/10 text-stage-design",
         "stage-prepress": "border border-stage-prepress/30 bg-stage-prepress/10 text-stage-prepress",
         "stage-production": "border border-stage-production/30 bg-stage-production/10 text-stage-production",
+        "stage-outsource": "border border-stage-outsource/30 bg-stage-outsource/10 text-stage-outsource",
         "stage-dispatch": "border border-stage-dispatch/30 bg-stage-dispatch/10 text-stage-dispatch",
         "stage-completed": "border border-stage-completed/30 bg-stage-completed/10 text-stage-completed",
         // Status variants

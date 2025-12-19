@@ -12,7 +12,10 @@ import {
   X,
   ChevronLeft,
   PackageCheck,
+  Package,
   TrendingUp,
+  BookOpen,
+  Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -37,16 +40,19 @@ interface AppSidebarProps {
 
 export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   const location = useLocation();
-  const { isAdmin, role, profile } = useAuth();
-  const { orders, getCompletedOrders } = useOrders();
+  const { isAdmin, role, profile, user } = useAuth();
+  const { orders, getCompletedOrders, getOrdersForDepartment } = useOrders();
 
-  // Calculate real-time badges from orders - count items per stage
+  // Calculate real-time badges from orders - count items per department
+  // CRITICAL: Use getOrdersForDepartment to ensure badge count matches dashboard exactly
+  // This ensures each department sees only their assigned items with proper visibility rules
   const badges = useMemo(() => {
     const counts = {
       sales: 0,
       design: 0,
       prepress: 0,
       production: 0,
+      outsource: 0,
       dispatch: 0,
       dispatched: 0,
     };
@@ -56,44 +62,104 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
       design: 0,
       prepress: 0,
       production: 0,
+      outsource: 0,
       dispatch: 0,
     };
 
-    orders.forEach(order => {
-      // Count dispatched/completed orders
-      if (order.is_completed) {
-        // Count completed items
-        order.items.forEach(item => {
-          if (item.current_stage === 'completed' || item.is_dispatched) {
-            counts.dispatched++;
-          }
-        });
-        return;
-      }
-      
-      // Count items by stage
+    // Count dispatched items
+    const completedOrders = getCompletedOrders();
+    completedOrders.forEach(order => {
       order.items.forEach(item => {
         if (item.is_dispatched || item.current_stage === 'completed') {
           counts.dispatched++;
-        } else {
-          const stage = item.current_stage as keyof typeof counts;
-          if (counts[stage] !== undefined) {
-            counts[stage]++;
-            if (item.priority_computed === 'red') {
-              urgentCounts[stage as keyof typeof urgentCounts]++;
-            }
-          }
+        }
+      });
+    });
+
+    // Count items per department using getOrdersForDepartment (same logic as dashboards)
+    // This ensures badge count matches exactly what user sees on dashboard
+    const salesOrders = getOrdersForDepartment('sales');
+    salesOrders.forEach(order => {
+      order.items.forEach(item => {
+        const dept = (item.assigned_department || item.current_stage)?.toLowerCase();
+        if (dept === 'sales' && !item.is_dispatched && item.current_stage !== 'completed') {
+          counts.sales++;
+          if (item.priority_computed === 'red') urgentCounts.sales++;
+        }
+      });
+    });
+
+    const designOrders = getOrdersForDepartment('design');
+    designOrders.forEach(order => {
+      order.items.forEach(item => {
+        const dept = (item.assigned_department || item.current_stage)?.toLowerCase();
+        if (dept === 'design' && !item.is_dispatched && item.current_stage !== 'completed') {
+          counts.design++;
+          if (item.priority_computed === 'red') urgentCounts.design++;
+        }
+      });
+    });
+
+    const prepressOrders = getOrdersForDepartment('prepress');
+    prepressOrders.forEach(order => {
+      order.items.forEach(item => {
+        const dept = (item.assigned_department || item.current_stage)?.toLowerCase();
+        if (dept === 'prepress' && !item.is_dispatched && item.current_stage !== 'completed') {
+          counts.prepress++;
+          if (item.priority_computed === 'red') urgentCounts.prepress++;
+        }
+      });
+    });
+
+    const productionOrders = getOrdersForDepartment('production');
+    productionOrders.forEach(order => {
+      order.items.forEach(item => {
+        const dept = (item.assigned_department || item.current_stage)?.toLowerCase();
+        if (dept === 'production' && !item.is_dispatched && item.current_stage !== 'completed') {
+          counts.production++;
+          if (item.priority_computed === 'red') urgentCounts.production++;
+        }
+      });
+    });
+
+    const outsourceOrders = getOrdersForDepartment('outsource');
+    outsourceOrders.forEach(order => {
+      order.items.forEach(item => {
+        const dept = (item.assigned_department || item.current_stage)?.toLowerCase();
+        if (dept === 'outsource' && !item.is_dispatched && item.current_stage !== 'completed') {
+          counts.outsource++;
+          if (item.priority_computed === 'red') urgentCounts.outsource++;
+        }
+      });
+    });
+
+    // Count dispatch items (ready_to_dispatch stage)
+    const activeOrders = orders.filter(o => !o.is_completed && !o.archived_from_wc);
+    activeOrders.forEach(order => {
+      order.items.forEach(item => {
+        const dept = (item.assigned_department || item.current_stage)?.toLowerCase();
+        if ((dept === 'dispatch' || dept === 'ready_to_dispatch' || item.current_stage === 'ready_to_dispatch') 
+            && !item.is_dispatched && item.current_stage !== 'completed') {
+          counts.dispatch++;
+          if (item.priority_computed === 'red') urgentCounts.dispatch++;
         }
       });
     });
 
     return { counts, urgentCounts };
-  }, [orders]);
+  }, [orders, getOrdersForDepartment, getCompletedOrders]);
 
   // Define nav items with role-based visibility
   const navItems: NavItem[] = useMemo(() => {
     const items: NavItem[] = [
       { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+      { 
+        label: 'Orders', 
+        path: '/orders', 
+        icon: Package,
+        badge: orders.filter(o => !o.is_completed && !o.archived_from_wc).reduce((sum, order) => sum + order.items.length, 0),
+        roles: ['admin', 'sales'] // Only admin and sales can see Orders page
+      },
       { 
         label: 'Sales', 
         path: '/sales', 
@@ -127,6 +193,14 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         roles: ['admin', 'production']
       },
       { 
+        label: 'Outsource', 
+        path: '/outsource', 
+        icon: Building2, 
+        badge: badges.counts.outsource,
+        badgeVariant: badges.urgentCounts.outsource > 0 ? 'priority-red' : undefined,
+        roles: ['admin', 'sales', 'prepress']
+      },
+      { 
         label: 'Dispatch', 
         path: '/dispatch', 
         icon: Truck, 
@@ -148,6 +222,10 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   const adminItems: NavItem[] = [
     { label: 'Team', path: '/team', icon: Users },
     { label: 'Reports', path: '/reports', icon: BarChart3 },
+    { label: 'Analytics', path: '/analytics', icon: TrendingUp, roles: ['admin'] },
+    { label: 'Dept Efficiency', path: '/reports/department-efficiency', icon: Factory, roles: ['admin'] },
+    { label: 'User Productivity', path: '/reports/user-productivity', icon: Users, roles: ['admin'] },
+    { label: 'Vendor Analytics', path: '/reports/vendor-analytics', icon: Building2, roles: ['admin'] },
     { label: 'Performance', path: '/performance', icon: TrendingUp },
     { label: 'Settings', path: '/settings', icon: Settings },
   ];
@@ -204,13 +282,17 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
       >
         {/* Header - Fixed within sidebar */}
         <div className="flex-shrink-0 flex items-center justify-between h-16 px-4 border-b border-sidebar-border bg-sidebar">
-          <div className={cn("flex items-center gap-2", !isOpen && "lg:justify-center lg:w-full")}>
-            <div className="h-8 w-8 rounded-lg bg-sidebar-primary flex items-center justify-center shadow-md">
-              <span className="text-sidebar-primary-foreground font-bold text-sm">C</span>
+          <div className={cn("flex items-center gap-3", !isOpen && "lg:justify-center lg:w-full")}>
+            <div className="h-7 w-7 flex items-center justify-center flex-shrink-0">
+              <img 
+                src="/chhapai-logo.png" 
+                alt="Chhapai Logo" 
+                className="h-full w-full object-contain logo-dark-mode"
+              />
             </div>
             {isOpen && (
-              <span className="font-display font-semibold text-lg text-sidebar-foreground">
-                Chhapai
+              <span className="font-display font-bold text-xl text-sidebar-foreground tracking-tight">
+                Chhapai.com
               </span>
             )}
           </div>
@@ -240,6 +322,18 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
             ))}
           </div>
           
+          {/* General section - visible to all */}
+          {isOpen && (
+            <div className="pt-4 mt-4 border-t border-sidebar-border">
+              <p className="px-3 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider mb-2">
+                Resources
+              </p>
+              <div className="space-y-1">
+                <NavItemComponent item={{ label: 'How We Work', path: '/how-we-work', icon: BookOpen }} />
+              </div>
+            </div>
+          )}
+
           {/* Admin section - only visible to admins */}
           {isAdmin && isOpen && (
             <div className="pt-4 mt-4 border-t border-sidebar-border">

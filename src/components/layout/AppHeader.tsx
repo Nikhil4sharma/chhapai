@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Menu, Plus } from 'lucide-react';
+import { Menu, Plus, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { UserMenu } from './UserMenu';
 import { ThemeToggle } from './ThemeToggle';
@@ -12,8 +12,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useNavigate } from 'react-router-dom';
 import { useOrders } from '@/contexts/OrderContext';
+import { useWorkLogs } from '@/contexts/WorkLogContext';
+import { toast } from '@/hooks/use-toast';
 
 interface AppHeaderProps {
   onMenuClick: () => void;
@@ -21,12 +22,37 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) {
-  const navigate = useNavigate();
   const { refreshOrders } = useOrders();
+  const { refreshWorkLogs } = useWorkLogs();
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const handleOrderCreated = () => {
     refreshOrders();
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      // Refresh all data contexts
+      await Promise.all([
+        refreshOrders(),
+        refreshWorkLogs(),
+      ]);
+      toast({
+        title: "Refreshed",
+        description: "Page content has been refreshed",
+      });
+    } catch (error) {
+      console.error('Error refreshing:', error);
+      toast({
+        title: "Error",
+        description: "Failed to refresh content",
+        variant: "destructive",
+      });
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   return (
@@ -65,6 +91,22 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
             <div className="md:hidden">
               <SearchBar isMobile />
             </div>
+            
+            {/* Manual Refresh Button */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                >
+                  <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Refresh page content</TooltipContent>
+            </Tooltip>
             
             <ThemeToggle />
             

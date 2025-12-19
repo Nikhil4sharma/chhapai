@@ -14,8 +14,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ['Inter', 'sans-serif'],
-        display: ['DM Sans', 'sans-serif'],
+        sans: ['Raleway', 'Inter', 'sans-serif'],
+        display: ['Raleway', 'DM Sans', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -74,6 +74,7 @@ export default {
           design: "hsl(var(--stage-design))",
           prepress: "hsl(var(--stage-prepress))",
           production: "hsl(var(--stage-production))",
+          outsource: "hsl(var(--stage-outsource))",
           dispatch: "hsl(var(--stage-dispatch))",
           completed: "hsl(var(--stage-completed))",
         },

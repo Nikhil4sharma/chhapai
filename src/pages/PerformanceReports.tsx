@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { format, subDays, parseISO } from 'date-fns';
-import { Calendar, Clock, FileText, User, Filter, Download, TrendingUp, Package, Search, ArrowUpDown, ArrowUp, ArrowDown, X } from 'lucide-react';
+import { Calendar, Clock, FileText, User, Filter, Download, TrendingUp, Package, Search, ArrowUpDown, ArrowUp, ArrowDown, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { useWorkLogs } from '@/contexts/WorkLogContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOrders } from '@/contexts/OrderContext';
@@ -839,56 +844,86 @@ export default function PerformanceReports() {
                 ) : filteredLogs.length === 0 ? (
                   <p className="text-muted-foreground text-center py-8">No work logs found for selected filters</p>
                 ) : (
-                  <div className="space-y-4">
-                    {/* Group by Order */}
-                    {Array.from(new Set(filteredLogs.map(log => log.order_number))).map(orderNum => {
-                      const orderLogs = filteredLogs.filter(log => log.order_number === orderNum);
-                      const orderTime = orderLogs.reduce((sum, log) => sum + log.time_spent_minutes, 0);
-                      
-                      return (
-                        <div key={orderNum} className="border rounded-lg p-4 bg-secondary/20">
-                          <div className="flex items-center justify-between mb-3">
-                            <div>
-                              <h4 className="font-semibold text-lg">{orderNum}</h4>
-                              <p className="text-sm text-muted-foreground">
-                                {orderLogs.length} {orderLogs.length === 1 ? 'action' : 'actions'}
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-lg font-bold text-primary">{formatTime(orderTime)}</p>
-                            </div>
-                          </div>
-                          <div className="space-y-2">
-                            {orderLogs.map((log) => (
-                              <div key={log.log_id} className="flex items-center justify-between p-2 bg-background rounded border">
-                                <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                                  <div>
-                                    <p className="text-muted-foreground text-xs">Product</p>
-                                    <p className="font-medium">{getProductName(log.order_id, log.order_item_id)}</p>
+                  <div className="space-y-3">
+                    {/* Group by Order - Collapsible */}
+                    {(() => {
+                      const OrderCollapsibleItem = ({ orderNum, orderLogs }: { orderNum: string; orderLogs: typeof filteredLogs }) => {
+                        const [isOpen, setIsOpen] = useState(false);
+                        const orderTime = orderLogs.reduce((sum, log) => sum + log.time_spent_minutes, 0);
+                        
+                        return (
+                          <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+                            <div className="border rounded-lg bg-secondary/20 overflow-hidden">
+                              <CollapsibleTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  className="w-full justify-between p-4 h-auto hover:bg-secondary/50"
+                                >
+                                  <div className="flex items-center justify-between w-full">
+                                    <div className="text-left">
+                                      <h4 className="font-semibold text-lg">{orderNum}</h4>
+                                      <p className="text-sm text-muted-foreground">
+                                        {orderLogs.length} {orderLogs.length === 1 ? 'action' : 'actions'} • {formatTime(orderTime)}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <p className="text-lg font-bold text-primary">{formatTime(orderTime)}</p>
+                                      {isOpen ? (
+                                        <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                                      ) : (
+                                        <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                                      )}
+                                    </div>
                                   </div>
-                                  <div>
-                                    <p className="text-muted-foreground text-xs">Stage</p>
-                                    <Badge variant="secondary" className="capitalize text-xs">
-                                      {log.stage}
-                                    </Badge>
-                                  </div>
-                                  <div>
-                                    <p className="text-muted-foreground text-xs">Action</p>
-                                    <Badge variant="outline" className="capitalize text-xs">
-                                      {log.action_type.replace('_', ' ')}
-                                    </Badge>
-                                  </div>
-                                  <div>
-                                    <p className="text-muted-foreground text-xs">Time</p>
-                                    <p className="font-semibold">{formatTime(log.time_spent_minutes)}</p>
-                                  </div>
+                                </Button>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent>
+                                <div className="px-4 pb-4 space-y-2">
+                                  {orderLogs.map((log) => (
+                                    <div key={log.log_id} className="flex items-center justify-between p-3 bg-background rounded border">
+                                      <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                        <div>
+                                          <p className="text-muted-foreground text-xs mb-1">Product</p>
+                                          <p className="font-medium">{getProductName(log.order_id, log.order_item_id)}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-muted-foreground text-xs mb-1">Stage</p>
+                                          <Badge variant="secondary" className="capitalize text-xs">
+                                            {log.stage}
+                                          </Badge>
+                                        </div>
+                                        <div>
+                                          <p className="text-muted-foreground text-xs mb-1">Action</p>
+                                          <Badge variant="outline" className="capitalize text-xs">
+                                            {log.action_type.replace('_', ' ')}
+                                          </Badge>
+                                        </div>
+                                        <div>
+                                          <p className="text-muted-foreground text-xs mb-1">Time</p>
+                                          <p className="font-semibold">{formatTime(log.time_spent_minutes)}</p>
+                                        </div>
+                                      </div>
+                                      {log.work_summary && (
+                                        <div className="ml-4 max-w-xs">
+                                          <p className="text-xs text-muted-foreground truncate" title={log.work_summary}>
+                                            {log.work_summary}
+                                          </p>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
                                 </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
+                              </CollapsibleContent>
+                            </div>
+                          </Collapsible>
+                        );
+                      };
+
+                      return Array.from(new Set(filteredLogs.map(log => log.order_number))).map(orderNum => {
+                        const orderLogs = filteredLogs.filter(log => log.order_number === orderNum);
+                        return <OrderCollapsibleItem key={orderNum} orderNum={orderNum} orderLogs={orderLogs} />;
+                      });
+                    })()}
                   </div>
                 )}
               </CardContent>
@@ -929,144 +964,125 @@ export default function PerformanceReports() {
                     </p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 -ml-3"
-                              onClick={() => {
-                                if (sortBy === 'user') {
-                                  setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setSortBy('user');
-                                  setSortOrder('asc');
-                                }
-                              }}
-                            >
-                              User
-                              {sortBy === 'user' && (
-                                sortOrder === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
-                              )}
-                            </Button>
-                          </TableHead>
-                          <TableHead>Department</TableHead>
-                          <TableHead>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 -ml-3"
-                              onClick={() => {
-                                if (sortBy === 'order') {
-                                  setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setSortBy('order');
-                                  setSortOrder('asc');
-                                }
-                              }}
-                            >
-                              Order
-                              {sortBy === 'order' && (
-                                sortOrder === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
-                              )}
-                            </Button>
-                          </TableHead>
-                          <TableHead>Product</TableHead>
-                          <TableHead>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 -ml-3"
-                              onClick={() => {
-                                if (sortBy === 'stage') {
-                                  setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setSortBy('stage');
-                                  setSortOrder('asc');
-                                }
-                              }}
-                            >
-                              Stage
-                              {sortBy === 'stage' && (
-                                sortOrder === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
-                              )}
-                            </Button>
-                          </TableHead>
-                          <TableHead>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 -ml-3"
-                              onClick={() => {
-                                if (sortBy === 'action') {
-                                  setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setSortBy('action');
-                                  setSortOrder('asc');
-                                }
-                              }}
-                            >
-                              Action
-                              {sortBy === 'action' && (
-                                sortOrder === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
-                              )}
-                            </Button>
-                          </TableHead>
-                          <TableHead>Summary</TableHead>
-                          <TableHead>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 -ml-3"
-                              onClick={() => {
-                                if (sortBy === 'time') {
-                                  setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-                                } else {
-                                  setSortBy('time');
-                                  setSortOrder('desc');
-                                }
-                              }}
-                            >
-                              Time
-                              {sortBy === 'time' && (
-                                sortOrder === 'asc' ? <ArrowUp className="ml-2 h-3 w-3" /> : <ArrowDown className="ml-2 h-3 w-3" />
-                              )}
-                            </Button>
-                          </TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredLogs.map((log) => (
-                          <TableRow key={log.log_id}>
-                            <TableCell className="font-medium">{log.user_name}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="capitalize">
-                                {log.department}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="font-medium">{log.order_number}</TableCell>
-                            <TableCell>{getProductName(log.order_id, log.order_item_id)}</TableCell>
-                            <TableCell>
-                              <Badge variant="secondary" className="capitalize">
-                                {log.stage}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>
-                              <Badge variant="outline" className="capitalize">
-                                {log.action_type.replace('_', ' ')}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="max-w-xs truncate" title={log.work_summary}>
-                              {log.work_summary}
-                            </TableCell>
-                            <TableCell className="font-semibold">{formatTime(log.time_spent_minutes)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                  <div className="space-y-3">
+                    {/* Group by Order - Collapsible */}
+                    {(() => {
+                      const OrderCollapsibleItem = ({ orderNum, orderLogs }: { orderNum: string; orderLogs: typeof filteredLogs }) => {
+                        const [isOpen, setIsOpen] = useState(false);
+                        const orderTime = orderLogs.reduce((sum, log) => sum + log.time_spent_minutes, 0);
+                        const uniqueUsers = new Set(orderLogs.map(l => l.user_name)).size;
+                        const uniqueStages = new Set(orderLogs.map(l => l.stage)).size;
+                        
+                        return (
+                          <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+                            <div className="border rounded-lg bg-secondary/20 overflow-hidden">
+                              <CollapsibleTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  className="w-full justify-between p-4 h-auto hover:bg-secondary/50"
+                                >
+                                  <div className="flex items-center justify-between w-full">
+                                    <div className="flex items-center gap-4 text-left">
+                                      <div>
+                                        <h4 className="font-semibold text-lg">{orderNum}</h4>
+                                        <div className="flex items-center gap-3 mt-1">
+                                          <p className="text-sm text-muted-foreground">
+                                            {orderLogs.length} {orderLogs.length === 1 ? 'action' : 'actions'}
+                                          </p>
+                                          <span className="text-muted-foreground">•</span>
+                                          <p className="text-sm font-medium text-primary">{formatTime(orderTime)}</p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Badge variant="outline" className="text-xs">
+                                          {uniqueUsers} {uniqueUsers === 1 ? 'user' : 'users'}
+                                        </Badge>
+                                        <Badge variant="secondary" className="text-xs">
+                                          {uniqueStages} {uniqueStages === 1 ? 'stage' : 'stages'}
+                                        </Badge>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      <p className="text-lg font-bold text-primary">{formatTime(orderTime)}</p>
+                                      {isOpen ? (
+                                        <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                                      ) : (
+                                        <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                                      )}
+                                    </div>
+                                  </div>
+                                </Button>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent>
+                                <div className="px-4 pb-4">
+                                  <div className="overflow-x-auto">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead>User</TableHead>
+                                          <TableHead>Department</TableHead>
+                                          <TableHead>Product</TableHead>
+                                          <TableHead>Stage</TableHead>
+                                          <TableHead>Action</TableHead>
+                                          <TableHead>Summary</TableHead>
+                                          <TableHead>Time</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {orderLogs.map((log) => (
+                                          <TableRow key={log.log_id}>
+                                            <TableCell className="font-medium">{log.user_name}</TableCell>
+                                            <TableCell>
+                                              <Badge variant="outline" className="capitalize text-xs">
+                                                {log.department}
+                                              </Badge>
+                                            </TableCell>
+                                            <TableCell>{getProductName(log.order_id, log.order_item_id)}</TableCell>
+                                            <TableCell>
+                                              <Badge variant="secondary" className="capitalize text-xs">
+                                                {log.stage}
+                                              </Badge>
+                                            </TableCell>
+                                            <TableCell>
+                                              <Badge variant="outline" className="capitalize text-xs">
+                                                {log.action_type.replace('_', ' ')}
+                                              </Badge>
+                                            </TableCell>
+                                            <TableCell className="max-w-xs truncate" title={log.work_summary}>
+                                              {log.work_summary}
+                                            </TableCell>
+                                            <TableCell className="font-semibold">{formatTime(log.time_spent_minutes)}</TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                </div>
+                              </CollapsibleContent>
+                            </div>
+                          </Collapsible>
+                        );
+                      };
+
+                      const orderGroups = new Map<string, typeof filteredLogs>();
+                      filteredLogs.forEach(log => {
+                        const orderNum = log.order_number;
+                        if (!orderGroups.has(orderNum)) {
+                          orderGroups.set(orderNum, []);
+                        }
+                        orderGroups.get(orderNum)!.push(log);
+                      });
+
+                      return Array.from(orderGroups.entries())
+                        .sort((a, b) => {
+                          const aTime = a[1].reduce((sum, log) => sum + log.time_spent_minutes, 0);
+                          const bTime = b[1].reduce((sum, log) => sum + log.time_spent_minutes, 0);
+                          return sortBy === 'time' && sortOrder === 'desc' ? bTime - aTime : aTime - bTime;
+                        })
+                        .map(([orderNum, orderLogs]) => (
+                          <OrderCollapsibleItem key={orderNum} orderNum={orderNum} orderLogs={orderLogs} />
+                        ));
+                    })()}
                   </div>
                 )}
               </CardContent>
