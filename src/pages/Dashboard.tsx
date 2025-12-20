@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { ShoppingCart, AlertTriangle, Package, TrendingUp, CheckCircle, Loader2, ChevronLeft, ChevronRight, Filter, ArrowUpDown, Bell, User } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatsCard } from '@/components/dashboard/StatsCard';
@@ -68,8 +68,9 @@ export default function Dashboard() {
   // Notification permission state
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
   
-  const orders = getOrdersByDepartment();
-  const completedOrders = getCompletedOrders();
+  // CRITICAL: Memoize orders to prevent flickering from reference changes
+  const orders = useMemo(() => getOrdersByDepartment(), [getOrdersByDepartment, allOrders.length, isAdmin, role, profile?.department]);
+  const completedOrders = useMemo(() => getCompletedOrders(), [getCompletedOrders, allOrders.length, isAdmin, role]);
   
   // CRITICAL FIX: For admin, use allOrders directly if getOrdersByDepartment returns empty
   // This ensures admin always sees orders even if filtering fails
@@ -87,19 +88,34 @@ export default function Dashboard() {
     return orders;
   }, [isAdmin, orders, allOrders]);
   
-  // Debug logging for admin
+  // CRITICAL: Remove debug logging that causes re-renders - only log on mount or when counts actually change
+  const prevOrdersCountRef = useRef({ allOrders: 0, orders: 0, adminOrders: 0, completedOrders: 0 });
   useEffect(() => {
     if (isAdmin) {
-      console.log('[Dashboard] Admin Debug:', {
-        allOrdersCount: allOrders.length,
-        filteredOrdersCount: orders.length,
-        adminOrdersCount: adminOrders.length,
-        completedOrdersCount: completedOrders.length,
-        isLoading,
-        role,
-        isAdmin,
-        usingFallback: adminOrders.length > orders.length,
-      });
+      const currentCounts = {
+        allOrders: allOrders.length,
+        orders: orders.length,
+        adminOrders: adminOrders.length,
+        completedOrders: completedOrders.length,
+      };
+      
+      // Only log if counts actually changed
+      const countsChanged = 
+        prevOrdersCountRef.current.allOrders !== currentCounts.allOrders ||
+        prevOrdersCountRef.current.orders !== currentCounts.orders ||
+        prevOrdersCountRef.current.adminOrders !== currentCounts.adminOrders ||
+        prevOrdersCountRef.current.completedOrders !== currentCounts.completedOrders;
+      
+      if (countsChanged) {
+        console.log('[Dashboard] Admin Debug:', {
+          ...currentCounts,
+          isLoading,
+          role,
+          isAdmin,
+          usingFallback: adminOrders.length > orders.length,
+        });
+        prevOrdersCountRef.current = currentCounts;
+      }
     }
   }, [isAdmin, allOrders.length, orders.length, adminOrders.length, completedOrders.length, isLoading, role]);
   
@@ -181,6 +197,7 @@ export default function Dashboard() {
         design: 0,
         prepress: 0,
         production: 0,
+        outsource: 0,
         dispatch: 0,
         completed: 0,
       },
@@ -208,7 +225,7 @@ export default function Dashboard() {
         }
         
         // Count items assigned to current user (user-wise)
-        if (item.assigned_to === user?.uid) {
+        if (item.assigned_to === user?.id) {
           calculated.assignedToMe++;
         }
         
