@@ -348,17 +348,36 @@ export default function Settings() {
     
     setCheckingConfig(true);
     try {
-      // TODO: Migrate to Supabase woocommerce_credentials table
-      // const credsRef = doc(db, 'woocommerce_credentials', 'config');
-      // const credsSnap = await getDoc(credsRef);
-      const credsSnap = { exists: () => false, data: () => null };
+      // Fetch credentials from Supabase woocommerce_credentials table
+      const { data: credsData, error: credsError } = await supabase
+        .from('woocommerce_credentials')
+        .select('*')
+        .eq('setting_key', 'config')
+        .maybeSingle();
       
-      if (false) { // Temporarily disabled
-        const data = credsSnap.data();
+      if (credsError) {
+        // Handle 406 or other errors gracefully
+        if (credsError.code === 'PGRST116' || credsError.status === 406) {
+          console.warn('[Settings] WooCommerce credentials table structure issue:', credsError);
+          setWooSettings(prev => ({
+            ...prev,
+            isConnected: false,
+            storeUrlMasked: null,
+          }));
+          return;
+        }
+        throw credsError;
+      }
+      
+      if (credsData && credsData.store_url && credsData.consumer_key && credsData.consumer_secret) {
+        // Mask the store URL for display
+        const url = credsData.store_url;
+        const maskedUrl = url.replace(/^https?:\/\//, '').split('/')[0];
+        
         setWooSettings(prev => ({
           ...prev,
-          isConnected: !!(data.store_url && data.consumer_key && data.consumer_secret),
-          storeUrlMasked: data.store_url || null,
+          isConnected: true,
+          storeUrlMasked: maskedUrl,
         }));
       } else {
         setWooSettings(prev => ({
@@ -746,20 +765,29 @@ export default function Settings() {
       });
 
       if (testResponse.ok) {
-        setWooSettings(prev => ({ ...prev, isConnected: true }));
+        const responseData = await testResponse.json();
+        setWooSettings(prev => ({ 
+          ...prev, 
+          isConnected: true,
+          storeUrlMasked: data.store_url.replace(/^https?:\/\//, '').split('/')[0],
+        }));
         toast({
           title: "Connection Successful",
-          description: "Successfully connected to your WooCommerce store",
+          description: `Successfully connected to ${data.store_url.replace(/^https?:\/\//, '').split('/')[0]}`,
         });
       } else {
-        throw new Error(`Connection failed: ${testResponse.status} ${testResponse.statusText}`);
+        const errorText = await testResponse.text().catch(() => '');
+        throw new Error(`Connection failed: ${testResponse.status} ${testResponse.statusText}${errorText ? ` - ${errorText}` : ''}`);
       }
     } catch (error: any) {
+      console.error('[Settings] Test connection error:', error);
       toast({
         title: "Connection Failed",
         description: error.message || "Could not connect to WooCommerce. Please check your credentials.",
         variant: "destructive",
       });
+      // Update state to reflect failed connection
+      setWooSettings(prev => ({ ...prev, isConnected: false }));
     } finally {
       setTestingConnection(false);
     }
@@ -1988,15 +2016,13 @@ export default function Settings() {
                             <Button 
                               variant="outline"
                               onClick={handleTestConnection}
-                              disabled={testingConnection || !wooSettings.isConnected}
+                              disabled={testingConnection || checkingConfig}
                             >
                               {testingConnection ? 'Testing...' : 'Test Connection'}
                             </Button>
                           </TooltipTrigger>
                           <TooltipContent>
-                            {wooSettings.isConnected 
-                              ? 'Test WooCommerce API connection' 
-                              : 'Configure credentials first'}
+                            Test WooCommerce API connection with current credentials
                           </TooltipContent>
                         </Tooltip>
 

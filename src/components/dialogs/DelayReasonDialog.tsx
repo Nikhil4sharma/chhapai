@@ -18,7 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { DelayReasonCategory, Stage } from '@/types/analytics';
+import { DelayReasonCategory } from '@/types/analytics';
+import { Stage } from '@/types/order';
 import { useAnalytics } from '@/contexts/AnalyticsContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -139,7 +140,7 @@ export function DelayReasonDialog({
         reason,
         description: description || undefined,
         stage: currentStage,
-        reported_by: user.uid,
+        reported_by: user.id,
         reported_by_name: profile.full_name || 'Unknown',
         is_resolved: false,
       });

@@ -15,17 +15,7 @@ import { WorkLog } from '@/types/worklog';
 import { useOrders } from './OrderContext';
 import { useWorkLogs } from './WorkLogContext';
 import { useAuth } from './AuthContext';
-import { 
-  collection, 
-  doc, 
-  getDocs, 
-  setDoc, 
-  query, 
-  where, 
-  orderBy,
-  Timestamp 
-} from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 import {
   calculateDeliveryPerformance,
   calculateDepartmentEfficiency,
@@ -174,50 +164,44 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     itemId?: string
   ): Promise<DelayReason[]> => {
     try {
-      let q;
+      let query = supabase
+        .from('delay_reasons')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('reported_at', { ascending: false });
+      
       if (itemId) {
-        q = query(
-          collection(db, 'delay_reasons'),
-          where('order_id', '==', orderId),
-          where('item_id', '==', itemId),
-          orderBy('reported_at', 'desc')
-        );
-      } else {
-        q = query(
-          collection(db, 'delay_reasons'),
-          where('order_id', '==', orderId),
-          orderBy('reported_at', 'desc')
-        );
+        query = query.eq('item_id', itemId);
       }
       
-      const snapshot = await getDocs(q);
-      const reasons: DelayReason[] = [];
+      const { data, error } = await query;
       
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        reasons.push({
-          reason_id: docSnap.id,
-          order_id: data.order_id,
-          item_id: data.item_id,
-          category: data.category,
-          reason: data.reason,
-          description: data.description,
-          stage: data.stage,
-          reported_by: data.reported_by,
-          reported_by_name: data.reported_by_name,
-          reported_at: data.reported_at?.toDate() || new Date(),
-          resolved_at: data.resolved_at?.toDate(),
-          is_resolved: data.is_resolved || false,
-        });
-      });
+      if (error) {
+        console.error('Error fetching delay reasons:', error);
+        return [];
+      }
+      
+      if (!data) {
+        return [];
+      }
+      
+      const reasons: DelayReason[] = data.map((row: any) => ({
+        reason_id: row.id,
+        order_id: row.order_id,
+        item_id: row.item_id || undefined,
+        category: row.category,
+        reason: row.reason,
+        description: row.description || undefined,
+        stage: row.stage,
+        reported_by: row.reported_by,
+        reported_by_name: row.reported_by_name,
+        reported_at: new Date(row.reported_at),
+        resolved_at: row.resolved_at ? new Date(row.resolved_at) : undefined,
+        is_resolved: row.is_resolved || false,
+      }));
       
       return reasons;
     } catch (error: any) {
-      // Suppress index errors during initial page load - indexes may still be building
-      if (error?.code === 'failed-precondition' && error?.message?.includes('index')) {
-        // Index is being created, silently return empty array
-        return [];
-      }
       console.error('Error fetching delay reasons:', error);
       return [];
     }
@@ -303,20 +287,23 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     }
     
     try {
-      const reasonRef = doc(collection(db, 'delay_reasons'));
-      await setDoc(reasonRef, {
-        order_id: reason.order_id,
-        item_id: reason.item_id || null,
-        category: reason.category,
-        reason: reason.reason,
-        description: reason.description || null,
-        stage: reason.stage,
-        reported_by: reason.reported_by,
-        reported_by_name: reason.reported_by_name,
-        reported_at: Timestamp.now(),
-        resolved_at: null,
-        is_resolved: false,
-      });
+      const { error } = await supabase
+        .from('delay_reasons')
+        .insert({
+          order_id: reason.order_id,
+          item_id: reason.item_id || null,
+          category: reason.category,
+          reason: reason.reason,
+          description: reason.description || null,
+          stage: reason.stage,
+          reported_by: reason.reported_by,
+          reported_by_name: reason.reported_by_name,
+          is_resolved: false,
+        });
+      
+      if (error) {
+        throw error;
+      }
       
       toast({
         title: "Delay Reason Recorded",
@@ -343,20 +330,35 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     most_common: Array<{ category: DelayReasonCategory; count: number }>;
   }> => {
     try {
-      const q = query(
-        collection(db, 'delay_reasons'),
-        where('reported_at', '>=', Timestamp.fromDate(startDate)),
-        where('reported_at', '<=', Timestamp.fromDate(endDate))
-      );
+      const { data, error } = await supabase
+        .from('delay_reasons')
+        .select('category, stage')
+        .gte('reported_at', startDate.toISOString())
+        .lte('reported_at', endDate.toISOString());
       
-      const snapshot = await getDocs(q);
+      if (error) {
+        console.error('Error fetching delay reason stats:', error);
+        return {
+          by_category: {} as Record<DelayReasonCategory, number>,
+          by_stage: {} as Record<Stage, number>,
+          most_common: [],
+        };
+      }
+      
+      if (!data) {
+        return {
+          by_category: {} as Record<DelayReasonCategory, number>,
+          by_stage: {} as Record<Stage, number>,
+          most_common: [],
+        };
+      }
+      
       const byCategory: Record<string, number> = {};
       const byStage: Record<string, number> = {};
       
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        const category = data.category as DelayReasonCategory;
-        const stage = data.stage as Stage;
+      data.forEach((row: any) => {
+        const category = row.category as DelayReasonCategory;
+        const stage = row.stage as Stage;
         
         byCategory[category] = (byCategory[category] || 0) + 1;
         byStage[stage] = (byStage[stage] || 0) + 1;
@@ -372,15 +374,6 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         most_common: mostCommon,
       };
     } catch (error) {
-      // Suppress index errors during initial page load - indexes may still be building
-      if (error?.code === 'failed-precondition' && error?.message?.includes('index')) {
-        // Index is being created, return empty stats
-        return {
-          by_category: {} as Record<DelayReasonCategory, number>,
-          by_stage: {} as Record<Stage, number>,
-          most_common: [],
-        };
-      }
       console.error('Error fetching delay reason stats:', error);
       return {
         by_category: {} as Record<DelayReasonCategory, number>,

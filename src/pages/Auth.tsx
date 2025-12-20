@@ -26,10 +26,8 @@ export default function Auth() {
     if (!authLoading && user && role) {
       console.log('[Auth] User authenticated, redirecting...', { user: user.email, role });
       const redirectPath = getRedirectPath(role);
-      // Small delay to ensure state is fully updated
-      setTimeout(() => {
-        navigate(redirectPath, { replace: true });
-      }, 100);
+      // Immediate redirect without delay for better UX
+      navigate(redirectPath, { replace: true });
     }
   }, [user, role, authLoading, navigate]);
 
@@ -86,15 +84,8 @@ export default function Auth() {
         setIsLoading(false);
       } else {
         // Success - redirect will happen via useEffect when user/role is available
-        // Set a timeout to clear loading if redirect doesn't happen quickly
         console.log('[Auth] Sign in successful, waiting for user data...');
-        setTimeout(() => {
-          // If still loading after 3 seconds, clear it (redirect should have happened)
-          if (isLoading) {
-            console.warn('[Auth] Loading timeout - clearing loading state');
-            setIsLoading(false);
-          }
-        }, 3000);
+        // Don't clear loading here - let useEffect handle redirect
       }
     } catch (error: any) {
       console.error('[Auth] Sign in error:', error);

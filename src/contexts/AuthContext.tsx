@@ -188,16 +188,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (roleData) {
           setRole(roleData.role as AppRole);
           console.log('[Auth] Role loaded:', roleData.role);
+        } else {
+          // If no role found, set a default or keep null
+          console.warn('[Auth] No role found for user:', userId);
         }
       } else {
         console.error('Error fetching role (settled):', roleResult.reason);
       }
 
       clearTimeout(fetchTimeout);
+      // CRITICAL: Always set loading to false, even if some data is missing
+      // This prevents infinite loading on reload
       setIsLoading(false);
       console.log('[Auth] User data fetch complete');
     } catch (error) {
       console.error('Error fetching user data:', error);
+      // CRITICAL: Always set loading to false on error to prevent blank screen
       setIsLoading(false);
     }
   };

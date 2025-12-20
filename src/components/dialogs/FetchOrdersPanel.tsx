@@ -119,7 +119,12 @@ export function FetchOrdersPanel({
         throw new Error('Not authenticated');
       }
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/woocommerce`, {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) {
+        throw new Error('Supabase URL not configured');
+      }
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/woocommerce`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -132,9 +137,17 @@ export function FetchOrdersPanel({
         }),
       });
 
+      // Handle network errors
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Search failed: ${response.status}`);
+        let errorMessage = `Search failed: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
@@ -157,9 +170,20 @@ export function FetchOrdersPanel({
       }
     } catch (error: any) {
       console.error('Search error:', error);
+      
+      // Better error messages
+      let errorMessage = "Could not search WooCommerce orders";
+      if (error.message?.includes('Failed to fetch') || error.message?.includes('CORS')) {
+        errorMessage = "Network error: Could not connect to server. Please check your connection.";
+      } else if (error.message?.includes('Not authenticated')) {
+        errorMessage = "Please log in to search orders";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: "Search Failed",
-        description: error.message || "Could not search WooCommerce orders",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
@@ -279,13 +303,20 @@ export function FetchOrdersPanel({
     setSearchParams(prev => ({ ...prev, [field]: value }));
   };
 
-  // Auto-search on input change (debounced)
+  // Auto-search on input change (debounced) - only if dialog is open and has search params
   useEffect(() => {
+    if (!open) return;
+    
+    const hasSearchParams = searchParams.order_number || searchParams.customer_email || 
+                            searchParams.customer_name || searchParams.customer_phone;
+    
+    if (!hasSearchParams) {
+      setSearchResults([]);
+      return;
+    }
+    
     const timer = setTimeout(() => {
-      if (open && (searchParams.order_number || searchParams.customer_email || 
-          searchParams.customer_name || searchParams.customer_phone)) {
-        handleSearch();
-      }
+      handleSearch();
     }, 500);
 
     return () => clearTimeout(timer);
