@@ -13,9 +13,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, accept',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE',
   'Access-Control-Max-Age': '86400',
+  'Access-Control-Expose-Headers': 'content-type, content-length',
 };
 
 // In-memory credential cache (for runtime updates within same instance)
@@ -81,9 +82,10 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     console.log('[CORS] Handling OPTIONS preflight request');
     return new Response(null, { 
-      status: 204, // No Content - standard for OPTIONS
+      status: 200, // OK status for CORS preflight
       headers: {
         ...corsHeaders,
+        'Content-Length': '0',
       }
     });
   }
