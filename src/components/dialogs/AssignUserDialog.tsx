@@ -52,19 +52,9 @@ export function AssignUserDialog({
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
-      // Fetch profiles with matching department
-      // Use case-insensitive comparison and also check user_roles for department matching
-      const { data: profiles, error: profilesError } = await supabase
-        .from('profiles')
-        .select('user_id, full_name, department')
-        .ilike('department', department);
-
-      if (profilesError) {
-        console.error('Error fetching profiles:', profilesError);
-        throw profilesError;
-      }
-
-      // Also fetch users from user_roles who have the matching role
+      const deptLower = department.toLowerCase().trim();
+      
+      // Map department names to role names
       const roleMap: Record<string, string> = {
         'sales': 'sales',
         'design': 'design',
@@ -72,8 +62,11 @@ export function AssignUserDialog({
         'production': 'production',
       };
       
-      const matchingRole = roleMap[department.toLowerCase()];
-      let roleUsers: any[] = [];
+      const matchingRole = roleMap[deptLower];
+      
+      // Strategy 1: Fetch all users from user_roles with matching role (PRIMARY METHOD)
+      // This ensures we get ALL users assigned to this department role
+      let allUserIds = new Set<string>();
       
       if (matchingRole) {
         const { data: rolesData, error: rolesError } = await supabase
@@ -81,31 +74,62 @@ export function AssignUserDialog({
           .select('user_id, role')
           .eq('role', matchingRole);
         
-        if (!rolesError && rolesData) {
-          // Get profiles for these users
-          const userIds = rolesData.map(r => r.user_id);
-          if (userIds.length > 0) {
-            const { data: roleProfiles } = await supabase
+        if (rolesError) {
+          console.error('Error fetching user_roles:', rolesError);
+        } else if (rolesData) {
+          rolesData.forEach(r => allUserIds.add(r.user_id));
+        }
+      }
+      
+      // Strategy 2: Also fetch from profiles table with case-insensitive matching
+      const { data: profiles, error: profilesError } = await supabase
               .from('profiles')
-              .select('user_id, full_name, department')
-              .in('user_id', userIds);
-            
-            roleUsers = roleProfiles || [];
+        .select('user_id, full_name, department');
+      
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+      } else if (profiles) {
+        // Filter profiles by department (case-insensitive)
+        profiles.forEach(profile => {
+          const profileDept = (profile.department || '').toLowerCase().trim();
+          if (profileDept === deptLower) {
+            allUserIds.add(profile.user_id);
           }
+        });
+      }
+
+      // Now fetch full profile data for all collected user IDs
+      let allUsers: any[] = [];
+      
+      if (allUserIds.size > 0) {
+        const { data: userProfiles, error: userProfilesError } = await supabase
+          .from('profiles')
+          .select('user_id, full_name, department')
+          .in('user_id', Array.from(allUserIds));
+        
+        if (userProfilesError) {
+          console.error('Error fetching user profiles:', userProfilesError);
+        } else if (userProfiles) {
+          allUsers = userProfiles;
         }
       }
 
-      // Combine and deduplicate users
-      const allUsers = [...(profiles || []), ...roleUsers];
+      // Deduplicate and sort by name
       const uniqueUsers = Array.from(
         new Map(allUsers.map(u => [u.user_id, u])).values()
-      );
+      ).sort((a, b) => {
+        const nameA = (a.full_name || '').toLowerCase();
+        const nameB = (b.full_name || '').toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
 
       setUsers(uniqueUsers.map(profile => ({
         user_id: profile.user_id,
         full_name: profile.full_name || 'Unknown',
         department: profile.department || department,
       })));
+      
+      console.log(`[AssignUserDialog] Found ${uniqueUsers.length} users for department: ${department}`);
     } catch (error) {
       console.error('Error fetching users:', error);
       setUsers([]);

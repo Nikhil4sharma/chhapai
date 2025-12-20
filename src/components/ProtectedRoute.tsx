@@ -38,9 +38,19 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
 
   // CRITICAL: Check both user and session for better reliability
   // Sometimes user might be null but session exists (during reload)
-  if (!user && !session) {
+  // Wait a bit more if session exists but user is not loaded yet (reload scenario)
+  if (!user && !session && !isLoading) {
     console.log('[ProtectedRoute] No user or session, redirecting to auth');
     return <Navigate to="/auth" state={{ from: location }} replace />;
+  }
+
+  // If session exists but user is not loaded yet (reload scenario), wait
+  if (session && !user && isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
   }
 
   // If user exists but role is not loaded yet, wait a bit more

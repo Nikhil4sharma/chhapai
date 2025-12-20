@@ -524,13 +524,10 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const getOrdersByDepartment = useCallback(() => {
-    // SAFEGUARD 6: Filter out archived WooCommerce orders from Sales view
-    // Archived orders are preserved but hidden from normal workflow views
-    const activeOrders = orders.filter(o => !o.is_completed && !o.archived_from_wc);
-    
-    // CRITICAL FIX: Admin should see ALL active orders, even if they have no items
-    // This ensures admin can see orders immediately after sync, before items are assigned
+    // CRITICAL FIX: Admin and Sales should see ALL orders (including synced orders)
+    // Only filter out completed orders, but show archived synced orders too
     if (isAdmin || role === 'sales') {
+      const activeOrders = orders.filter(o => !o.is_completed);
       console.log('[getOrdersByDepartment] Admin/Sales - Returning all active orders:', {
         totalOrders: orders.length,
         activeOrders: activeOrders.length,
@@ -539,9 +536,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         ordersWithItems: activeOrders.filter(o => o.items.length > 0).length,
         ordersWithoutItems: activeOrders.filter(o => o.items.length === 0).length,
       });
-      // CRITICAL: Return all active orders for admin/sales, even if they have no items
+      // CRITICAL: Return all active orders for admin/sales, including synced orders
       return activeOrders;
     }
+    
+    // For other departments, filter out archived WooCommerce orders
+    const activeOrders = orders.filter(o => !o.is_completed && !o.archived_from_wc);
     
     if (!role) {
       console.warn('[getOrdersByDepartment] No role found for user');
@@ -1400,51 +1400,64 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const item = order?.items.find(i => i.item_id === itemId);
       if (!order || !item || !user || !profile) return;
 
-      const outsourceInfo: OutsourceInfo = {
-        vendor,
-        job_details: jobDetails,
-        current_outsource_stage: 'outsourced',
-        assigned_at: new Date(),
-        assigned_by: user.id,
-        assigned_by_name: profile.full_name || 'Unknown',
-        assigned_by_role: (profile.role as UserRole) || 'admin',
-        follow_up_notes: [],
-      };
+      // Find the order's UUID from Supabase
+      const { data: orderData } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('order_id', orderId)
+        .single();
 
-      const itemRef = doc(db, 'order_items', itemId);
-      await updateDoc(itemRef, {
-        assigned_department: 'outsource',
-        current_stage: 'outsource',
-        outsource_info: {
-          vendor: {
-            vendor_name: vendor.vendor_name,
-            vendor_company: vendor.vendor_company || '',
-            contact_person: vendor.contact_person,
-            phone: vendor.phone,
-            email: vendor.email || '',
-            city: vendor.city || '',
-          },
-          job_details: {
-            work_type: jobDetails.work_type,
-            expected_ready_date: Timestamp.fromDate(jobDetails.expected_ready_date),
-            quantity_sent: jobDetails.quantity_sent,
-            special_instructions: jobDetails.special_instructions || '',
-          },
-          current_outsource_stage: 'outsourced',
-          assigned_at: Timestamp.now(),
-          assigned_by: user.id,
-          assigned_by_name: profile.full_name || 'Unknown',
-          assigned_by_role: (profile.role as UserRole) || 'admin',
-          follow_up_notes: [],
-        },
-        updated_at: Timestamp.now(),
-      });
+      if (!orderData) {
+        throw new Error('Order not found in database');
+      }
 
-      // CRITICAL FIX: Update parent order's updated_at to trigger realtime listener
-      const orderRef = doc(db, 'orders', order.id!);
-      await updateDoc(orderRef, {
-        updated_at: Timestamp.now(),
-      });
+      // Update order item using Supabase
+      const { error: updateError } = await supabase
+        .from('order_items')
+        .update({
+          assigned_department: 'outsource',
+          current_stage: 'outsource',
+          outsource_info: {
+            vendor: {
+              vendor_name: vendor.vendor_name,
+              vendor_company: vendor.vendor_company || '',
+              contact_person: vendor.contact_person,
+              phone: vendor.phone,
+              email: vendor.email || '',
+              city: vendor.city || '',
+            },
+            job_details: {
+              work_type: jobDetails.work_type,
+              expected_ready_date: jobDetails.expected_ready_date.toISOString(),
+              quantity_sent: jobDetails.quantity_sent,
+              special_instructions: jobDetails.special_instructions || '',
+            },
+            current_outsource_stage: 'outsourced',
+            assigned_at: new Date().toISOString(),
+            assigned_by: user.id,
+            assigned_by_name: profile.full_name || 'Unknown',
+            assigned_by_role: (profile.role as UserRole) || 'admin',
+            follow_up_notes: [],
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Update parent order's updated_at to trigger realtime listener
+      const { error: orderUpdateError } = await supabase
+        .from('orders')
+        .update({
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', orderData.id);
+
+      if (orderUpdateError) {
+        console.error('Error updating order timestamp:', orderUpdateError);
+      }
 
       await addTimelineEntry({
         order_id: orderId,
@@ -1468,7 +1481,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       console.error('Error assigning to outsource:', error);
       toast({
         title: "Error",
-        description: "Failed to assign to outsource",
+        description: error instanceof Error ? error.message : "Failed to assign to outsource",
         variant: "destructive",
       });
     }
@@ -1902,12 +1915,22 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const itemRef = doc(db, 'order_items', itemId);
-      await updateDoc(itemRef, {
-        'outsource_info.current_outsource_stage': newStage,
-        'outsource_info.updated_at': Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
+      // Update using Supabase
+      const { error: updateError } = await supabase
+        .from('order_items')
+        .update({
+          outsource_info: {
+            ...item.outsource_info,
+            current_outsource_stage: newStage,
+            updated_at: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (updateError) {
+        throw updateError;
+      }
       
       await addTimelineEntry({
         order_id: orderId,
@@ -1952,26 +1975,30 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const newNote = {
         note_id: noteId,
         note: note.trim(),
-        created_at: Timestamp.now(),
+        created_at: new Date().toISOString(),
         created_by: user.id,
         created_by_name: profile.full_name || 'Unknown',
       };
 
       const currentNotes = item.outsource_info.follow_up_notes || [];
-      const updatedNotes = [...currentNotes, {
-        ...newNote,
-        created_at: new Date(),
-      }];
+      const updatedNotes = [...currentNotes, newNote];
 
-      const itemRef = doc(db, 'order_items', itemId);
-      await updateDoc(itemRef, {
-        'outsource_info.follow_up_notes': updatedNotes.map(n => ({
-          ...n,
-          created_at: Timestamp.fromDate(n.created_at),
-        })),
-        'outsource_info.updated_at': Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
+      // Update using Supabase
+      const { error: updateError } = await supabase
+        .from('order_items')
+        .update({
+          outsource_info: {
+            ...item.outsource_info,
+            follow_up_notes: updatedNotes,
+            updated_at: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (updateError) {
+        throw updateError;
+      }
 
       await addTimelineEntry({
         order_id: orderId,
@@ -2014,15 +2041,25 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const item = order?.items.find(i => i.item_id === itemId);
       if (!order || !item || !item.outsource_info || !user || !profile) return;
 
-      const itemRef = doc(db, 'order_items', itemId);
-      await updateDoc(itemRef, {
-        'outsource_info.current_outsource_stage': 'vendor_dispatched',
-        'outsource_info.vendor_dispatch_date': Timestamp.fromDate(dispatchDate),
-        'outsource_info.courier_name': courierName,
-        'outsource_info.tracking_number': trackingNumber,
-        'outsource_info.updated_at': Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
+      // Update using Supabase
+      const { error: updateError } = await supabase
+        .from('order_items')
+        .update({
+          outsource_info: {
+            ...item.outsource_info,
+            current_outsource_stage: 'vendor_dispatched',
+            vendor_dispatch_date: dispatchDate.toISOString(),
+            courier_name: courierName,
+            tracking_number: trackingNumber,
+            updated_at: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (updateError) {
+        throw updateError;
+      }
 
       await addTimelineEntry({
         order_id: orderId,
@@ -2064,14 +2101,24 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const item = order?.items.find(i => i.item_id === itemId);
       if (!order || !item || !item.outsource_info || !user || !profile) return;
 
-      const itemRef = doc(db, 'order_items', itemId);
-      await updateDoc(itemRef, {
-        'outsource_info.current_outsource_stage': 'received_from_vendor',
-        'outsource_info.received_date': Timestamp.fromDate(receivedDate),
-        'outsource_info.receiver_name': receiverName,
-        'outsource_info.updated_at': Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
+      // Update using Supabase
+      const { error: updateError } = await supabase
+        .from('order_items')
+        .update({
+          outsource_info: {
+            ...item.outsource_info,
+            current_outsource_stage: 'received_from_vendor',
+            received_date: receivedDate.toISOString(),
+            receiver_name: receiverName,
+            updated_at: new Date().toISOString(),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', itemId);
+
+      if (updateError) {
+        throw updateError;
+      }
 
       await addTimelineEntry({
         order_id: orderId,
@@ -2113,25 +2160,31 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const item = order?.items.find(i => i.item_id === itemId);
       if (!order || !item || !item.outsource_info || !user || !profile) return;
 
-      const itemRef = doc(db, 'order_items', itemId);
-      
+      // Update using Supabase
+      const updateData = {
+        outsource_info: {
+          ...item.outsource_info,
+          qc_result: result,
+          qc_notes: notes.trim(),
+          updated_at: new Date().toISOString(),
+        },
+        updated_at: new Date().toISOString(),
+      };
+
       if (result === 'pass') {
-        await updateDoc(itemRef, {
-          'outsource_info.current_outsource_stage': 'decision_pending',
-          'outsource_info.qc_result': 'pass',
-          'outsource_info.qc_notes': notes.trim(),
-          'outsource_info.updated_at': Timestamp.now(),
-          updated_at: Timestamp.now(),
-        });
+        updateData.outsource_info.current_outsource_stage = 'decision_pending';
       } else {
         // Fail - go back to vendor_in_progress
-        await updateDoc(itemRef, {
-          'outsource_info.current_outsource_stage': 'vendor_in_progress',
-          'outsource_info.qc_result': 'fail',
-          'outsource_info.qc_notes': notes.trim(),
-          'outsource_info.updated_at': Timestamp.now(),
-          updated_at: Timestamp.now(),
-        });
+        updateData.outsource_info.current_outsource_stage = 'vendor_in_progress';
+      }
+
+      const { error: updateError } = await supabase
+        .from('order_items')
+        .update(updateData)
+        .eq('id', itemId);
+
+      if (updateError) {
+        throw updateError;
       }
 
       await addTimelineEntry({
@@ -2184,17 +2237,26 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      const itemRef = doc(db, 'order_items', itemId);
-
+      // Update using Supabase
       if (decision === 'production') {
         // Send to production - need to set stage sequence
         // For now, just update stage
-        await updateDoc(itemRef, {
-          current_stage: 'production',
-          assigned_department: 'production',
-          'outsource_info.current_outsource_stage': 'decision_pending',
-          updated_at: Timestamp.now(),
-        });
+        const { error: updateError } = await supabase
+          .from('order_items')
+          .update({
+            current_stage: 'production',
+            assigned_department: 'production',
+            outsource_info: {
+              ...item.outsource_info,
+              current_outsource_stage: 'decision_pending',
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', itemId);
+
+        if (updateError) {
+          throw updateError;
+        }
 
         await addTimelineEntry({
           order_id: orderId,
@@ -2209,13 +2271,23 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         });
       } else {
         // Mark as ready for dispatch
-        await updateDoc(itemRef, {
-          current_stage: 'dispatch',
-          assigned_department: 'production',
-          is_ready_for_production: true,
-          'outsource_info.current_outsource_stage': 'decision_pending',
-          updated_at: Timestamp.now(),
-        });
+        const { error: updateError } = await supabase
+          .from('order_items')
+          .update({
+            current_stage: 'dispatch',
+            assigned_department: 'production',
+            is_ready_for_production: true,
+            outsource_info: {
+              ...item.outsource_info,
+              current_outsource_stage: 'decision_pending',
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', itemId);
+
+        if (updateError) {
+          throw updateError;
+        }
 
         await addTimelineEntry({
           order_id: orderId,

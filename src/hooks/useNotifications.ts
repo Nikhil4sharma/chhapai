@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-// Firebase removed - using Supabase only
-// TODO: Migrate notifications to Supabase notifications table
+import { supabase } from '@/integrations/supabase/client';
 
 export interface AppNotification {
   id: string;
@@ -23,36 +22,77 @@ export function useNotifications() {
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useAuth();
 
-  // Load notifications
+  // Load notifications from Supabase
   const fetchNotifications = useCallback(async () => {
     if (!user || !user.id) {
       setIsLoading(false);
       return;
     }
     
-    // TODO: Migrate to Supabase notifications table
-    // For now, return empty array to prevent errors
     try {
-      setNotifications([]);
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      
+      if (error) throw error;
+      
+      const mappedNotifications: AppNotification[] = (data || []).map(n => ({
+        id: n.id,
+        user_id: n.user_id,
+        title: n.title,
+        message: n.message,
+        type: (n.type as AppNotification['type']) || 'info',
+        order_id: n.order_id || undefined,
+        item_id: n.item_id || undefined,
+        read: n.read || false,
+        created_at: new Date(n.created_at),
+      }));
+      
+      setNotifications(mappedNotifications);
     } catch (error) {
       console.error('Error fetching notifications:', error);
+      setNotifications([]);
     } finally {
       setIsLoading(false);
     }
   }, [user]);
 
-  // Load user notification settings
+  // Load user notification settings from Supabase
   const fetchSettings = useCallback(async () => {
     if (!user || !user.id) return;
     
-    // TODO: Migrate to Supabase user_settings table
-    // For now, use defaults
     try {
-      setSoundEnabled(true);
-      setPushEnabled(true);
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('sound_enabled, push_enabled')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      
+      if (error) {
+        // If table doesn't exist or column doesn't exist, use defaults
+        if (error.code === 'PGRST116' || error.code === '42703') {
+          console.log('User settings not found or column missing, using defaults');
+          setSoundEnabled(true);
+          setPushEnabled(true);
+          return;
+        }
+        throw error;
+      }
+      
+      if (data) {
+        setSoundEnabled(data.sound_enabled ?? true);
+        setPushEnabled(data.push_enabled ?? true);
+      } else {
+        // Defaults if no settings exist
+        setSoundEnabled(true);
+        setPushEnabled(true);
+      }
     } catch (error) {
-      // Settings don't exist yet, use defaults
-      console.log('User settings not found, using defaults');
+      console.error('Error loading user settings:', error);
+      // Use defaults on error
       setSoundEnabled(true);
       setPushEnabled(true);
     }
@@ -231,13 +271,31 @@ export function useNotifications() {
     const newValue = !soundEnabled;
     setSoundEnabled(newValue);
 
-    // TODO: Migrate to Supabase user_settings table
     try {
-      // No-op for now
+      const { error } = await supabase
+        .from('user_settings')
+        .upsert({
+          user_id: user.id,
+          sound_enabled: newValue,
+          push_enabled: pushEnabled, // Preserve push_enabled value
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id'
+        });
+      
+      if (error) {
+        // If column doesn't exist, just update local state
+        if (error.code === '42703') {
+          console.log('push_enabled column not found, skipping save');
+          return;
+        }
+        throw error;
+      }
     } catch (error) {
       console.error('Error saving settings:', error);
+      // Don't revert on error - keep local state
     }
-  }, [user, soundEnabled]);
+  }, [user, soundEnabled, pushEnabled]);
 
   // Mark as read
   const markAsRead = useCallback(async (id: string) => {
@@ -245,9 +303,13 @@ export function useNotifications() {
       prev.map(n => n.id === id ? { ...n, read: true } : n)
     );
 
-    // TODO: Migrate to Supabase notifications table
     try {
-      // No-op for now
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('id', id);
+      
+      if (error) throw error;
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }
@@ -259,9 +321,14 @@ export function useNotifications() {
 
     setNotifications(prev => prev.map(n => ({ ...n, read: true })));
 
-    // TODO: Migrate to Supabase notifications table
     try {
-      // No-op for now
+      const { error } = await supabase
+        .from('notifications')
+        .update({ read: true })
+        .eq('user_id', user.id)
+        .eq('read', false);
+      
+      if (error) throw error;
     } catch (error) {
       console.error('Error marking all as read:', error);
     }
@@ -271,9 +338,13 @@ export function useNotifications() {
   const removeNotification = useCallback(async (id: string) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
 
-    // TODO: Migrate to Supabase notifications table
     try {
-      // No-op for now
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('id', id);
+      
+      if (error) throw error;
     } catch (error) {
       console.error('Error deleting notification:', error);
     }
@@ -283,9 +354,13 @@ export function useNotifications() {
   const clearAllNotifications = useCallback(async () => {
     if (!user || !user.id) return;
 
-    // TODO: Migrate to Supabase notifications table
     try {
-      // Clear local state only
+      const { error } = await supabase
+        .from('notifications')
+        .delete()
+        .eq('user_id', user.id);
+      
+      if (error) throw error;
       setNotifications([]);
     } catch (error) {
       console.error('Error clearing all notifications:', error);
@@ -299,9 +374,67 @@ export function useNotifications() {
     fetchNotifications();
     fetchSettings();
 
-    // TODO: Add Supabase realtime subscriptions when notifications table is migrated
-    // No Firebase subscriptions needed - using Supabase only
-  }, [user, fetchNotifications, fetchSettings, playSound, requestPushPermission, showPushNotification, pushEnabled, soundEnabled]);
+    // Set up realtime subscription for notifications
+    const notificationsChannel = supabase
+      .channel('notifications-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          console.log('[Notifications] Realtime update:', payload.eventType);
+          
+          if (payload.eventType === 'INSERT') {
+            const newNotification = payload.new as any;
+            const mappedNotification: AppNotification = {
+              id: newNotification.id,
+              user_id: newNotification.user_id,
+              title: newNotification.title,
+              message: newNotification.message,
+              type: (newNotification.type as AppNotification['type']) || 'info',
+              order_id: newNotification.order_id || undefined,
+              item_id: newNotification.item_id || undefined,
+              read: newNotification.read || false,
+              created_at: new Date(newNotification.created_at),
+            };
+            
+            setNotifications(prev => [mappedNotification, ...prev]);
+            
+            // Play sound and show push notification for new notifications
+            if (!mappedNotification.read) {
+              playSound();
+              showPushNotification(mappedNotification.title, mappedNotification.message);
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedNotification = payload.new as any;
+            setNotifications(prev =>
+              prev.map(n =>
+                n.id === updatedNotification.id
+                  ? {
+                      ...n,
+                      read: updatedNotification.read || false,
+                      title: updatedNotification.title,
+                      message: updatedNotification.message,
+                    }
+                  : n
+              )
+            );
+          } else if (payload.eventType === 'DELETE') {
+            const deletedId = payload.old.id;
+            setNotifications(prev => prev.filter(n => n.id !== deletedId));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(notificationsChannel);
+    };
+  }, [user, fetchNotifications, fetchSettings, playSound, showPushNotification]);
 
   // NOTE: Auto-requesting permission is removed because browsers require user interaction
   // Permission must be requested via:
@@ -336,10 +469,21 @@ export async function createNotification(
   orderId?: string,
   itemId?: string
 ) {
-  // TODO: Migrate to Supabase notifications table
   try {
-    // No-op for now - will be implemented with Supabase
-    console.log('Notification would be created:', { userId, title, message, type, orderId, itemId });
+    const { error } = await supabase
+      .from('notifications')
+      .insert({
+        user_id: userId,
+        title,
+        message,
+        type,
+        order_id: orderId || null,
+        item_id: itemId || null,
+        read: false,
+      });
+    
+    if (error) throw error;
+    console.log('[Notifications] Created notification:', { userId, title, type });
   } catch (error) {
     console.error('Error creating notification:', error);
   }

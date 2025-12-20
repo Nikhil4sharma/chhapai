@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Calendar, Package, User, Trash2, X } from 'lucide-react';
 import {
   Dialog,
@@ -114,8 +114,8 @@ export function CreateOrderDialog({
     setOrderNumberError(null);
   };
 
-  // Check if order number already exists
-  const checkOrderNumberDuplicate = async (orderNum: string): Promise<boolean> => {
+  // Check if order number already exists - memoized to avoid recreating on every render
+  const checkOrderNumberDuplicate = useCallback(async (orderNum: string): Promise<boolean> => {
     if (!orderNum.trim()) return false;
     
     try {
@@ -139,11 +139,22 @@ export function CreateOrderDialog({
     } finally {
       setIsCheckingDuplicate(false);
     }
-  };
+  }, []);
 
-  // Validate order number on change
-  const handleOrderNumberChange = async (value: string) => {
+  // Debounce timer ref for duplicate check
+  const duplicateCheckTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Validate order number on change - immediate update, debounced duplicate check
+  const handleOrderNumberChange = useCallback((value: string) => {
+    // Immediately update the input value
     setOrderNumber(value);
+    
+    // Clear existing timer
+    if (duplicateCheckTimerRef.current) {
+      clearTimeout(duplicateCheckTimerRef.current);
+    }
+    
+    // Clear error immediately for better UX
     setOrderNumberError(null);
     
     if (!value.trim()) {
@@ -151,11 +162,23 @@ export function CreateOrderDialog({
       return;
     }
     
-    const isDuplicate = await checkOrderNumberDuplicate(value);
-    if (isDuplicate) {
-      setOrderNumberError('Order number already exists');
-    }
-  };
+    // Debounce the duplicate check - wait 500ms after user stops typing
+    duplicateCheckTimerRef.current = setTimeout(async () => {
+      const isDuplicate = await checkOrderNumberDuplicate(value);
+      if (isDuplicate) {
+        setOrderNumberError('Order number already exists');
+      }
+    }, 500);
+  }, [checkOrderNumberDuplicate]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (duplicateCheckTimerRef.current) {
+        clearTimeout(duplicateCheckTimerRef.current);
+      }
+    };
+  }, []);
 
   const addProduct = () => {
     setProducts([...products, { id: generateId(), name: '', quantity: 1, specifications: {} }]);
@@ -285,25 +308,54 @@ export function CreateOrderDialog({
       if (!orderData) throw new Error('Order creation failed');
 
       // Create order items for each product
-      const orderItems = products.map(product => ({
-        order_id: orderData.id,
-        product_name: product.name,
-        quantity: product.quantity,
-        specifications: product.specifications,
-        priority: priority,
-        current_stage: 'sales',
-        assigned_department: 'sales',
-        delivery_date: deliveryDate?.toISOString() || null,
-        need_design: false,
-        is_ready_for_production: false,
-        is_dispatched: false,
-      }));
+      // Ensure all data types are correct and required fields are present
+      const orderItems = products.map(product => {
+        // Validate product data
+        if (!product.name || product.name.trim() === '') {
+          throw new Error('Product name is required');
+        }
+        if (!product.quantity || product.quantity < 1) {
+          throw new Error('Product quantity must be at least 1');
+        }
 
-      const { error: itemsError } = await supabase
+        return {
+          order_id: orderData.id,
+          product_name: product.name.trim(),
+          quantity: Number(product.quantity), // Ensure it's a number
+          // Ensure specifications is a valid JSONB object (empty object if null/undefined)
+          specifications: product.specifications && typeof product.specifications === 'object' 
+            ? product.specifications 
+            : {},
+          priority: priority || 'blue', // Default priority
+          current_stage: 'sales',
+          assigned_department: 'sales',
+          delivery_date: deliveryDate?.toISOString() || null,
+          need_design: false,
+          is_ready_for_production: false,
+          is_dispatched: false,
+        };
+      });
+
+      console.log('Inserting order items:', JSON.stringify(orderItems, null, 2));
+
+      const { error: itemsError, data: insertedItems } = await supabase
         .from('order_items')
-        .insert(orderItems);
+        .insert(orderItems)
+        .select();
 
-      if (itemsError) throw itemsError;
+      if (itemsError) {
+        console.error('Error inserting order items:', itemsError);
+        console.error('Error details:', {
+          code: itemsError.code,
+          message: itemsError.message,
+          details: itemsError.details,
+          hint: itemsError.hint,
+        });
+        console.error('Items being inserted:', JSON.stringify(orderItems, null, 2));
+        throw new Error(`Failed to create order items: ${itemsError.message || JSON.stringify(itemsError)}`);
+      }
+
+      console.log('Successfully inserted order items:', insertedItems);
 
       // Create timeline entry
       const { error: timelineError } = await supabase
@@ -397,8 +449,8 @@ export function CreateOrderDialog({
                       placeholder="e.g., WC-12345 or MAN-001"
                       value={orderNumber}
                       onChange={(e) => handleOrderNumberChange(e.target.value)}
-                      disabled={isCheckingDuplicate}
                       className={orderNumberError ? "border-destructive" : ""}
+                      autoFocus
                     />
                     {isCheckingDuplicate && (
                       <p className="text-xs text-muted-foreground">Checking availability...</p>

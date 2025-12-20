@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { FileText, Eye, ExternalLink, FileImage, Trash2, Download, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { FileText, Eye, ExternalLink, FileImage, Trash2, Download, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -32,6 +32,8 @@ import { OrderFile } from '@/types/order';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseSignedUrl } from '@/services/supabaseStorage';
+import { PreviewContent } from './PreviewContent';
 
 interface FilePreviewProps {
   files: OrderFile[];
@@ -49,6 +51,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
   const [selectedFile, setSelectedFile] = useState<OrderFile | null>(null);
   const [deleteFileId, setDeleteFileId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [fileUrlCache, setFileUrlCache] = useState<Map<string, string>>(new Map());
   
   // Check if user can delete a specific file
   const canDeleteFile = (file: OrderFile) => {
@@ -59,19 +62,102 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
 
   if (!files || files.length === 0) return null;
 
-  const isImage = (fileName: string | undefined, fileUrl?: string) => {
-    if (!fileName && !fileUrl) return false;
-    const name = fileName || fileUrl || '';
-    return /\.(jpg|jpeg|png|gif|webp)$/i.test(name);
+  // Helper to get file URL - use signed URL for private buckets
+  const getFileUrl = async (file: OrderFile): Promise<string> => {
+    let url = file.url || '';
+    
+    // If URL is a Supabase storage URL, try to get signed URL
+    if (url && url.includes('supabase.co/storage')) {
+      try {
+        // Extract bucket and path from URL
+        const urlObj = new URL(url);
+        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+        
+        if (pathMatch) {
+          const bucket = pathMatch[1];
+          const filePath = pathMatch[2];
+          
+          // Check cache first
+          if (fileUrlCache.has(filePath)) {
+            return fileUrlCache.get(filePath)!;
+          }
+          
+          // Get signed URL for private bucket
+          const signedUrl = await getSupabaseSignedUrl(filePath, bucket);
+          
+          // Cache the URL
+          setFileUrlCache(prev => new Map(prev).set(filePath, signedUrl));
+          
+          return signedUrl;
+        }
+      } catch (e) {
+        console.warn('Failed to get signed URL, using original:', url, e);
+      }
+    }
+    
+    return url;
   };
 
-  const isPdf = (fileName: string | undefined, fileUrl?: string) => {
+  // Synchronous version for immediate use (returns cached URL or original)
+  const getFileUrlSync = (file: OrderFile): string => {
+    let url = file.url || '';
+    
+    // If URL is a Supabase storage URL, check cache
+    if (url && url.includes('supabase.co/storage')) {
+      try {
+        const urlObj = new URL(url);
+        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+        
+        if (pathMatch) {
+          const filePath = pathMatch[2];
+          if (fileUrlCache.has(filePath)) {
+            return fileUrlCache.get(filePath)!;
+          }
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+    
+    return url;
+  };
+
+  const isImage = (fileName: string | undefined, fileUrl?: string, fileType?: string) => {
+    // Check file type first (from database)
+    if (fileType === 'image') return true;
+    
+    if (!fileName && !fileUrl) return false;
+    const name = fileName || fileUrl || '';
+    // Check by extension
+    if (/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(name)) return true;
+    
+    // Check by MIME type in URL (if present)
+    if (fileUrl && /image\//i.test(fileUrl)) return true;
+    
+    return false;
+  };
+
+  const isPdf = (fileName: string | undefined, fileUrl?: string, fileType?: string) => {
+    // Check file type first (from database)
+    if (fileType === 'proof' || fileType === 'final') {
+      // Proof and final files are usually PDFs, but check extension too
+      if (fileName && /\.pdf$/i.test(fileName)) return true;
+    }
+    
     if (!fileName && !fileUrl) return false;
     const name = fileName || fileUrl || '';
     return /\.pdf$/i.test(name);
   };
 
-  const getFileName = (file: OrderFile) => file.file_name || file.url.split('/').pop() || 'File';
+  const getFileName = (file: OrderFile) => {
+    if (file.file_name) return file.file_name;
+    const url = file.url || '';
+    const urlParts = url.split('/');
+    const lastPart = urlParts[urlParts.length - 1];
+    // Remove query parameters
+    const fileName = lastPart.split('?')[0];
+    return fileName || 'File';
+  };
 
   const handlePreview = (file: OrderFile) => {
     setSelectedFile(file);
@@ -143,100 +229,24 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
 
   const renderPreviewContent = () => {
     if (!selectedFile) return null;
-    const fileName = getFileName(selectedFile);
-    const fileIsPdf = isPdf(fileName, selectedFile.url);
-    const fileIsImage = isImage(fileName, selectedFile.url);
-
-    // PDF preview using Google Docs Viewer or direct iframe
-    if (fileIsPdf) {
-      const encodedUrl = encodeURIComponent(selectedFile.url);
-      const googleDocsViewerUrl = `https://docs.google.com/viewer?url=${encodedUrl}&embedded=true`;
-      
-      return (
-        <div className="w-full h-[calc(95vh-180px)] min-h-[400px] flex items-center justify-center">
-          <iframe
-            src={googleDocsViewerUrl}
-            className="w-full h-full rounded-lg border border-border"
-            title={fileName}
-            allow="fullscreen"
-            onError={() => {
-              // Fallback: open PDF in new tab if viewer fails
-              window.open(selectedFile.url, '_blank');
-            }}
-          />
-        </div>
-      );
-    }
-
-    // Image preview - responsive and centered with proper overflow
-    if (fileIsImage) {
-      return (
-        <div className="flex items-center justify-center w-full h-full overflow-auto bg-muted/30 rounded-lg p-4">
-          <img
-            src={selectedFile.url}
-            alt={fileName}
-            className="max-w-full max-h-[calc(95vh-200px)] object-contain rounded-lg shadow-lg"
-            onError={(e) => {
-              // Fallback if image fails to load
-              const target = e.currentTarget;
-              const parent = target.parentElement;
-              if (parent && !parent.querySelector('.image-fallback')) {
-                target.style.display = 'none';
-                const fallback = document.createElement('div');
-                fallback.className = 'image-fallback flex flex-col items-center justify-center py-12 text-center';
-                const link = document.createElement('a');
-                link.href = selectedFile.url;
-                link.target = '_blank';
-                link.rel = 'noopener noreferrer';
-                link.className = 'px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 inline-block';
-                link.textContent = 'Open File';
-                fallback.innerHTML = `
-                  <svg class="h-16 w-16 text-muted-foreground mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                  </svg>
-                  <p class="text-muted-foreground mb-4">Image preview not available</p>
-                `;
-                fallback.appendChild(link);
-                parent.appendChild(fallback);
-              }
-            }}
-          />
-        </div>
-      );
-    }
-
-    // Other file types - show download option
+    
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-center">
-        <FileText className="h-16 w-16 text-muted-foreground mb-4" />
-        <p className="text-muted-foreground mb-4">Preview not available for this file type</p>
-        <div className="flex gap-2">
-          <Button onClick={() => {
-            const link = document.createElement('a');
-            link.href = selectedFile.url;
-            link.download = fileName;
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-          }}>
-            <Download className="h-4 w-4 mr-2" />
-            Download
-          </Button>
-          <Button variant="outline" onClick={() => window.open(selectedFile.url, '_blank')}>
-            <ExternalLink className="h-4 w-4 mr-2" />
-            Open File
-          </Button>
-        </div>
-      </div>
+      <PreviewContent
+        file={selectedFile}
+        getFileName={getFileName}
+        getFileUrlSync={getFileUrlSync}
+        getFileUrl={getFileUrl}
+        isPdf={isPdf}
+        isImage={isImage}
+      />
     );
   };
 
   const FileButton = ({ file }: { file: OrderFile }) => {
     const fileName = getFileName(file);
-    const fileIsImage = isImage(fileName, file.url);
-    const fileIsPdf = isPdf(fileName, file.url);
+    const fileUrl = getFileUrlSync(file);
+    const fileIsImage = isImage(fileName, fileUrl, file.type);
+    const fileIsPdf = isPdf(fileName, fileUrl, file.type);
 
     const buttonContent = (
       <Button
@@ -258,9 +268,11 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
             ) : (
               // Image thumbnail
               <img 
-                src={file.url} 
+                src={fileUrl} 
                 alt={fileName}
                 className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                loading="lazy"
+                crossOrigin="anonymous"
                 onError={(e) => {
                   // Fallback icon if image fails to load
                   const target = e.currentTarget;
@@ -299,7 +311,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
               // PDF hover preview - show Google Docs viewer
               <div className="w-full h-64">
                 <iframe
-                  src={`https://docs.google.com/viewer?url=${encodeURIComponent(file.url)}&embedded=true`}
+                  src={`https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`}
                   className="w-full h-full rounded-md border border-border"
                   title={fileName}
                 />
@@ -308,10 +320,12 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
               // Image hover preview - full image visible, no cut
               <div className="max-w-lg max-h-[500px] overflow-auto">
                 <img
-                  src={file.url}
+                  src={fileUrl}
                   alt={fileName}
                   className="w-full h-auto max-h-[500px] object-contain rounded-md"
                   style={{ maxWidth: '100%', objectFit: 'contain' }}
+                  loading="lazy"
+                  crossOrigin="anonymous"
                   onError={(e) => {
                     e.currentTarget.style.display = 'none';
                   }}
@@ -336,9 +350,12 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     <>
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
         <DialogContent className="max-w-6xl max-h-[95vh] w-[95vw] p-0 gap-0 overflow-hidden flex flex-col [&>button]:hidden">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0">
-            <DialogTitle className="flex items-center justify-between gap-2">
-              <span className="truncate text-sm sm:text-base font-semibold">{selectedFile && getFileName(selectedFile)}</span>
+          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0 bg-background">
+            <div className="flex items-center justify-between gap-4">
+              <DialogTitle className="flex items-center gap-2 flex-1 min-w-0">
+                <FileImage className="h-5 w-5 text-primary flex-shrink-0" />
+                <span className="truncate text-sm sm:text-base font-semibold">{selectedFile && getFileName(selectedFile)}</span>
+              </DialogTitle>
               <div className="flex gap-2 shrink-0">
                 <Button
                   variant="outline"
@@ -347,8 +364,9 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
                     if (!selectedFile) return;
                     try {
                       const fileName = getFileName(selectedFile);
+                      const fileUrl = getFileUrl(selectedFile);
                       const link = document.createElement('a');
-                      link.href = selectedFile.url;
+                      link.href = fileUrl;
                       link.download = fileName;
                       link.target = '_blank';
                       link.rel = 'noopener noreferrer';
@@ -369,33 +387,48 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
                       });
                     }
                   }}
+                  className="flex items-center gap-2"
                 >
-                  <Download className="h-4 w-4 sm:mr-2" />
+                  <Download className="h-4 w-4" />
                   <span className="hidden sm:inline">Download</span>
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open(selectedFile?.url, '_blank')}
+                  onClick={() => {
+                    if (selectedFile) {
+                      window.open(getFileUrl(selectedFile), '_blank');
+                    }
+                  }}
+                  className="flex items-center gap-2"
                 >
-                  <ExternalLink className="h-4 w-4 sm:mr-2" />
+                  <ExternalLink className="h-4 w-4" />
                   <span className="hidden sm:inline">Open</span>
                 </Button>
                 {selectedFile && canDeleteFile(selectedFile) && (
                   <Button
                     variant="outline"
                     size="sm"
-                    className="text-destructive hover:text-destructive"
+                    className="text-destructive hover:text-destructive flex items-center gap-2"
                     onClick={() => setDeleteFileId(selectedFile.file_id)}
                   >
-                    <Trash2 className="h-4 w-4 sm:mr-2" />
+                    <Trash2 className="h-4 w-4" />
                     <span className="hidden sm:inline">Delete</span>
                   </Button>
                 )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 flex items-center justify-center"
+                  onClick={() => setPreviewOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                  <span className="sr-only">Close</span>
+                </Button>
               </div>
-            </DialogTitle>
+            </div>
           </DialogHeader>
-          <div className="flex-1 overflow-hidden p-6 min-h-0 flex items-center justify-center">
+          <div className="flex-1 overflow-auto p-4 sm:p-6 min-h-0 flex items-center justify-center bg-background">
             {renderPreviewContent()}
           </div>
         </DialogContent>

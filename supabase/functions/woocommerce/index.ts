@@ -14,8 +14,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE',
   'Access-Control-Max-Age': '86400',
+  'Access-Control-Allow-Credentials': 'true',
 };
 
 // In-memory credential cache (for runtime updates within same instance)
@@ -801,34 +802,69 @@ serve(async (req) => {
             const { specifications, rawMeta } = parseProductMeta(item.meta_data || []);
             const lineTotal = parseFloat(item.total) || 0;
             
-            // Check if this item already exists for this order
-            const { data: existingItem } = await adminSupabase
+            // Generate item_id for this line item (consistent with import-orders format)
+            const itemId = `${orderId}-${item.id}`;
+            
+            // Check if this item already exists for this order by item_id (preferred) or SKU (fallback)
+            let existingItem: any = null;
+            
+            // First try to find by item_id
+            const { data: itemById } = await adminSupabase
               .from('order_items')
-              .select('id')
+              .select('id, item_id')
               .eq('order_id', orderDbId)
-              .eq('sku', item.sku || `woo-${item.product_id}`)
+              .eq('item_id', itemId)
               .maybeSingle();
+            
+            if (itemById) {
+              existingItem = itemById;
+            } else {
+              // Fallback: try to find by SKU
+              const sku = item.sku || `woo-${item.product_id}`;
+              const { data: itemBySku } = await adminSupabase
+                .from('order_items')
+                .select('id, item_id')
+                .eq('order_id', orderDbId)
+                .eq('sku', sku)
+                .maybeSingle();
+              
+              if (itemBySku) {
+                existingItem = itemBySku;
+              }
+            }
 
             if (existingItem) {
               // Update existing item with latest meta (preserve stage/assignment)
+              // Also ensure item_id is set if it wasn't before
+              const updateData: any = {
+                product_name: item.name || 'Unknown Product',
+                quantity: item.quantity || 1,
+                specifications: specifications,
+                woo_meta: rawMeta,
+                line_total: lineTotal,
+                updated_at: syncedAt,
+              };
+              
+              // Set item_id if it wasn't set before
+              if (!existingItem.item_id) {
+                updateData.item_id = itemId;
+              }
+              
               await adminSupabase
                 .from('order_items')
-                .update({
-                  product_name: item.name || 'Unknown Product',
-                  quantity: item.quantity || 1,
-                  specifications: specifications,
-                  woo_meta: rawMeta,
-                  line_total: lineTotal,
-                  updated_at: syncedAt,
-                })
+                .update(updateData)
                 .eq('id', existingItem.id);
                 
               console.log(`Updated item ${item.name} for order ${orderId}`);
             } else {
-              // Create new item
+              // Create new item with item_id
+              const deliveryDate = new Date();
+              deliveryDate.setDate(deliveryDate.getDate() + 7);
+              
               const { error: itemError } = await adminSupabase
                 .from('order_items')
                 .insert({
+                  item_id: itemId,
                   order_id: orderDbId,
                   product_name: item.name || 'Unknown Product',
                   quantity: item.quantity || 1,
@@ -839,6 +875,11 @@ serve(async (req) => {
                   current_stage: 'sales',
                   assigned_department: 'sales',
                   priority: 'blue',
+                  delivery_date: deliveryDate.toISOString(),
+                  is_ready_for_production: false,
+                  is_dispatched: false,
+                  created_at: syncedAt,
+                  updated_at: syncedAt,
                 });
 
               if (itemError) {

@@ -1,21 +1,22 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase configuration - environment variables se lelo
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://hswgdeldouyclpeqbbgq.supabase.co';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// Supabase configuration - MUST use environment variables
+// Never hardcode credentials in source code!
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // Create a mock client if key is missing (for graceful degradation)
 let supabaseClient: any = null;
 
-if (!supabaseAnonKey || supabaseAnonKey.trim() === '') {
-  const errorMsg = `❌ VITE_SUPABASE_ANON_KEY is required!
+if (!supabaseAnonKey || supabaseAnonKey.trim() === '' || !supabaseUrl) {
+  const errorMsg = `❌ Supabase configuration is required!
 
 Please create a .env file in project root with:
-VITE_SUPABASE_URL=https://hswgdeldouyclpeqbbgq.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhzd2dkZWxkb3V5Y2xwZXFiYmdxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMzU2NjAsImV4cCI6MjA4MTcxMTY2MH0.1Np96vCvDdFy_s2LSneyoorOLUvlpUw2AcAAemX3BnI
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 
-Get your anon key from:
-https://app.supabase.com/project/hswgdeldouyclpeqbbgq/settings/api
+Get your credentials from:
+https://app.supabase.com/project/YOUR_PROJECT/settings/api
 (Copy the "anon public" key)
 
 Then restart the dev server (npm run dev)`;
@@ -55,7 +56,7 @@ if (!supabaseClient) {
         autoRefreshToken: true,
         detectSessionInUrl: true,
         storage: typeof window !== 'undefined' ? window.localStorage : undefined,
-        storageKey: 'sb-hswgdeldouyclpeqbbgq-auth-token',
+        storageKey: `sb-${supabaseUrl?.split('//')[1]?.split('.')[0] || 'supabase'}-auth-token`,
         flowType: 'pkce',
       },
       global: {

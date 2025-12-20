@@ -12,8 +12,7 @@ import { format } from 'date-fns';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
-import { doc, updateDoc, Timestamp } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Tooltip,
   TooltipContent,
@@ -29,7 +28,7 @@ interface DispatchInfo {
 }
 
 export default function Dispatch() {
-  const { orders, updateItemStage, addTimelineEntry, refreshOrders } = useOrders();
+  const { orders, updateItemStage, addTimelineEntry, refreshOrders, markAsDispatched } = useOrders();
   const { user, profile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [validationDialogOpen, setValidationDialogOpen] = useState(false);
@@ -114,32 +113,21 @@ export default function Dispatch() {
     if (!selectedItem) return;
 
     try {
-      // Save dispatch info to the order item
-      await updateDoc(doc(db, 'order_items', selectedItem.itemId), {
-        dispatch_info: JSON.parse(JSON.stringify(dispatchInfo)),
-        is_dispatched: true,
-        updated_at: Timestamp.now(),
-      });
+      // First, update dispatch_info using Supabase
+      const { error: updateError } = await supabase
+        .from('order_items')
+        .update({
+          dispatch_info: dispatchInfo,
+          is_dispatched: true,
+          current_stage: 'dispatch',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', selectedItem.itemId);
 
-      // Update stage to dispatch (not completed yet)
-      await updateDoc(doc(db, 'order_items', selectedItem.itemId), {
-        current_stage: 'dispatch',
-        updated_at: Timestamp.now(),
-      });
+      if (updateError) throw updateError;
 
-      // Add timeline entry for dispatch with details
-      await addTimelineEntry({
-        order_id: selectedItem.orderUUID,
-        item_id: selectedItem.itemId,
-        stage: 'dispatch',
-        action: 'dispatched',
-        performed_by: user?.id || '',
-        performed_by_name: profile?.full_name || 'Unknown',
-        notes: `Dispatched via ${dispatchInfo.courier_company} | AWB: ${dispatchInfo.tracking_number} | Date: ${dispatchInfo.dispatch_date}`,
-        is_public: true,
-      });
-
-      await refreshOrders();
+      // Then use markAsDispatched from OrderContext which handles timeline and notifications
+      await markAsDispatched(selectedItem.orderId, selectedItem.itemId);
 
       toast({
         title: "Item Dispatched",
@@ -148,6 +136,7 @@ export default function Dispatch() {
 
       setValidationDialogOpen(false);
       setSelectedItem(null);
+      await refreshOrders();
     } catch (error) {
       console.error('Error dispatching:', error);
       toast({

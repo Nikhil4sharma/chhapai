@@ -967,67 +967,152 @@ export default function Settings() {
             for (const lineItem of wooOrder.line_items || []) {
               const itemId = `${orderId}-${lineItem.id}`;
               
-              // TODO: Migrate to Supabase - check existing item
-              const { data: existingItems } = await supabase
-                .from('order_items')
-                .select('*')
-                .eq('item_id', itemId)
-                .limit(1);
-              
               const specifications = parseProductMeta(lineItem.meta_data || []);
               
-              if (existingItems && existingItems.length > 0) {
-                // Update existing item (preserve stage/assignment)
-                const existingItem = existingItems[0];
-                await supabase
+              // Check existing item - try by item_id first, fallback to order_id + woo_meta
+              let existingItems: any[] = [];
+              let existingItem: any = null;
+              
+              // Try to find by item_id (if column exists)
+              try {
+                const { data: itemsById, error: idError } = await supabase
                   .from('order_items')
-                  .update({
-                    product_name: lineItem.name,
-                    quantity: lineItem.quantity,
-                    line_total: parseFloat(lineItem.total) || 0,
-                    specifications: specifications,
-                    woo_meta: {
-                      product_id: lineItem.product_id,
-                      variation_id: lineItem.variation_id,
-                    },
-                    updated_at: new Date().toISOString(),
-                    // Preserve: current_stage, assigned_to, assigned_department, etc.
-                  })
-                  .eq('item_id', itemId);
+                  .select('*')
+                  .eq('item_id', itemId)
+                  .limit(1);
+                
+                if (!idError && itemsById && itemsById.length > 0) {
+                  existingItems = itemsById;
+                  existingItem = itemsById[0];
+                }
+              } catch (error: any) {
+                // If item_id column doesn't exist, fallback to checking by order_id + woo_meta
+                if (error?.code === 'PGRST204' || error?.message?.includes('item_id')) {
+                  // Fallback: Check by order_id + product_id from woo_meta
+                  const { data: itemsByMeta, error: metaError } = await supabase
+                    .from('order_items')
+                    .select('*')
+                    .eq('order_id', existingOrderDoc.id)
+                    .limit(100); // Get all items for this order
+                  
+                  if (!metaError && itemsByMeta) {
+                    // Find item by matching product_id in woo_meta
+                    existingItem = itemsByMeta.find((item: any) => {
+                      const wooMeta = item.woo_meta;
+                      if (Array.isArray(wooMeta)) {
+                        const productIdMeta = wooMeta.find((m: any) => m.key === 'product_id' || m.product_id);
+                        return productIdMeta?.value === lineItem.product_id?.toString() || 
+                               productIdMeta?.product_id === lineItem.product_id;
+                      } else if (wooMeta && typeof wooMeta === 'object') {
+                        return wooMeta.product_id === lineItem.product_id;
+                      }
+                      return false;
+                    });
+                    
+                    if (existingItem) {
+                      existingItems = [existingItem];
+                    }
+                  }
+                } else {
+                  console.error('Error checking existing item:', error);
+                }
+              }
+              
+              if (existingItems && existingItems.length > 0 && existingItem) {
+                // Update existing item (preserve stage/assignment)
+                const updateData: any = {
+                  product_name: lineItem.name,
+                  quantity: lineItem.quantity,
+                  line_total: parseFloat(lineItem.total) || 0,
+                  specifications: specifications,
+                  woo_meta: {
+                    product_id: lineItem.product_id,
+                    variation_id: lineItem.variation_id,
+                  },
+                  updated_at: new Date().toISOString(),
+                  // Preserve: current_stage, assigned_to, assigned_department, etc.
+                };
+                
+                // Try to update by item_id, fallback to id (UUID)
+                try {
+                  const { error: updateError } = await supabase
+                    .from('order_items')
+                    .update(updateData)
+                    .eq('item_id', itemId);
+                  
+                  if (updateError && updateError.code === 'PGRST204') {
+                    // Fallback: Update by UUID id
+                    await supabase
+                      .from('order_items')
+                      .update(updateData)
+                      .eq('id', existingItem.id);
+                  } else if (updateError) {
+                    throw updateError;
+                  }
+                } catch (updateErr: any) {
+                  // If item_id column doesn't exist, update by UUID
+                  if (updateErr?.code === 'PGRST204') {
+                    await supabase
+                      .from('order_items')
+                      .update(updateData)
+                      .eq('id', existingItem.id);
+                  } else {
+                    console.error(`Error updating order item ${itemId}:`, updateErr);
+                    errors.push(`Item ${lineItem.name}: ${updateErr.message || 'Failed to update item'}`);
+                  }
+                }
               } else {
                 // Create new item
                 const deliveryDate = new Date();
                 deliveryDate.setDate(deliveryDate.getDate() + 7);
                 
-                const { error: insertError } = await supabase
-                  .from('order_items')
-                  .insert({
-                    item_id: itemId,
-                    order_id: orderId,
-                    product_name: lineItem.name,
-                    quantity: lineItem.quantity,
-                    line_total: parseFloat(lineItem.total) || 0,
-                    specifications: specifications,
-                    woo_meta: {
-                      product_id: lineItem.product_id,
-                      variation_id: lineItem.variation_id,
-                    },
-                    need_design: true,
-                    current_stage: 'sales',
-                    current_substage: null,
-                    assigned_to: null,
-                    assigned_department: 'sales',
-                    priority: 'blue', // Add default priority
-                    delivery_date: deliveryDate.toISOString(),
-                    is_ready_for_production: false,
-                    is_dispatched: false,
-                    created_at: new Date(wooOrder.date_created).toISOString(),
-                    updated_at: new Date().toISOString(),
-                  });
+                const insertData: any = {
+                  order_id: existingOrderDoc.id, // CRITICAL: Use UUID, not string order_id
+                  product_name: lineItem.name,
+                  quantity: lineItem.quantity,
+                  line_total: parseFloat(lineItem.total) || 0,
+                  specifications: specifications,
+                  woo_meta: {
+                    product_id: lineItem.product_id,
+                    variation_id: lineItem.variation_id,
+                  },
+                  need_design: true,
+                  current_stage: 'sales',
+                  current_substage: null,
+                  assigned_to: null,
+                  assigned_department: 'sales',
+                  priority: 'blue', // Add default priority
+                  delivery_date: deliveryDate.toISOString(),
+                  is_ready_for_production: false,
+                  is_dispatched: false,
+                  created_at: new Date(wooOrder.date_created).toISOString(),
+                  updated_at: new Date().toISOString(),
+                };
                 
-                if (insertError) {
-                  console.error(`Error creating order item ${itemId}:`, insertError);
-                  errors.push(`Item ${lineItem.name}: ${insertError.message || 'Failed to create item'}`);
+                // Only add item_id if column exists (will be added by migration)
+                // For now, try with item_id, if it fails, try without
+                try {
+                  insertData.item_id = itemId;
+                  const { error: insertError } = await supabase
+                    .from('order_items')
+                    .insert(insertData);
+                  
+                  if (insertError && insertError.code === 'PGRST204') {
+                    // item_id column doesn't exist, insert without it
+                    delete insertData.item_id;
+                    const { error: insertError2 } = await supabase
+                      .from('order_items')
+                      .insert(insertData);
+                    
+                    if (insertError2) {
+                      throw insertError2;
+                    }
+                  } else if (insertError) {
+                    throw insertError;
+                  }
+                } catch (insertErr: any) {
+                  console.error(`Error creating order item ${itemId}:`, insertErr);
+                  errors.push(`Item ${lineItem.name}: ${insertErr.message || 'Failed to create item'}`);
                 }
               }
             }
@@ -1127,30 +1212,53 @@ export default function Settings() {
               
               const specifications = parseProductMeta(lineItem.meta_data || []);
               
-              await supabase
-                .from('order_items')
-                .insert({
-                  item_id: itemId,
-                  order_id: orderId,
-                  product_name: lineItem.name,
-                  quantity: lineItem.quantity,
-                  line_total: parseFloat(lineItem.total) || 0,
-                  specifications: specifications,
-                  woo_meta: {
-                    product_id: lineItem.product_id,
-                    variation_id: lineItem.variation_id,
-                  },
-                  need_design: true,
-                  current_stage: 'sales',
-                  current_substage: null,
-                  assigned_to: null,
-                  assigned_department: 'sales',
-                  delivery_date: deliveryDate.toISOString(),
-                  is_ready_for_production: false,
-                  is_dispatched: false,
-                  created_at: new Date(wooOrder.date_created).toISOString(),
-                  updated_at: new Date().toISOString(),
-                });
+              const insertData: any = {
+                order_id: newOrder.id, // CRITICAL: Use UUID, not string order_id
+                product_name: lineItem.name,
+                quantity: lineItem.quantity,
+                line_total: parseFloat(lineItem.total) || 0,
+                specifications: specifications,
+                woo_meta: {
+                  product_id: lineItem.product_id,
+                  variation_id: lineItem.variation_id,
+                },
+                need_design: true,
+                current_stage: 'sales',
+                current_substage: null,
+                assigned_to: null,
+                assigned_department: 'sales',
+                priority: 'blue', // Add default priority
+                delivery_date: deliveryDate.toISOString(),
+                is_ready_for_production: false,
+                is_dispatched: false,
+                created_at: new Date(wooOrder.date_created).toISOString(),
+                updated_at: new Date().toISOString(),
+              };
+              
+              // Try to add item_id (if column exists), fallback if it doesn't
+              try {
+                insertData.item_id = itemId;
+                const { error: itemError } = await supabase
+                  .from('order_items')
+                  .insert(insertData);
+                
+                if (itemError && itemError.code === 'PGRST204') {
+                  // item_id column doesn't exist, insert without it
+                  delete insertData.item_id;
+                  const { error: itemError2 } = await supabase
+                    .from('order_items')
+                    .insert(insertData);
+                  
+                  if (itemError2) {
+                    throw itemError2;
+                  }
+                } else if (itemError) {
+                  throw itemError;
+                }
+              } catch (itemErr: any) {
+                console.error(`Error creating order item ${itemId}:`, itemErr);
+                errors.push(`Item ${lineItem.name}: ${itemErr.message || 'Failed to create item'}`);
+              }
             }
 
             imported++;
@@ -1303,6 +1411,11 @@ export default function Settings() {
         setAutoSyncInterval(newInterval);
       }
       
+      // Refresh orders after sync to show new/updated orders immediately
+      if (refreshOrders) {
+        await refreshOrders();
+      }
+      
       toast({
         title: "Sync Complete",
         description: `Imported ${imported} new, updated ${updated} existing, restored ${restored} archived, archived ${archived} missing orders`,
@@ -1317,7 +1430,7 @@ export default function Settings() {
     } finally {
       setSyncLoading(false);
     }
-  }, [isAdmin, wooSettings.isConnected, user]);
+  }, [isAdmin, wooSettings.isConnected, user, refreshOrders]);
   
   // Store handleManualSync in ref for use in auto sync
   useEffect(() => {
@@ -2245,34 +2358,18 @@ export default function Settings() {
                             try {
                               setSyncLoading(true);
                               
-                              // Get all orders
-                              // TODO: Migrate to Supabase - get all orders
-                              const { data: ordersData } = await supabase
+                              // Get all orders first to count them
+                              const { data: ordersData, error: fetchError } = await supabase
                                 .from('orders')
                                 .select('id');
+                              
+                              if (fetchError) {
+                                throw fetchError;
+                              }
+                              
                               const orders = ordersData || [];
                               
-                              // Get all items
-                              const { data: itemsData } = await supabase
-                                .from('order_items')
-                                .select('id');
-                              const items = itemsData || [];
-                              
-                              // Get all files
-                              const { data: filesData } = await supabase
-                                .from('order_files')
-                                .select('id');
-                              const files = filesData || [];
-                              
-                              // Get all timeline entries
-                              const { data: timelineData } = await supabase
-                                .from('timeline')
-                                .select('id');
-                              const timeline = timelineData || [];
-                              
-                              const totalDocs = orders.length + items.length + files.length + timeline.length;
-                              
-                              if (totalDocs === 0) {
+                              if (orders.length === 0) {
                                 toast({
                                   title: "No Orders Found",
                                   description: "There are no orders to delete.",
@@ -2281,60 +2378,59 @@ export default function Settings() {
                                 return;
                               }
 
-                              // Delete in batches (Supabase allows batch deletes)
-                              let deleted = 0;
+                              // Since CASCADE is set up in the database schema:
+                              // - Deleting orders will automatically delete related order_items (ON DELETE CASCADE)
+                              // - Deleting order_items will automatically delete related order_files (ON DELETE CASCADE)
+                              // - Deleting orders will automatically delete related timeline entries (ON DELETE CASCADE)
+                              // So we only need to delete orders, and everything else will be deleted automatically
                               
-                              // Delete orders
-                              if (orders.length > 0) {
-                                const orderIds = orders.map(o => o.id);
-                                const { error: ordersError } = await supabase
+                              const orderIds = orders.map(o => o.id).filter((id): id is string => !!id);
+                              
+                              if (orderIds.length === 0) {
+                                toast({
+                                  title: "Error",
+                                  description: "No valid order IDs found.",
+                                  variant: "destructive",
+                                });
+                                setSyncLoading(false);
+                                return;
+                              }
+                              
+                              // Delete orders in batches (Supabase has a limit on .in() queries)
+                              const BATCH_SIZE = 100;
+                              let deleted = 0;
+                              let lastError: any = null;
+                              
+                              for (let i = 0; i < orderIds.length; i += BATCH_SIZE) {
+                                const batch = orderIds.slice(i, i + BATCH_SIZE);
+                                const { error: deleteError } = await supabase
                                   .from('orders')
                                   .delete()
-                                  .in('id', orderIds);
-                                if (!ordersError) deleted += orders.length;
+                                  .in('id', batch);
+                                
+                                if (deleteError) {
+                                  console.error(`Error deleting batch ${i / BATCH_SIZE + 1}:`, deleteError);
+                                  lastError = deleteError;
+                                  // Continue with next batch even if one fails
+                                } else {
+                                  deleted += batch.length;
+                                }
                               }
                               
-                              // Delete items
-                              if (items.length > 0) {
-                                const itemIds = items.map(i => i.id);
-                                const { error: itemsError } = await supabase
-                                  .from('order_items')
-                                  .delete()
-                                  .in('id', itemIds);
-                                if (!itemsError) deleted += items.length;
+                              if (lastError && deleted === 0) {
+                                // All batches failed
+                                throw lastError;
                               }
                               
-                              // Delete files
-                              if (files.length > 0) {
-                                const fileIds = files.map(f => f.id);
-                                const { error: filesError } = await supabase
-                                  .from('order_files')
-                                  .delete()
-                                  .in('id', fileIds);
-                                if (!filesError) deleted += files.length;
-                              }
+                              // Verify deletion by checking if any orders remain
+                              const { data: remainingOrders } = await supabase
+                                .from('orders')
+                                .select('id')
+                                .limit(1);
                               
-                              // Delete timeline - ensure all entries are deleted
-                              if (timeline.length > 0) {
-                                const timelineIds = timeline.map(t => t.id);
-                                const { error: timelineError } = await supabase
-                                  .from('timeline')
-                                  .delete()
-                                  .in('id', timelineIds);
-                                if (!timelineError) deleted += timeline.length;
-                              }
-                              
-                              // Double-check: Delete any remaining timeline entries (orphaned entries)
-                              const { data: remainingTimeline } = await supabase
-                                .from('timeline')
-                                .select('id');
-                              if (remainingTimeline && remainingTimeline.length > 0) {
-                                const remainingIds = remainingTimeline.map(t => t.id);
-                                const { error: remainingError } = await supabase
-                                  .from('timeline')
-                                  .delete()
-                                  .in('id', remainingIds);
-                                if (!remainingError) deleted += remainingTimeline.length;
+                              if (remainingOrders && remainingOrders.length > 0) {
+                                // Some orders might still exist, log warning but don't fail
+                                console.warn('Some orders may not have been deleted. Remaining count:', remainingOrders.length);
                               }
                               
                               // Reset lastSync time

@@ -45,8 +45,8 @@ const getAllowedDepartments = (userRole: string | null, isAdmin: boolean, curren
   // Department-specific workflow rules
   switch (userRole) {
     case 'sales':
-      // Sales can assign to Design, Prepress, or Outsource
-      return ['design', 'prepress', 'outsource'];
+      // Sales can assign to Design, Prepress, Production, or Outsource
+      return ['design', 'prepress', 'production', 'outsource'];
     case 'design':
       // Design can forward to Prepress or Production
       return ['prepress', 'production'];

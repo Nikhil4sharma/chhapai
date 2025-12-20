@@ -1,6 +1,5 @@
 import { Order, OrderItem, Stage } from '@/types/order';
-import { collection, doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+// Firebase removed - using local storage for learning data (optional functionality)
 
 /**
  * Self-Learning Analytics System
@@ -69,15 +68,13 @@ const DEFAULT_LEARNING_DATA: LearningData = {
 };
 
 /**
- * Load learning data from Firestore
+ * Load learning data from local storage (Firebase removed)
  */
 export async function loadLearningData(): Promise<LearningData> {
   try {
-    const docRef = doc(db, 'analytics_learning', 'main');
-    const docSnap = await getDoc(docRef);
-    
-    if (docSnap.exists()) {
-      const data = docSnap.data();
+    const stored = localStorage.getItem('analytics_learning');
+    if (stored) {
+      const data = JSON.parse(stored);
       return {
         ...DEFAULT_LEARNING_DATA,
         ...data,
@@ -88,7 +85,7 @@ export async function loadLearningData(): Promise<LearningData> {
         prediction_accuracy: {
           ...DEFAULT_LEARNING_DATA.prediction_accuracy,
           ...data.prediction_accuracy,
-          last_calibrated: data.prediction_accuracy?.last_calibrated?.toDate() || new Date(),
+          last_calibrated: data.prediction_accuracy?.last_calibrated ? new Date(data.prediction_accuracy.last_calibrated) : new Date(),
         },
       } as LearningData;
     }
@@ -101,23 +98,16 @@ export async function loadLearningData(): Promise<LearningData> {
 }
 
 /**
- * Save learning data to Firestore
- * Note: This requires write permissions on analytics_learning collection
- * If permissions are not available, this will fail silently
+ * Save learning data to local storage (Firebase removed)
  */
 export async function saveLearningData(data: LearningData): Promise<void> {
   try {
-    const docRef = doc(db, 'analytics_learning', 'main');
-    await setDoc(docRef, {
+    const dataToSave = {
       ...data,
-      last_updated: Timestamp.now(),
-    }, { merge: true });
+      last_updated: new Date().toISOString(),
+    };
+    localStorage.setItem('analytics_learning', JSON.stringify(dataToSave));
   } catch (error: any) {
-    // Silently handle permission errors - this is not critical functionality
-    if (error?.code === 'permission-denied' || error?.code === 'PERMISSION_DENIED') {
-      console.warn('Analytics learning: Write permissions not available. This is optional functionality.');
-      return;
-    }
     console.error('Error saving learning data:', error);
   }
 }

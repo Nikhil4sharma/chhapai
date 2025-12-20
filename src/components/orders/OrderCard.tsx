@@ -12,8 +12,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useOrders } from '@/contexts/OrderContext';
 import { toast } from '@/hooks/use-toast';
-import { doc, deleteDoc } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Dialog,
   DialogContent,
@@ -332,8 +331,13 @@ export function OrderCard({ order, className }: OrderCardProps) {
                 try {
                   const fileName = selectedFile.file_name || selectedFile.url.split('/').pop() || 'File';
                   
-                  // Delete the file from Firestore
-                  await deleteDoc(doc(db, 'order_files', selectedFile.file_id));
+                  // Delete the file from Supabase
+                  const { error: deleteError } = await supabase
+                    .from('order_files')
+                    .delete()
+                    .eq('id', selectedFile.file_id);
+                  
+                  if (deleteError) throw deleteError;
                   
                   // Add timeline entry for file deletion (history preservation)
                   if (order.id && mainItem && user && profile) {
@@ -343,7 +347,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
                       product_name: mainItem.product_name,
                       stage: mainItem.current_stage,
                       action: 'note_added',
-                      performed_by: user.uid,
+                      performed_by: user.id,
                       performed_by_name: profile.full_name || 'Unknown',
                       notes: `File deleted: ${fileName}`,
                       attachments: [{ url: selectedFile.url, type: selectedFile.type }], // Keep file URL in history

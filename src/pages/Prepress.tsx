@@ -33,6 +33,7 @@ import { OutsourceAssignmentDialog } from '@/components/dialogs/OutsourceAssignm
 import { VendorDetails, OutsourceJobDetails, Order, OrderItem } from '@/types/order';
 import { supabase } from '@/integrations/supabase/client';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { OrderCard } from '@/components/orders/OrderCard';
 
 interface PrepressUser {
   user_id: string;

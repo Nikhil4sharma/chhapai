@@ -200,3 +200,41 @@ export function getSupabaseFileUrl(
   return data?.publicUrl || '';
 }
 
+/**
+ * Get signed URL for a private file (valid for 1 hour)
+ * @param filePath - Path of file
+ * @param bucket - Storage bucket name (default: 'order-files')
+ * @param expiresIn - Expiration time in seconds (default: 3600 = 1 hour)
+ * @returns Signed URL or public URL if bucket is public
+ */
+export async function getSupabaseSignedUrl(
+  filePath: string,
+  bucket: string = 'order-files',
+  expiresIn: number = 3600
+): Promise<string> {
+  try {
+    // First try to get signed URL (for private buckets)
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from(bucket)
+      .createSignedUrl(filePath, expiresIn);
+
+    if (!signedError && signedData?.signedUrl) {
+      return signedData.signedUrl;
+    }
+
+    // Fallback to public URL if signed URL fails (bucket might be public)
+    const { data: publicData } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(filePath);
+
+    return publicData?.publicUrl || '';
+  } catch (error) {
+    console.error('Error getting signed URL:', error);
+    // Fallback to public URL
+    const { data: publicData } = supabase.storage
+      .from(bucket)
+      .getPublicUrl(filePath);
+    return publicData?.publicUrl || '';
+  }
+}
+

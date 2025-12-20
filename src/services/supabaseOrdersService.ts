@@ -154,8 +154,17 @@ function transformOrderItem(itemRow: any, filesData: any[], profilesMap: Map<str
       is_public: f.is_public || false,
     }));
 
+  // Handle missing delivery_date - use order's delivery_date or default to 7 days from now
+  let deliveryDate: Date;
+  if (itemRow.delivery_date) {
+    deliveryDate = new Date(itemRow.delivery_date);
+  } else {
+    deliveryDate = new Date();
+    deliveryDate.setDate(deliveryDate.getDate() + 7);
+  }
+
   return {
-    item_id: itemRow.id,
+    item_id: itemRow.item_id || itemRow.id, // Use item_id if available, fallback to id
     order_id: itemRow.order_id,
     product_name: itemRow.product_name,
     sku: itemRow.sku || undefined,
@@ -169,8 +178,8 @@ function transformOrderItem(itemRow: any, filesData: any[], profilesMap: Map<str
     assigned_to: itemRow.assigned_to || undefined,
     assigned_to_name: itemRow.assigned_to ? profilesMap.get(itemRow.assigned_to) || null : null,
     assigned_department: itemRow.assigned_department as UserRole,
-    delivery_date: new Date(itemRow.delivery_date),
-    priority_computed: computePriority(itemRow.delivery_date ? new Date(itemRow.delivery_date) : null),
+    delivery_date: deliveryDate,
+    priority_computed: computePriority(deliveryDate),
     files: itemFiles,
     is_ready_for_production: itemRow.is_ready_for_production || false,
     is_dispatched: itemRow.is_dispatched || false,
@@ -408,11 +417,58 @@ export async function fetchTimelineEntries(orderId: string, itemId?: string): Pr
  */
 export async function addTimelineEntry(entry: Omit<TimelineEntry, 'timeline_id' | 'created_at'>): Promise<void> {
   try {
+    // CRITICAL: Convert order_id string (WC-53522) to UUID (orders.id)
+    // Timeline table expects UUID, not the order_id text field
+    let orderUuid: string | null = null;
+    
+    // Check if order_id is already a UUID (format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    if (uuidRegex.test(entry.order_id)) {
+      // Already a UUID, use it directly
+      orderUuid = entry.order_id;
+    } else {
+      // It's a string order_id (like WC-53522), need to find the UUID
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('order_id', entry.order_id)
+        .single();
+      
+      if (orderError || !orderData) {
+        console.error('Error finding order UUID for timeline entry:', orderError);
+        console.error('Order ID:', entry.order_id);
+        // Don't throw - just skip timeline entry if order not found
+        return;
+      }
+      
+      orderUuid = orderData.id;
+    }
+
+    // Also convert item_id if it's not a UUID (should be UUID already, but check)
+    let itemUuid: string | null = null;
+    if (entry.item_id) {
+      if (uuidRegex.test(entry.item_id)) {
+        itemUuid = entry.item_id;
+      } else {
+        // Try to find item UUID by item_id field
+        const { data: itemData } = await supabase
+          .from('order_items')
+          .select('id')
+          .eq('item_id', entry.item_id)
+          .single();
+        
+        if (itemData) {
+          itemUuid = itemData.id;
+        }
+      }
+    }
+
     const { error } = await supabase
       .from('timeline')
       .insert({
-        order_id: entry.order_id,
-        item_id: entry.item_id || null,
+        order_id: orderUuid,
+        item_id: itemUuid,
         stage: entry.stage,
         substage: entry.substage || null,
         action: entry.action,

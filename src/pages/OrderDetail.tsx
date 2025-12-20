@@ -216,6 +216,7 @@ export default function OrderDetail() {
       production: 'production',
       dispatch: 'production',
       completed: 'production',
+      outsource: 'production', // Outsource is handled by production department
     };
     
     const itemDept = stageToDept[item.current_stage];
@@ -262,13 +263,13 @@ export default function OrderDetail() {
     );
   }
 
-  // Check if order has items
-  if (!order.items || order.items.length === 0) {
+  // Check if order exists
+  if (!order) {
     return (
       <TooltipProvider>
         <div className="flex flex-col items-center justify-center py-12">
-          <h2 className="text-xl font-semibold mb-2">Order has no items</h2>
-          <p className="text-muted-foreground mb-4">This order doesn't have any items.</p>
+          <h2 className="text-xl font-semibold mb-2">Order not found</h2>
+          <p className="text-muted-foreground mb-4">This order doesn't exist or you don't have access to it.</p>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button asChild>
@@ -285,8 +286,10 @@ export default function OrderDetail() {
     );
   }
 
-  const mainItem = order.items[0];
-  const selectedItem = order.items.find(i => i.item_id === selectedItemId);
+  // Handle orders with no items (synced orders may not have items yet)
+  const hasItems = order.items && order.items.length > 0;
+  const mainItem = hasItems ? order.items[0] : null;
+  const selectedItem = hasItems ? order.items.find(i => i.item_id === selectedItemId) : null;
   
   // Get delivery date for summary card
   const deliveryDate = mainItem?.delivery_date || order.order_level_delivery_date;
@@ -523,7 +526,7 @@ export default function OrderDetail() {
                     >
                       <CardTitle className="text-lg font-display flex items-center gap-2">
                         <Package className="h-5 w-5" />
-                        Order Items ({order.items.length})
+                        Order Items ({hasItems ? order.items.length : 0})
                       </CardTitle>
                       {itemsOpen ? <ChevronUp className="h-5 w-5 text-muted-foreground" /> : <ChevronDown className="h-5 w-5 text-muted-foreground" />}
                     </div>
@@ -531,8 +534,9 @@ export default function OrderDetail() {
                 </CardHeader>
                 <CollapsibleContent>
                   <CardContent className="flex-1 overflow-y-auto custom-scrollbar pt-0 space-y-4">
-                    {order.items.map((item, index) => {
-                      const deliveryDateFormatted = format(item.delivery_date, 'd MMMM yyyy');
+                    {hasItems ? (
+                      order.items.map((item, index) => {
+                        const deliveryDateFormatted = format(item.delivery_date, 'd MMMM yyyy');
                       const priorityColor = item.priority_computed === 'red' 
                         ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'
                         : item.priority_computed === 'yellow'
@@ -1117,7 +1121,14 @@ export default function OrderDetail() {
                         </CollapsibleContent>
                       </Collapsible>
                     );
-                    })}
+                      })
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-12 text-center">
+                        <Package className="h-12 w-12 text-muted-foreground mb-4" />
+                        <h3 className="font-semibold text-lg mb-2">No items in this order</h3>
+                        <p className="text-muted-foreground">Items will appear here once they are synced or added to the order.</p>
+                      </div>
+                    )}
                   </CardContent>
                 </CollapsibleContent>
               </Collapsible>
@@ -1335,7 +1346,7 @@ export default function OrderDetail() {
                 )}
 
                 {/* PREPRESS ACTIONS */}
-                {(isAdmin || role === 'prepress') && mainItem?.current_stage === 'prepress' && (
+                {(isAdmin || role === 'prepress' || role === 'sales') && mainItem?.current_stage === 'prepress' && (
                   <>
                     <DropdownMenu>
                       <Tooltip>
@@ -1381,20 +1392,71 @@ export default function OrderDetail() {
                       </DropdownMenuContent>
                     </DropdownMenu>
 
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button 
-                          variant="outline"
-                          className="w-full" 
-                          size="sm"
-                          onClick={() => updateItemStage(orderId!, mainItem.item_id, 'design')}
+                    {(isAdmin || role === 'prepress') && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button 
+                            variant="outline"
+                            className="w-full" 
+                            size="sm"
+                            onClick={() => updateItemStage(orderId!, mainItem.item_id, 'design')}
+                          >
+                            <Palette className="h-4 w-4 mr-2" />
+                            Return to Design
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Send back to design for revisions</TooltipContent>
+                      </Tooltip>
+                    )}
+                  </>
+                )}
+
+                {/* SALES ACTIONS - Allow sales to assign to production/outsource from any stage */}
+                {(isAdmin || role === 'sales') && mainItem && (mainItem.current_stage === 'sales' || mainItem.current_stage === 'design' || mainItem.current_stage === 'prepress') && (
+                  <>
+                    <DropdownMenu>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <DropdownMenuTrigger asChild>
+                            <Button className="w-full" size="sm" variant="outline">
+                              <Factory className="h-4 w-4 mr-2" />
+                              Assign to Production/Outsource
+                            </Button>
+                          </DropdownMenuTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent>Assign to production or outsource</TooltipContent>
+                      </Tooltip>
+                      <DropdownMenuContent align="end" className="bg-popover">
+                        <DropdownMenuItem 
+                          onClick={() => {
+                            setSelectedItemForProduction({
+                              orderId: orderId!,
+                              itemId: mainItem.item_id,
+                              productName: mainItem.product_name,
+                              currentSequence: (mainItem as any).production_stage_sequence
+                            });
+                            setProductionStageDialogOpen(true);
+                          }}
                         >
-                          <Palette className="h-4 w-4 mr-2" />
-                          Return to Design
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Send back to design for revisions</TooltipContent>
-                    </Tooltip>
+                          <Settings className="h-4 w-4 mr-2" />
+                          Define Stages & Send to Production
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={() => {
+                            setSelectedItemForOutsource({
+                              itemId: mainItem.item_id,
+                              productName: mainItem.product_name,
+                              quantity: mainItem.quantity
+                            });
+                            setOutsourceDialogOpen(true);
+                          }}
+                          className="text-blue-500"
+                        >
+                          <Building2 className="h-4 w-4 mr-2" />
+                          Assign to Outsource
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </>
                 )}
 
@@ -1467,7 +1529,7 @@ export default function OrderDetail() {
                     itemStage: mainItem?.current_stage || 'sales',
                     itemAssignedDepartment: mainItem?.assigned_department,
                     itemAssignedTo: mainItem?.assigned_to,
-                    currentUserId: user?.uid,
+                    currentUserId: user?.id,
                   }) ? (
                     <Tooltip>
                       <TooltipTrigger asChild>

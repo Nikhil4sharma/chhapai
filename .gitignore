@@ -32,10 +32,16 @@ dist-ssr
 
 # Supabase
 .supabase
+supabase/.env
+supabase/.env.local
 
 # Firebase
 .firebase
 .firebaserc
+firebase.json
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
 
 # Build outputs
 dist
@@ -57,3 +63,32 @@ coverage
 .cache
 .temp
 .tmp
+
+# Security - Never commit these
+*.pem
+*.key
+*.cert
+*.p12
+*.pfx
+secrets.json
+credentials.json
+config.json
+*.secret
+
+# IDE
+.vscode/settings.json
+.vscode/launch.json
+.idea/workspace.xml
+.idea/tasks.xml
+
+# OS
+Thumbs.db
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.map
+*.min.js
+*.min.css

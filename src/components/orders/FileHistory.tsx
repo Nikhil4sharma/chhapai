@@ -23,6 +23,8 @@ import { OrderFile } from '@/types/order';
 import { format } from 'date-fns';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+import { getSupabaseSignedUrl } from '@/services/supabaseStorage';
+import { PreviewContent } from './PreviewContent';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Collapsible,
@@ -51,6 +53,7 @@ export function FileHistory({ files, orderId, itemId, onFileDeleted }: FileHisto
   const [isDeleting, setIsDeleting] = useState(false);
   const [userNamesMap, setUserNamesMap] = useState<Map<string, string>>(new Map());
   const [previousVersionsOpen, setPreviousVersionsOpen] = useState<Record<string, boolean>>({});
+  const [fileUrlCache, setFileUrlCache] = useState<Map<string, string>>(new Map());
 
   // Fetch user names for uploaded_by fields
   useEffect(() => {
@@ -128,12 +131,115 @@ export function FileHistory({ files, orderId, itemId, onFileDeleted }: FileHisto
     setPreviewOpen(true);
   };
 
+  // Helper to get signed URL for private bucket
+  const getFileUrl = async (file: OrderFile): Promise<string> => {
+    let url = file.url || '';
+    
+    // If URL is a Supabase storage URL, try to get signed URL
+    if (url && url.includes('supabase.co/storage')) {
+      try {
+        // Extract bucket and path from URL
+        const urlObj = new URL(url);
+        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+        
+        if (pathMatch) {
+          const bucket = pathMatch[1];
+          const filePath = pathMatch[2];
+          
+          // Check cache first
+          if (fileUrlCache.has(filePath)) {
+            return fileUrlCache.get(filePath)!;
+          }
+          
+          // Get signed URL for private bucket
+          const signedUrl = await getSupabaseSignedUrl(filePath, bucket);
+          
+          // Cache the URL
+          setFileUrlCache(prev => new Map(prev).set(filePath, signedUrl));
+          
+          return signedUrl;
+        }
+      } catch (e) {
+        console.warn('Failed to get signed URL, using original:', url, e);
+      }
+    }
+    
+    return url;
+  };
+
+  // Synchronous version for immediate use (returns cached URL or original)
+  const getFileUrlSync = (file: OrderFile): string => {
+    let url = file.url || '';
+    
+    // If URL is a Supabase storage URL, check cache
+    if (url && url.includes('supabase.co/storage')) {
+      try {
+        const urlObj = new URL(url);
+        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+        
+        if (pathMatch) {
+          const filePath = pathMatch[2];
+          if (fileUrlCache.has(filePath)) {
+            return fileUrlCache.get(filePath)!;
+          }
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+    
+    return url;
+  };
+
+  // Pre-fetch signed URLs for all files
+  useEffect(() => {
+    const fetchSignedUrls = async () => {
+      const newCache = new Map<string, string>();
+      
+      for (const file of files) {
+        const url = file.url || '';
+        if (url && url.includes('supabase.co/storage')) {
+          try {
+            const urlObj = new URL(url);
+            const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+            
+            if (pathMatch) {
+              const bucket = pathMatch[1];
+              const filePath = pathMatch[2];
+              
+              // Skip if already cached
+              if (fileUrlCache.has(filePath)) {
+                newCache.set(filePath, fileUrlCache.get(filePath)!);
+                continue;
+              }
+              
+              // Get signed URL
+              const signedUrl = await getSupabaseSignedUrl(filePath, bucket);
+              newCache.set(filePath, signedUrl);
+            }
+          } catch (e) {
+            console.warn('Failed to get signed URL for file:', file.url, e);
+          }
+        }
+      }
+      
+      if (newCache.size > 0) {
+        setFileUrlCache(prev => new Map([...prev, ...newCache]));
+      }
+    };
+    
+    fetchSignedUrls();
+  }, [files]);
+
   const handleDownload = async (file: OrderFile) => {
     try {
       const fileName = file.file_name || `file-${file.file_id}`;
       
+      // Get signed URL for private bucket
+      const fileUrl = await getFileUrl(file);
+      
       // For Supabase Storage URLs, fetch the file and create a blob for proper download
-      const response = await fetch(file.url);
+      const response = await fetch(fileUrl);
       if (!response.ok) {
         throw new Error('Failed to fetch file');
       }
@@ -205,53 +311,22 @@ export function FileHistory({ files, orderId, itemId, onFileDeleted }: FileHisto
     return /\.pdf$/i.test(url) || /\.pdf$/i.test(fileName || '');
   };
 
+  const getFileName = (file: OrderFile) => {
+    return file.file_name || file.url.split('/').pop() || 'File';
+  };
+
   const renderPreviewContent = () => {
     if (!previewFile) return null;
     
-    const fileName = previewFile.file_name || previewFile.url.split('/').pop() || 'File';
-    const fileIsPdf = isPdf(previewFile.url, fileName);
-    const fileIsImage = isImage(previewFile.url, fileName);
-
-    if (fileIsPdf) {
-      const encodedUrl = encodeURIComponent(previewFile.url);
-      const googleDocsViewerUrl = `https://docs.google.com/viewer?url=${encodedUrl}&embedded=true`;
-      
-      return (
-        <div className="w-full h-[75vh]">
-          <iframe
-            src={googleDocsViewerUrl}
-            className="w-full h-full rounded-lg border border-border"
-            title={fileName}
-            allow="fullscreen"
-          />
-        </div>
-      );
-    }
-
-    if (fileIsImage) {
-      return (
-        <div className="flex items-center justify-center overflow-auto max-h-[75vh]">
-          <img
-            src={previewFile.url}
-            alt={fileName}
-            className="max-w-full max-h-full object-contain rounded-lg"
-            onError={(e) => {
-              const target = e.currentTarget;
-              target.style.display = 'none';
-            }}
-          />
-        </div>
-      );
-    }
-
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-center">
-        <FileText className="h-16 w-16 text-muted-foreground mb-4" />
-        <p className="text-muted-foreground mb-4">Preview not available for this file type</p>
-        <Button onClick={() => window.open(previewFile.url, '_blank')}>
-          Open File
-        </Button>
-      </div>
+      <PreviewContent
+        file={previewFile}
+        getFileName={getFileName}
+        getFileUrlSync={getFileUrlSync}
+        getFileUrl={getFileUrl}
+        isPdf={isPdf}
+        isImage={isImage}
+      />
     );
   };
 
@@ -300,7 +375,7 @@ export function FileHistory({ files, orderId, itemId, onFileDeleted }: FileHisto
                       <div className="relative h-16 w-16 rounded-md overflow-hidden border border-border bg-muted/50 flex-shrink-0">
                         {isImage(latestFile.url, latestFile.file_name) ? (
                           <img
-                            src={latestFile.url}
+                            src={getFileUrlSync(latestFile)}
                             alt={latestFile.file_name || 'Preview'}
                             className="h-full w-full object-cover"
                             onError={(e) => {
@@ -407,7 +482,7 @@ export function FileHistory({ files, orderId, itemId, onFileDeleted }: FileHisto
                                 <div className="relative h-10 w-10 rounded overflow-hidden border border-border bg-muted/50 flex-shrink-0">
                                   {isImage(file.url, file.file_name) ? (
                                     <img
-                                      src={file.url}
+                                      src={getFileUrlSync(file)}
                                       alt={file.file_name || 'Preview'}
                                       className="h-full w-full object-cover"
                                       onError={(e) => {

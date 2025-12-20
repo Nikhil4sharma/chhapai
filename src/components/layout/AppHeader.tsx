@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useOrders } from '@/contexts/OrderContext';
 import { useWorkLogs } from '@/contexts/WorkLogContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 
 interface AppHeaderProps {
@@ -24,6 +25,7 @@ interface AppHeaderProps {
 export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) {
   const { refreshOrders } = useOrders();
   const { refreshWorkLogs } = useWorkLogs();
+  const { isAdmin, role } = useAuth();
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -112,24 +114,29 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
             
             <NotificationsDropdown />
 
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button size="sm" className="hidden sm:flex gap-2 shadow-sm" onClick={() => setCreateOrderOpen(true)}>
-                  <Plus className="h-4 w-4" />
-                  New Order
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Create a new order</TooltipContent>
-            </Tooltip>
-            
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button size="icon" className="sm:hidden" onClick={() => setCreateOrderOpen(true)}>
-                  <Plus className="h-5 w-5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Create a new order</TooltipContent>
-            </Tooltip>
+            {/* New Order button - Only visible to Sales and Admin */}
+            {(isAdmin || role === 'sales') && (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button size="sm" className="hidden sm:flex gap-2 shadow-sm" onClick={() => setCreateOrderOpen(true)}>
+                      <Plus className="h-4 w-4" />
+                      New Order
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Create a new order</TooltipContent>
+                </Tooltip>
+                
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button size="icon" className="sm:hidden" onClick={() => setCreateOrderOpen(true)}>
+                      <Plus className="h-5 w-5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Create a new order</TooltipContent>
+                </Tooltip>
+              </>
+            )}
             
             <UserMenu />
           </div>

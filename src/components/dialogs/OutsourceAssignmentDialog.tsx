@@ -28,8 +28,7 @@ import {
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { VendorDetails, OutsourceJobDetails } from '@/types/order';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 
 interface OutsourceAssignmentDialogProps {
   open: boolean;
@@ -86,25 +85,34 @@ export function OutsourceAssignmentDialog({
   const [selectedVendorId, setSelectedVendorId] = useState<string>('new');
   const [loadingVendors, setLoadingVendors] = useState(false);
 
-  // Load vendors from Firebase
+  // Load vendors from Supabase
   useEffect(() => {
     const loadVendors = async () => {
       if (!open) return;
       
       setLoadingVendors(true);
       try {
-        const vendorsRef = collection(db, 'vendors');
-        const vendorsSnap = await getDocs(vendorsRef);
-        const vendorsData = vendorsSnap.docs.map(d => ({
-          id: d.id,
-          vendor_name: d.data().vendor_name || '',
-          vendor_company: d.data().vendor_company,
-          contact_person: d.data().contact_person || '',
-          phone: d.data().phone || '',
-          email: d.data().email,
-          city: d.data().city,
+        const { data: vendorsData, error: vendorsError } = await supabase
+          .from('vendors')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (vendorsError) {
+          console.error('Error loading vendors:', vendorsError);
+          throw vendorsError;
+        }
+
+        const mappedVendors = (vendorsData || []).map(v => ({
+          id: v.id,
+          vendor_name: v.vendor_name || '',
+          vendor_company: v.vendor_company || undefined,
+          contact_person: v.contact_person || '',
+          phone: v.phone || '',
+          email: v.email || undefined,
+          city: v.city || undefined,
         }));
-        setVendors(vendorsData);
+        
+        setVendors(mappedVendors);
       } catch (error) {
         console.error('Error loading vendors:', error);
       } finally {
