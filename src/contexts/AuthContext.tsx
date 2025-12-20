@@ -53,45 +53,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }, 10000); // 10 second timeout (increased for Vercel)
 
-    // Get initial session - CRITICAL for page reload
-    const initializeAuth = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        
-        if (!mounted) return;
-        
-        clearTimeout(loadingTimeout);
-        
-        if (error) {
-          console.error('Error getting session:', error);
-          if (mounted) setIsLoading(false);
-          return;
-        }
-
-        if (mounted) {
-          setSession(session);
-          setUser(session?.user ?? null);
-          
-          if (session?.user) {
-            // CRITICAL: Fetch user data before setting loading to false
-            await fetchUserData(session.user.id);
-          } else {
-            setIsLoading(false);
-          }
-        }
-      } catch (error) {
-        if (mounted) {
-          clearTimeout(loadingTimeout);
-          console.error('Error in getSession:', error);
-          setIsLoading(false);
-        }
-      }
-    };
-
-    // Initialize auth immediately
-    initializeAuth();
-
-    // Listen for auth changes - CRITICAL for session persistence
+    // CRITICAL: Use onAuthStateChange as the SINGLE source of truth for auth state
+    // This fires INITIAL_SESSION event on mount which gives us the current session
+    // This prevents race conditions and ensures consistent user state on page reload
     const {
       data: { subscription: authSubscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -101,14 +65,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       console.log('[Auth] Auth state changed:', event, session?.user?.email);
       
+      // Always update session and user state from the event (this is the source of truth)
       setSession(session);
       setUser(session?.user ?? null);
       
       if (session?.user) {
         // CRITICAL: Always fetch user data when session exists
+        // This ensures profile and role are loaded before UI renders
         await fetchUserData(session.user.id);
-        // CRITICAL: Ensure loading is set to false after user data is fetched
-        // fetchUserData already sets isLoading to false, but ensure it here too
       } else {
         // CRITICAL: Clear all data when session is null
         setProfile(null);
