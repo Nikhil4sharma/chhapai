@@ -21,8 +21,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { OrderFile } from '@/types/order';
 import { format } from 'date-fns';
-import { doc, deleteDoc, collection, getDocs } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -60,13 +59,20 @@ export function FileHistory({ files, orderId, itemId, onFileDeleted }: FileHisto
         const userIds = [...new Set(files.map(f => f.uploaded_by).filter(Boolean))];
         if (userIds.length === 0) return;
 
-        const profilesSnapshot = await getDocs(collection(db, 'profiles'));
+        const { data: profilesData, error } = await supabase
+          .from('profiles')
+          .select('user_id, full_name')
+          .in('user_id', userIds);
+
+        if (error) {
+          console.error('Error fetching user names:', error);
+          return;
+        }
+
         const namesMap = new Map<string, string>();
-        
-        profilesSnapshot.docs.forEach(doc => {
-          const data = doc.data();
-          if (data.user_id) {
-            namesMap.set(data.user_id, data.full_name || 'Unknown');
+        (profilesData || []).forEach(profile => {
+          if (profile.user_id) {
+            namesMap.set(profile.user_id, profile.full_name || 'Unknown');
           }
         });
 
@@ -164,7 +170,12 @@ export function FileHistory({ files, orderId, itemId, onFileDeleted }: FileHisto
     
     setIsDeleting(true);
     try {
-      await deleteDoc(doc(db, 'order_files', deleteFileId));
+      const { error } = await supabase
+        .from('order_files')
+        .delete()
+        .eq('id', deleteFileId);
+      
+      if (error) throw error;
       
       toast({
         title: "File Deleted",

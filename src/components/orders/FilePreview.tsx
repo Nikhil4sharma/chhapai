@@ -31,8 +31,7 @@ import {
 import { OrderFile } from '@/types/order';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { doc, deleteDoc } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 
 interface FilePreviewProps {
   files: OrderFile[];
@@ -55,7 +54,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
   const canDeleteFile = (file: OrderFile) => {
     if (!canDelete) return false;
     // Uploader, admin, or sales can delete
-    return file.uploaded_by === user?.uid || isAdmin || role === 'sales';
+    return file.uploaded_by === user?.id || isAdmin || role === 'sales';
   };
 
   if (!files || files.length === 0) return null;

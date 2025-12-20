@@ -653,16 +653,16 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     const activeOrders = orders.filter(o => !o.is_completed && !o.archived_from_wc);
     const deptLower = department.toLowerCase();
     
-    // Admin can see all orders for any department
-    if (isAdmin) {
+    // Admin and Sales can see all orders for any department
+    if (isAdmin || role === 'sales') {
       return activeOrders.filter(order =>
         order.items.some(item => 
-          itemMatchesDepartment(item, deptLower, deptLower, true, undefined, false)
+          itemMatchesDepartment(item, deptLower, deptLower, true, undefined, role === 'sales')
         )
       );
     }
     
-    // CRITICAL: For non-admin users, verify their role OR profile department matches the requested department
+    // CRITICAL: For non-admin/sales users, verify their role OR profile department matches the requested department
     // This prevents users from accessing other departments' orders
     // Check both role (from user_roles) and profile.department (from profiles)
     const userRoleLower = (role || '').toLowerCase().trim();
@@ -670,19 +670,21 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     const roleMatches = userRoleLower === deptLower;
     const profileMatches = profileDeptLower === deptLower;
     
-    // Debug logging
-    console.log(`[getOrdersForDepartment] Checking access for department: ${department}`, {
-      user_id: user?.id,
-      role: role,
-      roleLower: userRoleLower,
-      profileDepartment: profile?.department,
-      profileDeptLower: profileDeptLower,
-      deptLower: deptLower,
-      roleMatches,
-      profileMatches,
-      totalActiveOrders: activeOrders.length,
-      willReturnEmpty: !roleMatches && !profileMatches,
-    });
+    // Debug logging (only for non-admin/sales users)
+    if (!isAdmin && role !== 'sales') {
+      console.log(`[getOrdersForDepartment] Checking access for department: ${department}`, {
+        user_id: user?.id,
+        role: role,
+        roleLower: userRoleLower,
+        profileDepartment: profile?.department,
+        profileDeptLower: profileDeptLower,
+        deptLower: deptLower,
+        roleMatches,
+        profileMatches,
+        totalActiveOrders: activeOrders.length,
+        willReturnEmpty: !roleMatches && !profileMatches,
+      });
+    }
     
     // CRITICAL: If neither role nor profile department matches, return empty array
     // BUT: Also check if user has no role/profile set - in that case, allow access if they're requesting their own department
@@ -690,10 +692,15 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       // Special case: If user has no role/profile set, but they're requesting a department that matches their current context
       // This handles edge cases where user data might be incomplete
       if (!role && !profile?.department) {
-        console.warn(`[getOrdersForDepartment] User has no role or profile department set. Denying access to ${department}`);
+        if (!isAdmin && role !== 'sales') {
+          console.warn(`[getOrdersForDepartment] User has no role or profile department set. Denying access to ${department}`);
+        }
         return [];
       }
-      console.warn(`[getOrdersForDepartment] User role (${role}) and profile department (${profile?.department}) do not match requested department (${department})`);
+      // Only log warning for non-admin/sales users
+      if (!isAdmin && role !== 'sales') {
+        console.warn(`[getOrdersForDepartment] User role (${role}) and profile department (${profile?.department}) do not match requested department (${department})`);
+      }
       return []; // Return empty array if neither role nor profile department matches
     }
     
@@ -1627,11 +1634,13 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
+      // Refresh orders to show new file - wait a bit for database to update
+      await new Promise(resolve => setTimeout(resolve, 300));
       await fetchOrders(false);
 
       toast({
         title: replaceExisting ? "File Replaced" : "File Uploaded",
-        description: `${file.name} has been ${replaceExisting ? 'replaced' : 'uploaded'} successfully`,
+        description: `${file.name} has been ${replaceExisting ? 'replaced' : 'uploaded'} successfully. Preview will update shortly.`,
       });
     } catch (error) {
       console.error('Error uploading file:', error);
