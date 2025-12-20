@@ -1,60 +1,51 @@
-# Fix CORS Error for WooCommerce Edge Function
+# Fix CORS Error for Supabase Edge Function
 
-## Problem
-CORS error aa raha hai Edge Function se:
-```
-Access to fetch at 'https://hswgdeldouyclpeqbbgq.supabase.co/functions/v1/woocommerce' 
-from origin 'http://192.168.1.30:8081' has been blocked by CORS policy
-```
+## Issue
+CORS preflight requests are failing with error: "Response to preflight request doesn't pass access control check: It does not have HTTP ok status."
 
 ## Solution
-Edge Function ko redeploy karna hoga with updated CORS headers.
 
-## Steps to Deploy
+The edge function has been updated to properly handle CORS preflight requests. You need to **redeploy the edge function** for changes to take effect.
 
-### Option 1: Supabase Dashboard se
-1. Supabase Dashboard kholo: https://app.supabase.com
-2. Project select karo
-3. Left sidebar se **Edge Functions** click karo
-4. **woocommerce** function select karo
-5. **Deploy** button click karo
-6. Wait karo deployment complete hone tak
+### Steps to Redeploy:
 
-### Option 2: Supabase CLI se (agar installed hai)
-```bash
-# Supabase login (pehli baar)
-supabase login
+1. **Using Supabase CLI:**
+   ```bash
+   supabase functions deploy woocommerce
+   ```
 
-# Link your project
-supabase link --project-ref hswgdeldouyclpeqbbgq
+2. **Or using Supabase Dashboard:**
+   - Go to Supabase Dashboard → Edge Functions
+   - Find the `woocommerce` function
+   - Click "Redeploy" or update the code manually
 
-# Deploy function
-supabase functions deploy woocommerce
-```
+### What Was Fixed:
 
-### Option 3: Manual Upload
-1. `supabase/functions/woocommerce/index.ts` file ko check karo
-2. Supabase Dashboard → Edge Functions → woocommerce
-3. Code copy karke paste karo
-4. Deploy karo
+1. **OPTIONS Request Handling:**
+   - Added explicit handling for OPTIONS preflight requests
+   - Returns status 200 with proper CORS headers
+   - Added `Content-Length: 0` header for OPTIONS response
 
-## Changes Made
-- ✅ OPTIONS request ke liye status code 200 set kiya (204 se)
-- ✅ CORS headers properly set kiye:
-  - `Access-Control-Allow-Origin: *`
-  - `Access-Control-Allow-Methods: GET, POST, OPTIONS`
-  - `Access-Control-Allow-Headers: authorization, x-client-info, apikey, content-type`
-  - `Access-Control-Max-Age: 86400`
+2. **CORS Headers:**
+   - `Access-Control-Allow-Origin: *`
+   - `Access-Control-Allow-Methods: GET, POST, OPTIONS`
+   - `Access-Control-Allow-Headers: authorization, x-client-info, apikey, content-type`
+   - `Access-Control-Max-Age: 86400`
 
-## Verification
-Deployment ke baad:
-1. Browser console check karo - CORS errors nahi aane chahiye
-2. FetchOrdersPanel test karo - orders fetch hone chahiye
-3. Network tab mein OPTIONS request check karo - 200 status aana chahiye
+3. **Error Handling:**
+   - All error responses now include CORS headers
+   - Better logging for debugging
 
-## Note
-Agar abhi bhi CORS error aaye:
-1. Browser cache clear karo
-2. Hard refresh karo (Ctrl+Shift+R)
-3. Edge Function logs check karo Supabase Dashboard mein
+### Important Notes:
 
+- **The edge function MUST be redeployed** for CORS fixes to work
+- After redeployment, clear browser cache and try again
+- Check browser console for any remaining CORS errors
+
+### Testing:
+
+After redeployment, test the function by:
+1. Opening browser DevTools → Network tab
+2. Making a request to the edge function
+3. Check that OPTIONS preflight request returns 200 OK
+4. Check that actual request succeeds

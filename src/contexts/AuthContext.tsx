@@ -218,25 +218,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) {
         console.error('[Auth] Sign in error:', error);
         
-        // Handle specific error cases
+        // Handle specific error cases with better messages
         if (error.message?.includes('Email not confirmed') || error.message?.includes('email_not_confirmed')) {
-          // If email not confirmed, try to confirm it automatically (for admin-created users)
-          console.log('[Auth] Email not confirmed, attempting auto-confirm...');
-          
-          // Note: Frontend se directly confirm nahi kar sakte, SQL query se karna padega
-          // But we can provide better error message
           return { 
             error: new Error('Email not confirmed. Please contact admin or run CONFIRM_EXISTING_USERS_EMAIL.sql in Supabase.') 
           };
         }
         
-        if (error.message?.includes('Invalid login credentials') || error.status === 400) {
+        // Handle invalid credentials - most common case
+        if (error.message?.includes('Invalid login credentials') || 
+            error.message?.includes('Invalid email or password') ||
+            error.status === 400 ||
+            error.status === 401) {
           return { 
             error: new Error('Invalid email or password. Please check your credentials.') 
           };
         }
         
-        throw error;
+        // Generic error
+        return {
+          error: new Error(error.message || 'Login failed. Please try again.')
+        };
       }
       
       // Success - session will be handled by onAuthStateChange
@@ -244,7 +246,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: null };
     } catch (error: any) {
       console.error('[Auth] Sign in exception:', error);
-      return { error: error as Error };
+      // Ensure we always return an Error object
+      if (error instanceof Error) {
+        return { error };
+      }
+      return { error: new Error(error?.message || 'An unexpected error occurred') };
     }
   };
 

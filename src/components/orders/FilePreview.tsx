@@ -147,49 +147,56 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     const fileIsPdf = isPdf(fileName, selectedFile.url);
     const fileIsImage = isImage(fileName, selectedFile.url);
 
-    // PDF preview using Google Docs Viewer
+    // PDF preview using Google Docs Viewer or direct iframe
     if (fileIsPdf) {
       const encodedUrl = encodeURIComponent(selectedFile.url);
       const googleDocsViewerUrl = `https://docs.google.com/viewer?url=${encodedUrl}&embedded=true`;
       
       return (
-        <div className="w-full h-[calc(95vh-180px)] min-h-[400px]">
+        <div className="w-full h-[calc(95vh-180px)] min-h-[400px] flex items-center justify-center">
           <iframe
             src={googleDocsViewerUrl}
             className="w-full h-full rounded-lg border border-border"
             title={fileName}
             allow="fullscreen"
+            onError={() => {
+              // Fallback: open PDF in new tab if viewer fails
+              window.open(selectedFile.url, '_blank');
+            }}
           />
         </div>
       );
     }
 
-    // Image preview - responsive and centered
+    // Image preview - responsive and centered with proper overflow
     if (fileIsImage) {
       return (
-        <div className="flex items-center justify-center w-full h-full overflow-hidden bg-muted/30 rounded-lg p-4">
+        <div className="flex items-center justify-center w-full h-full overflow-auto bg-muted/30 rounded-lg p-4">
           <img
             src={selectedFile.url}
             alt={fileName}
-            className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
-            style={{ maxWidth: '100%', maxHeight: '100%' }}
+            className="max-w-full max-h-[calc(95vh-200px)] object-contain rounded-lg shadow-lg"
             onError={(e) => {
               // Fallback if image fails to load
               const target = e.currentTarget;
               const parent = target.parentElement;
-              if (parent) {
+              if (parent && !parent.querySelector('.image-fallback')) {
                 target.style.display = 'none';
                 const fallback = document.createElement('div');
-                fallback.className = 'flex flex-col items-center justify-center py-12 text-center';
+                fallback.className = 'image-fallback flex flex-col items-center justify-center py-12 text-center';
+                const link = document.createElement('a');
+                link.href = selectedFile.url;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.className = 'px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 inline-block';
+                link.textContent = 'Open File';
                 fallback.innerHTML = `
                   <svg class="h-16 w-16 text-muted-foreground mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                   </svg>
                   <p class="text-muted-foreground mb-4">Image preview not available</p>
-                  <button onclick="window.open('${selectedFile.url}', '_blank')" class="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90">
-                    Open File
-                  </button>
                 `;
+                fallback.appendChild(link);
                 parent.appendChild(fallback);
               }
             }}
@@ -198,14 +205,30 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
       );
     }
 
+    // Other file types - show download option
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center">
         <FileText className="h-16 w-16 text-muted-foreground mb-4" />
         <p className="text-muted-foreground mb-4">Preview not available for this file type</p>
-        <Button onClick={() => window.open(selectedFile.url, '_blank')}>
-          <ExternalLink className="h-4 w-4 mr-2" />
-          Open File
-        </Button>
+        <div className="flex gap-2">
+          <Button onClick={() => {
+            const link = document.createElement('a');
+            link.href = selectedFile.url;
+            link.download = fileName;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          }}>
+            <Download className="h-4 w-4 mr-2" />
+            Download
+          </Button>
+          <Button variant="outline" onClick={() => window.open(selectedFile.url, '_blank')}>
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Open File
+          </Button>
+        </div>
       </div>
     );
   };
@@ -223,41 +246,42 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
         onClick={() => handlePreview(file)}
       >
         {fileIsImage || fileIsPdf ? (
-          <div className="relative h-16 w-20 rounded-md overflow-hidden border border-border group flex-shrink-0">
-            <img 
-              src={file.url} 
-              alt={fileName}
-              className="h-full w-full object-contain bg-muted/50 transition-transform group-hover:scale-105"
-              onError={(e) => {
-                // Fallback icon if image fails to load
-                const target = e.currentTarget;
-                target.style.display = 'none';
-                const parent = target.parentElement;
-                if (parent && !parent.querySelector('.file-icon-fallback')) {
-                  const fallback = document.createElement('div');
-                  fallback.className = 'file-icon-fallback flex items-center justify-center h-full w-full bg-muted';
-                  if (fileIsPdf) {
-                    fallback.className += ' bg-red-500/10';
-                    fallback.innerHTML = '<svg class="h-8 w-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>';
-                  } else {
+          <div className="relative h-16 w-20 rounded-md overflow-hidden border border-border group flex-shrink-0 bg-muted/50">
+            {fileIsPdf ? (
+              // PDF thumbnail - show PDF icon
+              <div className="h-full w-full flex items-center justify-center bg-red-500/10">
+                <FileText className="h-8 w-8 text-red-500" />
+                <div className="absolute top-1 right-1 bg-red-500 text-white text-[8px] px-1 rounded font-semibold">
+                  PDF
+                </div>
+              </div>
+            ) : (
+              // Image thumbnail
+              <img 
+                src={file.url} 
+                alt={fileName}
+                className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                onError={(e) => {
+                  // Fallback icon if image fails to load
+                  const target = e.currentTarget;
+                  target.style.display = 'none';
+                  const parent = target.parentElement;
+                  if (parent && !parent.querySelector('.file-icon-fallback')) {
+                    const fallback = document.createElement('div');
+                    fallback.className = 'file-icon-fallback flex items-center justify-center h-full w-full bg-muted';
                     fallback.innerHTML = '<svg class="h-6 w-6 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
+                    parent.appendChild(fallback);
                   }
-                  parent.appendChild(fallback);
-                }
-              }}
-            />
+                }}
+              />
+            )}
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
               <Eye className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
-            {fileIsPdf && (
-              <div className="absolute top-1 right-1 bg-red-500 text-white text-[8px] px-1 rounded font-semibold">
-                PDF
-              </div>
-            )}
           </div>
         ) : (
           <div className="flex items-center gap-2 px-2 py-1 bg-secondary rounded-md border border-border">
-            <FileImage className="h-5 w-5 text-muted-foreground" />
+            <FileText className="h-5 w-5 text-muted-foreground" />
             <span className="text-xs max-w-[80px] truncate">{fileName}</span>
           </div>
         )}
@@ -316,14 +340,6 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
             <DialogTitle className="flex items-center justify-between gap-2">
               <span className="truncate text-sm sm:text-base font-semibold">{selectedFile && getFileName(selectedFile)}</span>
               <div className="flex gap-2 shrink-0">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => setPreviewOpen(false)}
-                >
-                  <X className="h-4 w-4" />
-                </Button>
                 <Button
                   variant="outline"
                   size="sm"

@@ -26,6 +26,8 @@ export default function Auth() {
     if (!authLoading && user && role) {
       console.log('[Auth] User authenticated, redirecting...', { user: user.email, role });
       const redirectPath = getRedirectPath(role);
+      // Clear loading state before redirect
+      setIsLoading(false);
       // Immediate redirect without delay for better UX
       navigate(redirectPath, { replace: true });
     }
@@ -68,11 +70,11 @@ export default function Auth() {
         let errorMessage = error.message || "Invalid email or password";
         
         // Better error messages for common issues
-        if (error.message?.includes('Email not confirmed')) {
+        if (error.message?.includes('Email not confirmed') || error.message?.includes('email_not_confirmed')) {
           errorMessage = "Email not confirmed. Please contact admin to confirm your email, or run CONFIRM_EXISTING_USERS_EMAIL.sql in Supabase SQL Editor.";
-        } else if (error.message?.includes('Invalid email or password')) {
+        } else if (error.message?.includes('Invalid email or password') || error.message?.includes('Invalid login credentials')) {
           errorMessage = "Invalid email or password. Please check your credentials.";
-        } else if (error.message?.includes('400')) {
+        } else if (error.message?.includes('400') || error.status === 400) {
           errorMessage = "Login failed. Please check your email and password, or contact admin if email is not confirmed.";
         }
         
@@ -85,13 +87,27 @@ export default function Auth() {
       } else {
         // Success - redirect will happen via useEffect when user/role is available
         console.log('[Auth] Sign in successful, waiting for user data...');
-        // Don't clear loading here - let useEffect handle redirect
+        // Set a timeout to clear loading if redirect doesn't happen within 5 seconds
+        setTimeout(() => {
+          if (isLoading) {
+            console.warn('[Auth] Redirect timeout - clearing loading state');
+            setIsLoading(false);
+          }
+        }, 5000);
       }
     } catch (error: any) {
       console.error('[Auth] Sign in error:', error);
+      let errorMessage = "An unexpected error occurred";
+      
+      if (error.message?.includes('Invalid') || error.message?.includes('credentials')) {
+        errorMessage = "Invalid email or password. Please check your credentials.";
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       toast({
         title: "Login Failed",
-        description: error.message || "An unexpected error occurred",
+        description: errorMessage,
         variant: "destructive",
       });
       setIsLoading(false);

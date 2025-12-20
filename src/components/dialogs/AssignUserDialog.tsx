@@ -53,20 +53,62 @@ export function AssignUserDialog({
     setIsLoading(true);
     try {
       // Fetch profiles with matching department
-      const { data: profiles, error } = await supabase
+      // Use case-insensitive comparison and also check user_roles for department matching
+      const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
         .select('user_id, full_name, department')
-        .eq('department', department);
+        .ilike('department', department);
 
-      if (error) throw error;
+      if (profilesError) {
+        console.error('Error fetching profiles:', profilesError);
+        throw profilesError;
+      }
 
-      setUsers((profiles || []).map(profile => ({
+      // Also fetch users from user_roles who have the matching role
+      const roleMap: Record<string, string> = {
+        'sales': 'sales',
+        'design': 'design',
+        'prepress': 'prepress',
+        'production': 'production',
+      };
+      
+      const matchingRole = roleMap[department.toLowerCase()];
+      let roleUsers: any[] = [];
+      
+      if (matchingRole) {
+        const { data: rolesData, error: rolesError } = await supabase
+          .from('user_roles')
+          .select('user_id, role')
+          .eq('role', matchingRole);
+        
+        if (!rolesError && rolesData) {
+          // Get profiles for these users
+          const userIds = rolesData.map(r => r.user_id);
+          if (userIds.length > 0) {
+            const { data: roleProfiles } = await supabase
+              .from('profiles')
+              .select('user_id, full_name, department')
+              .in('user_id', userIds);
+            
+            roleUsers = roleProfiles || [];
+          }
+        }
+      }
+
+      // Combine and deduplicate users
+      const allUsers = [...(profiles || []), ...roleUsers];
+      const uniqueUsers = Array.from(
+        new Map(allUsers.map(u => [u.user_id, u])).values()
+      );
+
+      setUsers(uniqueUsers.map(profile => ({
         user_id: profile.user_id,
         full_name: profile.full_name || 'Unknown',
         department: profile.department || department,
       })));
     } catch (error) {
       console.error('Error fetching users:', error);
+      setUsers([]);
     } finally {
       setIsLoading(false);
     }

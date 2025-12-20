@@ -77,10 +77,15 @@ function buildFullAddress(addr: any): string {
 
 serve(async (req) => {
   // Handle CORS preflight requests FIRST - before any other processing
+  // This MUST be the first thing we check
   if (req.method === 'OPTIONS') {
+    console.log('[CORS] Handling OPTIONS preflight request');
     return new Response(null, { 
       status: 200,
-      headers: corsHeaders
+      headers: {
+        ...corsHeaders,
+        'Content-Length': '0',
+      }
     });
   }
 
@@ -484,7 +489,7 @@ serve(async (req) => {
             const deliveryDate = new Date();
             deliveryDate.setDate(deliveryDate.getDate() + 7);
             
-            await adminSupabase
+            const { error: itemError } = await adminSupabase
               .from('order_items')
               .insert({
                 item_id: itemId,
@@ -502,12 +507,18 @@ serve(async (req) => {
                 current_substage: null,
                 assigned_to: user.id, // Assign to importing user
                 assigned_department: userDepartment, // Assign to user's department
+                priority: 'blue', // Add default priority
                 delivery_date: deliveryDate.toISOString(),
                 is_ready_for_production: false,
                 is_dispatched: false,
                 created_at: new Date(wooOrder.date_created).toISOString(),
                 updated_at: new Date().toISOString(),
               });
+            
+            if (itemError) {
+              console.error(`Error creating order item ${itemId}:`, itemError);
+              errors.push(`Order ${wooOrderId} - Item ${lineItem.name}: ${itemError.message || 'Failed to create item'}`);
+            }
           }
 
           // Create timeline entry
@@ -942,9 +953,9 @@ serve(async (req) => {
     });
 
   } catch (error: unknown) {
-    console.error('WooCommerce function error:', error);
+    console.error('[Edge Function] Unhandled error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-    return new Response(JSON.stringify({ error: errorMessage }), {
+    return new Response(JSON.stringify({ error: errorMessage, details: error?.toString() || 'No details' }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

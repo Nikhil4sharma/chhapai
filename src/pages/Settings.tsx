@@ -999,7 +999,7 @@ export default function Settings() {
                 const deliveryDate = new Date();
                 deliveryDate.setDate(deliveryDate.getDate() + 7);
                 
-                await supabase
+                const { error: insertError } = await supabase
                   .from('order_items')
                   .insert({
                     item_id: itemId,
@@ -1017,12 +1017,18 @@ export default function Settings() {
                     current_substage: null,
                     assigned_to: null,
                     assigned_department: 'sales',
+                    priority: 'blue', // Add default priority
                     delivery_date: deliveryDate.toISOString(),
                     is_ready_for_production: false,
                     is_dispatched: false,
                     created_at: new Date(wooOrder.date_created).toISOString(),
                     updated_at: new Date().toISOString(),
                   });
+                
+                if (insertError) {
+                  console.error(`Error creating order item ${itemId}:`, insertError);
+                  errors.push(`Item ${lineItem.name}: ${insertError.message || 'Failed to create item'}`);
+                }
               }
             }
 
