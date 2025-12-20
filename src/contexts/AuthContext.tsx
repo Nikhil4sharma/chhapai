@@ -49,18 +49,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[Auth] Fetching user data for:', userId);
       
       // Fetch profile and role in parallel for better performance
+      // Use select('*') to avoid column name issues, then map to our interface
       const [profileResult, roleResult] = await Promise.allSettled([
         supabase
           .from('profiles')
-          .select('id, user_id, full_name, department, phone, avatar_url, production_stage')
+          .select('*')
           .eq('user_id', userId)
-          .single(),
+          .maybeSingle(), // Use maybeSingle() instead of single() to handle no rows gracefully
         supabase
           .from('user_roles')
           .select('role')
           .eq('user_id', userId)
-          .limit(1)
-          .single(),
+          .maybeSingle(), // Use maybeSingle() instead of single() to handle no rows gracefully
       ]);
 
       // Handle profile result
@@ -68,11 +68,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: profileData, error: profileError } = profileResult.value;
         
         if (profileError) {
+          // Log full error details for debugging
+          console.error('[Auth] Error fetching profile:', {
+            message: profileError.message,
+            code: profileError.code,
+            details: profileError.details,
+            hint: profileError.hint,
+            status: profileError.status,
+          });
+          
           if (profileError.code === 'PGRST116') {
             console.warn('[Auth] Profile not found for user:', userId);
             setProfile(null);
+          } else if (profileError.status === 400) {
+            // 400 Bad Request - likely column name issue or RLS policy
+            console.error('[Auth] 400 Bad Request - checking if columns exist or RLS policy issue');
+            // Try with minimal select as fallback
+            const { data: fallbackData, error: fallbackError } = await supabase
+              .from('profiles')
+              .select('id, user_id, full_name')
+              .eq('user_id', userId)
+              .maybeSingle();
+            
+            if (!fallbackError && fallbackData) {
+              console.log('[Auth] Fallback query succeeded, using minimal profile data');
+              setProfile({
+                id: fallbackData.id,
+                user_id: userId,
+                full_name: fallbackData.full_name || null,
+                department: null,
+                phone: null,
+                avatar_url: null,
+                production_stage: null,
+              });
+            } else {
+              console.error('[Auth] Fallback query also failed:', fallbackError);
+              setProfile(null);
+            }
           } else {
-            console.error('[Auth] Error fetching profile:', profileError);
+            // Other errors - set profile to null but don't block
+            setProfile(null);
           }
         } else if (profileData) {
           const profileObj = {
@@ -102,11 +137,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (roleResult.status === 'fulfilled') {
         const { data: roleData, error: roleError } = roleResult.value;
         
-        if (roleError && roleError.code !== 'PGRST116') {
-          console.error('[Auth] Error fetching role:', roleError);
-        }
-
-        if (roleData) {
+        if (roleError) {
+          // Log full error details for debugging
+          if (roleError.code !== 'PGRST116') {
+            console.error('[Auth] Error fetching role:', {
+              message: roleError.message,
+              code: roleError.code,
+              details: roleError.details,
+              hint: roleError.hint,
+              status: roleError.status,
+            });
+          }
+          setRole(null);
+        } else if (roleData) {
           setRole(roleData.role as AppRole);
           console.log('[Auth] Role loaded:', roleData.role);
         } else {
@@ -115,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } else {
         console.error('[Auth] Error fetching role (settled):', roleResult.reason);
+        setRole(null);
       }
 
       // Mark profile as ready after both attempts complete
