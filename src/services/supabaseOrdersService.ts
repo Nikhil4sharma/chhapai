@@ -452,38 +452,97 @@ export async function addTimelineEntry(entry: Omit<TimelineEntry, 'timeline_id' 
         itemUuid = entry.item_id;
       } else {
         // Try to find item UUID by item_id field
-        const { data: itemData } = await supabase
-          .from('order_items')
-          .select('id')
-          .eq('item_id', entry.item_id)
-          .single();
-        
-        if (itemData) {
-          itemUuid = itemData.id;
+        try {
+          const { data: itemData, error: itemError } = await supabase
+            .from('order_items')
+            .select('id')
+            .eq('item_id', entry.item_id)
+            .single();
+          
+          // Handle 400 Bad Request errors gracefully
+          if (itemError) {
+            const isBadRequest = itemError.status === 400 || 
+              itemError.statusCode === 400 ||
+              itemError.code === 'PGRST204' ||
+              itemError.message?.includes('item_id') ||
+              itemError.message?.includes('column') ||
+              itemError.message?.includes('does not exist');
+            
+            if (isBadRequest) {
+              // item_id column might not exist or query format issue
+              // Skip item_id lookup, use null
+              console.warn('item_id column issue, skipping item_id lookup:', entry.item_id);
+              itemUuid = null;
+            } else {
+              // Other errors - log but don't throw
+              console.warn('Error finding item by item_id:', itemError);
+              itemUuid = null;
+            }
+          } else if (itemData) {
+            itemUuid = itemData.id;
+          }
+        } catch (error: any) {
+          // Handle any errors gracefully
+          console.warn('Error finding item UUID by item_id:', error);
+          itemUuid = null;
         }
       }
     }
 
-    const { error } = await supabase
+    // Ensure performed_by is a valid UUID (convert if needed)
+    let performedByUuid: string | null = null;
+    if (entry.performed_by) {
+      if (uuidRegex.test(entry.performed_by)) {
+        performedByUuid = entry.performed_by;
+      } else {
+        // If it's not a UUID, try to find user by email or other identifier
+        // For now, set to null if not a valid UUID (RLS will use auth.uid())
+        console.warn('performed_by is not a valid UUID:', entry.performed_by);
+        performedByUuid = null; // Let RLS use auth.uid() instead
+      }
+    }
+
+    const insertData: any = {
+      order_id: orderUuid,
+      item_id: itemUuid,
+      product_name: entry.product_name || null,
+      stage: entry.stage,
+      substage: entry.substage || null,
+      action: entry.action,
+      performed_by_name: entry.performed_by_name,
+      notes: entry.notes || null,
+      attachments: entry.attachments || null,
+      qty_confirmed: entry.qty_confirmed || null,
+      paper_treatment: entry.paper_treatment || null,
+      is_public: entry.is_public !== false,
+    };
+
+    // Only include performed_by if it's a valid UUID
+    if (performedByUuid) {
+      insertData.performed_by = performedByUuid;
+    }
+
+    const { error, data } = await supabase
       .from('timeline')
-      .insert({
-        order_id: orderUuid,
-        item_id: itemUuid,
-        product_name: entry.product_name || null,
-        stage: entry.stage,
-        substage: entry.substage || null,
-        action: entry.action,
-        performed_by: entry.performed_by,
-        performed_by_name: entry.performed_by_name,
-        notes: entry.notes || null,
-        attachments: entry.attachments || null,
-        qty_confirmed: entry.qty_confirmed || null,
-        paper_treatment: entry.paper_treatment || null,
-        is_public: entry.is_public !== false,
-      });
+      .insert(insertData)
+      .select();
 
     // Handle table not found error gracefully
     if (error) {
+      // Log detailed error for debugging
+      console.error('Timeline insert error:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        order_id: entry.order_id,
+        orderUuid,
+        item_id: entry.item_id,
+        itemUuid,
+        performed_by: entry.performed_by,
+        performedByUuid,
+      });
+
       if (error.code === 'PGRST205' || 
           error.code === '42P01' ||
           error.message?.includes('Could not find the table') ||
@@ -493,7 +552,19 @@ export async function addTimelineEntry(entry: Omit<TimelineEntry, 'timeline_id' 
         console.warn('Timeline table not found in Supabase, skipping timeline entry');
         return; // Silently skip if table doesn't exist
       }
+
+      // Check for RLS policy violation
+      if (error.code === '42501' || error.message?.includes('permission denied') || error.message?.includes('policy')) {
+        console.error('RLS policy violation when inserting timeline entry. User may not have access to this order.');
+        // Don't throw - just log and skip
+        return;
+      }
+
       throw error;
+    }
+
+    if (data && data.length > 0) {
+      console.log('Timeline entry added successfully:', data[0].id);
     }
   } catch (error) {
     console.error('Error in addTimelineEntry:', error);

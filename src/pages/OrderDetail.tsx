@@ -128,9 +128,18 @@ export default function OrderDetail() {
     isLoading,
     refreshOrders,
   } = useOrders();
-  const { isAdmin, role, user } = useAuth();
+  const { isAdmin, role, user, profileReady, isLoading: authLoading } = useAuth();
   const { canViewFinancials } = useFinancialAccess();
   const { getWorkNotesByOrder, addWorkNote, getWorkLogsByOrder } = useWorkLogs();
+  
+  // CRITICAL: Wait for auth to be ready before rendering
+  if (!profileReady || authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
   
   const order = getOrderById(orderId || '');
   const timelineEntries = orderId ? getTimelineForOrder(orderId) : [];

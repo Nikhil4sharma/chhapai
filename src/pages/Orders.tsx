@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Search, Filter, ChevronDown, ChevronUp, Calendar, User, AlertTriangle, Clock } from 'lucide-react';
+import { Search, Filter, ChevronDown, ChevronUp, Calendar, User, AlertTriangle, Clock, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -48,7 +48,16 @@ const departmentLabels: Record<string, string> = {
 
 export default function Orders() {
   const { orders, getOrdersByDepartment } = useOrders();
-  const { isAdmin, role } = useAuth();
+  const { isAdmin, role, profileReady, isLoading: authLoading } = useAuth();
+  
+  // CRITICAL: Wait for auth to be ready before rendering
+  if (!profileReady || authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
   
   const [searchTerm, setSearchTerm] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');

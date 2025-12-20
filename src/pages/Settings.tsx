@@ -48,8 +48,32 @@ import { uploadToWordPress, testWordPressConnection, WordPressConfig } from '@/u
 import { uploadFileToSupabase } from '@/services/supabaseStorage';
 
 export default function Settings() {
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, user, profileReady, isLoading: authLoading } = useAuth();
   const { lastSyncTime, refreshOrders } = useOrders();
+  
+  // CRITICAL: Wait for auth to be ready before rendering
+  if (!profileReady || authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+  
+  // CRITICAL: Only admin can access settings
+  if (!isAdmin) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Card className="p-6">
+          <CardContent className="text-center">
+            <Shield className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
+            <h3 className="text-lg font-semibold mb-2">Access Denied</h3>
+            <p className="text-muted-foreground">You need admin privileges to access settings.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
   const [notifications, setNotifications] = useState({
     email: true,
     push: true, // Default ON for all users
@@ -402,7 +426,8 @@ export default function Settings() {
     if (!user) return;
     
     try {
-      // Save user settings to Supabase
+      // Save user notification settings (these columns don't exist in user_settings table yet)
+      // Store in localStorage for now
       const settingsData = {
         user_id: user.id,
         email_notifications: notifications.email,
@@ -411,27 +436,13 @@ export default function Settings() {
         urgent_alerts: notifications.urgentAlerts,
       };
       
-      // Save to user_settings table (if it exists) or use localStorage as fallback
-      try {
-        const { error: settingsError } = await supabase
-          .from('user_settings')
-          .upsert({
-            user_id: user.id,
-            ...settingsData,
-            updated_at: new Date().toISOString(),
-          }, {
-            onConflict: 'user_id'
-          });
-
-        if (settingsError) {
-          console.warn('Error saving to user_settings, using localStorage:', settingsError);
-          // Fallback to localStorage
-          localStorage.setItem('user_notification_settings', JSON.stringify(settingsData));
-        }
-      } catch (error) {
-        console.warn('Error saving settings, using localStorage:', error);
-        localStorage.setItem('user_notification_settings', JSON.stringify(settingsData));
-      }
+      // Save notification preferences to localStorage
+      // Note: user_settings table only has sound_enabled and push_enabled columns
+      // Future: Add these columns to user_settings table if needed
+      localStorage.setItem('user_notification_settings', JSON.stringify(settingsData));
+      
+      // Only save sound_enabled and push_enabled to user_settings table if needed
+      // (Currently handled by useNotifications hook separately)
       
       // Save production stages separately to app_settings (admin only)
       if (isAdmin) {
@@ -981,13 +992,32 @@ export default function Settings() {
                   .eq('item_id', itemId)
                   .limit(1);
                 
-                if (!idError && itemsById && itemsById.length > 0) {
+                // Handle 400 Bad Request errors (column might not exist or query format issue)
+                if (idError) {
+                  const isBadRequest = idError.status === 400 || 
+                    idError.statusCode === 400 ||
+                    idError.code === 'PGRST204' ||
+                    idError.message?.includes('item_id') ||
+                    idError.message?.includes('column') ||
+                    idError.message?.includes('does not exist');
+                  
+                  if (isBadRequest) {
+                    // Fallback to checking by order_id + woo_meta
+                    throw { code: 'PGRST204', message: 'item_id column issue' };
+                  }
+                  throw idError;
+                }
+                
+                if (itemsById && itemsById.length > 0) {
                   existingItems = itemsById;
                   existingItem = itemsById[0];
                 }
               } catch (error: any) {
-                // If item_id column doesn't exist, fallback to checking by order_id + woo_meta
-                if (error?.code === 'PGRST204' || error?.message?.includes('item_id')) {
+                // If item_id column doesn't exist or 400 error, fallback to checking by order_id + woo_meta
+                if (error?.code === 'PGRST204' || 
+                    error?.message?.includes('item_id') ||
+                    error?.status === 400 ||
+                    error?.statusCode === 400) {
                   // Fallback: Check by order_id + product_id from woo_meta
                   const { data: itemsByMeta, error: metaError } = await supabase
                     .from('order_items')
@@ -1040,22 +1070,48 @@ export default function Settings() {
                     .update(updateData)
                     .eq('item_id', itemId);
                   
-                  if (updateError && updateError.code === 'PGRST204') {
-                    // Fallback: Update by UUID id
-                    await supabase
-                      .from('order_items')
-                      .update(updateData)
-                      .eq('id', existingItem.id);
-                  } else if (updateError) {
-                    throw updateError;
+                  // Handle 400 Bad Request errors
+                  if (updateError) {
+                    const isBadRequest = updateError.status === 400 || 
+                      updateError.statusCode === 400 ||
+                      updateError.code === 'PGRST204' ||
+                      updateError.message?.includes('item_id') ||
+                      updateError.message?.includes('column') ||
+                      updateError.message?.includes('does not exist');
+                    
+                    if (isBadRequest) {
+                      // Fallback: Update by UUID id
+                      const { error: fallbackError } = await supabase
+                        .from('order_items')
+                        .update(updateData)
+                        .eq('id', existingItem.id);
+                      
+                      if (fallbackError) {
+                        throw fallbackError;
+                      }
+                    } else {
+                      throw updateError;
+                    }
                   }
                 } catch (updateErr: any) {
-                  // If item_id column doesn't exist, update by UUID
-                  if (updateErr?.code === 'PGRST204') {
-                    await supabase
+                  // If item_id column doesn't exist or 400 error, update by UUID
+                  const isBadRequest = updateErr?.code === 'PGRST204' || 
+                    updateErr?.status === 400 ||
+                    updateErr?.statusCode === 400 ||
+                    updateErr?.message?.includes('item_id') ||
+                    updateErr?.message?.includes('column') ||
+                    updateErr?.message?.includes('does not exist');
+                  
+                  if (isBadRequest && existingItem?.id) {
+                    const { error: fallbackError } = await supabase
                       .from('order_items')
                       .update(updateData)
                       .eq('id', existingItem.id);
+                    
+                    if (fallbackError) {
+                      console.error(`Error updating order item ${itemId}:`, fallbackError);
+                      errors.push(`Item ${lineItem.name}: ${fallbackError.message || 'Failed to update item'}`);
+                    }
                   } else {
                     console.error(`Error updating order item ${itemId}:`, updateErr);
                     errors.push(`Item ${lineItem.name}: ${updateErr.message || 'Failed to update item'}`);

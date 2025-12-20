@@ -916,14 +916,32 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      // Ensure performed_by is user.id (UUID) if available
+      const { user: currentUser } = authRefs.current;
+      const performedBy = entry.performed_by || currentUser?.id || '';
+
       await supabaseAddTimelineEntry({
         ...entry,
         product_name: productName,
+        performed_by: performedBy,
       });
 
+      // Refresh timeline after adding entry
       await fetchTimeline();
-    } catch (error) {
-      console.error('Error adding timeline entry:', error);
+    } catch (error: any) {
+      // Log detailed error but don't throw - timeline is not critical
+      console.error('Error adding timeline entry:', {
+        error,
+        entry: {
+          order_id: entry.order_id,
+          item_id: entry.item_id,
+          action: entry.action,
+          stage: entry.stage,
+        },
+        errorCode: error?.code,
+        errorMessage: error?.message,
+      });
+      // Don't throw - allow operation to continue even if timeline fails
     }
   }, [fetchTimeline, orders]);
 
@@ -1695,17 +1713,82 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       if (replaceExisting) {
         // Delete existing files for this item from Supabase
-        const { data: existingFiles } = await supabase
+        // First, get the item UUID if itemId is not a UUID
+        let itemUuid: string | null = null;
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        
+        if (uuidRegex.test(itemId)) {
+          itemUuid = itemId;
+        } else {
+          // Try to find item UUID by item_id field
+          try {
+            const { data: itemData, error: itemError } = await supabase
+              .from('order_items')
+              .select('id')
+              .eq('item_id', itemId)
+              .single();
+            
+            // Handle 400 Bad Request errors gracefully
+            if (itemError) {
+              const isBadRequest = itemError.status === 400 || 
+                itemError.statusCode === 400 ||
+                itemError.code === 'PGRST204' ||
+                itemError.message?.includes('item_id') ||
+                itemError.message?.includes('column');
+              
+              if (isBadRequest) {
+                // item_id column might not exist or query format issue
+                // Try to find by order_id + item_id combination
+                const order = orders.find(o => o.items.some(i => i.item_id === itemId));
+                if (order) {
+                  const item = order.items.find(i => i.item_id === itemId);
+                  if (item && order.id) {
+                    // Use order.id to find files
+                    itemUuid = null; // Will filter by order_id only
+                  }
+                }
+              }
+            } else if (itemData) {
+              itemUuid = itemData.id;
+            }
+          } catch (error: any) {
+            console.warn('Error finding item UUID by item_id:', error);
+          }
+        }
+        
+        // Delete existing files - use item UUID if available, otherwise filter by order_id
+        let filesQuery = supabase
           .from('order_files')
-          .select('id, file_url')
-          .eq('item_id', itemId);
+          .select('id, file_url');
+        
+        if (itemUuid) {
+          filesQuery = filesQuery.eq('item_id', itemUuid);
+        } else {
+          // Fallback: find by order_id
+          const order = orders.find(o => o.items.some(i => i.item_id === itemId));
+          if (order?.id) {
+            filesQuery = filesQuery.eq('order_id', order.id);
+          }
+        }
+        
+        const { data: existingFiles } = await filesQuery;
 
         if (existingFiles && existingFiles.length > 0) {
           // Delete file records from database
-          await supabase
+          let deleteQuery = supabase
             .from('order_files')
-            .delete()
-            .eq('item_id', itemId);
+            .delete();
+          
+          if (itemUuid) {
+            deleteQuery = deleteQuery.eq('item_id', itemUuid);
+          } else {
+            const order = orders.find(o => o.items.some(i => i.item_id === itemId));
+            if (order?.id) {
+              deleteQuery = deleteQuery.eq('order_id', order.id);
+            }
+          }
+          
+          await deleteQuery;
 
           // Delete files from storage (extract path from URL if needed)
           for (const fileRecord of existingFiles) {

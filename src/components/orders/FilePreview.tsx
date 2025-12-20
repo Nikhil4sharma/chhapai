@@ -52,6 +52,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
   const [deleteFileId, setDeleteFileId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [fileUrlCache, setFileUrlCache] = useState<Map<string, string>>(new Map());
+  const [cacheVersion, setCacheVersion] = useState(0); // Track cache updates to trigger re-renders
   
   // Check if user can delete a specific file
   const canDeleteFile = (file: OrderFile) => {
@@ -135,6 +136,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
       // Update cache once with all new URLs
       if (isMounted && newCache.size > fileUrlCache.size) {
         setFileUrlCache(newCache);
+        setCacheVersion(prev => prev + 1); // Trigger re-renders in child components
       }
     };
     
@@ -176,6 +178,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
           // Cache the URL
           if (signedUrl) {
             setFileUrlCache(prev => new Map(prev).set(filePath, signedUrl));
+            setCacheVersion(prev => prev + 1); // Trigger re-renders in child components
             return signedUrl;
           }
         }
@@ -320,6 +323,49 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     const fileUrl = getFileUrlSync(file);
     const fileIsImage = isImage(fileName, fileUrl, file.type);
     const fileIsPdf = isPdf(fileName, fileUrl, file.type);
+    const [imageSrc, setImageSrc] = useState<string>('');
+    const [imageError, setImageError] = useState(false);
+    
+    // For images, check if we have a signed URL before setting src
+    useEffect(() => {
+      if (fileIsImage && file.url) {
+        // Reset error state
+        setImageError(false);
+        
+        // Check if URL is Supabase storage URL
+        if (file.url.includes('supabase.co/storage')) {
+          try {
+            const urlObj = new URL(file.url);
+            const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+            
+            if (pathMatch) {
+              const filePath = decodeURIComponent(pathMatch[2]);
+              // If we have signed URL in cache, use it
+              // eslint-disable-next-line react-hooks/exhaustive-deps
+              if (fileUrlCache.has(filePath)) {
+                // eslint-disable-next-line react-hooks/exhaustive-deps
+                setImageSrc(fileUrlCache.get(filePath)!);
+              } else {
+                // Fetch signed URL and update
+                getFileUrl(file).then(url => {
+                  if (url) setImageSrc(url);
+                }).catch(() => {
+                  setImageError(true);
+                });
+              }
+            } else {
+              setImageSrc(fileUrl);
+            }
+          } catch {
+            setImageSrc(fileUrl);
+          }
+        } else {
+          setImageSrc(fileUrl);
+        }
+      } else if (fileIsImage) {
+        setImageSrc(fileUrl);
+      }
+    }, [file.file_id, file.url, fileIsImage, fileUrl, cacheVersion]); // Include cacheVersion to re-check when cache updates
 
     const buttonContent = (
       <Button
@@ -340,25 +386,40 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
               </div>
             ) : (
               // Image thumbnail
-              <img 
-                src={fileUrl} 
-                alt={fileName}
-                className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                loading="lazy"
-                crossOrigin="anonymous"
-                onError={(e) => {
-                  // Fallback icon if image fails to load
-                  const target = e.currentTarget;
-                  target.style.display = 'none';
-                  const parent = target.parentElement;
-                  if (parent && !parent.querySelector('.file-icon-fallback')) {
-                    const fallback = document.createElement('div');
-                    fallback.className = 'file-icon-fallback flex items-center justify-center h-full w-full bg-muted';
-                    fallback.innerHTML = '<svg class="h-6 w-6 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
-                    parent.appendChild(fallback);
-                  }
-                }}
-              />
+              imageError || !imageSrc ? (
+                // Loading or error state
+                <div className="h-full w-full flex items-center justify-center bg-muted">
+                  {imageError ? (
+                    <FileImage className="h-6 w-6 text-muted-foreground" />
+                  ) : (
+                    <Loader2 className="h-4 w-4 text-muted-foreground animate-spin" />
+                  )}
+                </div>
+              ) : (
+                <img 
+                  src={imageSrc || fileUrl} 
+                  alt={fileName}
+                  className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  loading="lazy"
+                  crossOrigin="anonymous"
+                  onError={(e) => {
+                    // Try to fetch signed URL if error occurs
+                    if (file.url && file.url.includes('supabase.co/storage') && !imageError) {
+                      getFileUrl(file).then(url => {
+                        if (url && url !== fileUrl) {
+                          setImageSrc(url);
+                        } else {
+                          setImageError(true);
+                        }
+                      }).catch(() => {
+                        setImageError(true);
+                      });
+                    } else {
+                      setImageError(true);
+                    }
+                  }}
+                />
+              )
             )}
             <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
               <Eye className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -392,17 +453,40 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
             ) : (
               // Image hover preview - full image visible, no cut
               <div className="max-w-lg max-h-[500px] overflow-auto">
-                <img
-                  src={fileUrl}
-                  alt={fileName}
-                  className="w-full h-auto max-h-[500px] object-contain rounded-md"
-                  style={{ maxWidth: '100%', objectFit: 'contain' }}
-                  loading="lazy"
-                  crossOrigin="anonymous"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none';
-                  }}
-                />
+                {imageError || !imageSrc ? (
+                  <div className="h-64 flex items-center justify-center bg-muted rounded-md">
+                    {imageError ? (
+                      <FileImage className="h-12 w-12 text-muted-foreground" />
+                    ) : (
+                      <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
+                    )}
+                  </div>
+                ) : (
+                  <img
+                    src={imageSrc || fileUrl}
+                    alt={fileName}
+                    className="w-full h-auto max-h-[500px] object-contain rounded-md"
+                    style={{ maxWidth: '100%', objectFit: 'contain' }}
+                    loading="lazy"
+                    crossOrigin="anonymous"
+                    onError={(e) => {
+                      // Try to fetch signed URL if error occurs
+                      if (file.url && file.url.includes('supabase.co/storage') && !imageError) {
+                        getFileUrl(file).then(url => {
+                          if (url && url !== fileUrl) {
+                            setImageSrc(url);
+                          } else {
+                            setImageError(true);
+                          }
+                        }).catch(() => {
+                          setImageError(true);
+                        });
+                      } else {
+                        setImageError(true);
+                      }
+                    }}
+                  />
+                )}
               </div>
             )}
             <p className="text-xs text-muted-foreground text-center mt-2 truncate">{fileName}</p>

@@ -35,6 +35,100 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
   const { user, profile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [learningData, setLearningData] = useState<any>(null);
+  
+  // Cache for table existence check - avoid repeated checks
+  // Use localStorage to persist across page reloads and avoid unnecessary queries
+  const getCachedTableExists = (): boolean | null => {
+    const cached = localStorage.getItem('delay_reasons_table_exists');
+    return cached === null ? null : cached === 'true';
+  };
+  
+  const [delayReasonsTableExists, setDelayReasonsTableExists] = useState<boolean | null>(getCachedTableExists());
+  
+  // Check if delay_reasons table exists (only once, with localStorage cache)
+  useEffect(() => {
+    let isMounted = true;
+    
+    const checkTableExists = async () => {
+      // Skip query if we already know table doesn't exist from cache
+      const cached = getCachedTableExists();
+      if (cached === false) {
+        setDelayReasonsTableExists(false);
+        return;
+      }
+      
+      // If cached as true, set it but don't query
+      if (cached === true) {
+        setDelayReasonsTableExists(true);
+        return;
+      }
+      
+      try {
+        // Try a simple query to check if table exists
+        const { error, data } = await supabase
+          .from('delay_reasons')
+          .select('id')
+          .limit(1);
+        
+        if (isMounted) {
+          // Check for table not found errors (404, PGRST205, etc.)
+          const isTableNotFound = error && (
+            error.code === 'PGRST205' || 
+            error.code === '42P01' || // PostgreSQL table does not exist
+            error.message?.includes('Could not find the table') ||
+            error.message?.includes('relation "delay_reasons" does not exist') ||
+            error.message?.includes('does not exist') ||
+            error.status === 404 ||
+            error.statusCode === 404 ||
+            (error.hint && error.hint.includes('delay_reasons'))
+          );
+          
+          if (isTableNotFound) {
+            // Table doesn't exist - cache it to avoid future queries
+            setDelayReasonsTableExists(false);
+            localStorage.setItem('delay_reasons_table_exists', 'false');
+          } else if (error) {
+            // Other errors - assume table exists to avoid blocking functionality
+            setDelayReasonsTableExists(true);
+            localStorage.setItem('delay_reasons_table_exists', 'true');
+          } else {
+            // No error - table exists
+            setDelayReasonsTableExists(true);
+            localStorage.setItem('delay_reasons_table_exists', 'true');
+          }
+        }
+      } catch (error: any) {
+        // On any error, check if it's a 404/table not found error
+        if (isMounted) {
+          const isTableNotFound = error?.code === 'PGRST205' || 
+              error?.code === '42P01' ||
+              error?.message?.includes('Could not find the table') ||
+              error?.message?.includes('relation "delay_reasons" does not exist') ||
+              error?.message?.includes('does not exist') ||
+              error?.status === 404 ||
+              error?.statusCode === 404;
+              
+          if (isTableNotFound) {
+            setDelayReasonsTableExists(false);
+            localStorage.setItem('delay_reasons_table_exists', 'false');
+          } else {
+            // Other errors - assume table exists to avoid blocking
+            setDelayReasonsTableExists(true);
+            localStorage.setItem('delay_reasons_table_exists', 'true');
+          }
+        }
+      }
+    };
+    
+    // Check table existence once on mount (only if not cached)
+    if (delayReasonsTableExists === null) {
+      checkTableExists();
+    }
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Auto-enhance analytics periodically
   useEffect(() => {
@@ -163,6 +257,20 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     orderId: string,
     itemId?: string
   ): Promise<DelayReason[]> => {
+    // Early return if table doesn't exist (avoid unnecessary requests)
+    if (delayReasonsTableExists === false) {
+      return [];
+    }
+    
+    // If table existence is unknown, wait a bit and check
+    if (delayReasonsTableExists === null) {
+      // Wait for table check to complete (max 1 second)
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (delayReasonsTableExists === false) {
+        return [];
+      }
+    }
+    
     try {
       let query = supabase
         .from('delay_reasons')
@@ -177,8 +285,29 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await query;
       
       if (error) {
+        // Handle table not found errors (PGRST205, 404, etc.) - table might not exist yet
+        const isTableNotFound = error.code === 'PGRST205' || 
+            error.code === '42P01' ||
+            error.message?.includes('Could not find the table') ||
+            error.message?.includes('relation "delay_reasons" does not exist') ||
+            error.message?.includes('does not exist') ||
+            error.status === 404 ||
+            error.statusCode === 404 ||
+            (error.hint && error.hint.includes('delay_reasons'));
+            
+        if (isTableNotFound) {
+          // Mark table as not existing to avoid future requests
+          setDelayReasonsTableExists(false);
+          return [];
+        }
+        // Only log non-table-not-found errors
         console.error('Error fetching delay reasons:', error);
         return [];
+      }
+      
+      // If we got data, table exists
+      if (data && delayReasonsTableExists !== true) {
+        setDelayReasonsTableExists(true);
       }
       
       if (!data) {
@@ -202,10 +331,18 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       
       return reasons;
     } catch (error: any) {
+      // Silently handle table not found errors
+      if (error?.code === 'PGRST205' || 
+          error?.message?.includes('Could not find the table') ||
+          error?.status === 404 ||
+          error?.statusCode === 404) {
+        setDelayReasonsTableExists(false);
+        return [];
+      }
       console.error('Error fetching delay reasons:', error);
       return [];
     }
-  }, []);
+  }, [delayReasonsTableExists]);
 
   // Get Order Health Score
   const getOrderHealthScore = useCallback(async (
@@ -286,6 +423,16 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       throw new Error('User not authenticated');
     }
     
+    // Early return if table doesn't exist
+    if (delayReasonsTableExists === false) {
+      toast({
+        title: "Feature Unavailable",
+        description: "Delay reasons feature is not available. Please contact administrator.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     try {
       const { error } = await supabase
         .from('delay_reasons')
@@ -302,14 +449,57 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         });
       
       if (error) {
+        // Handle table not found errors
+        const isTableNotFound = error.code === 'PGRST205' || 
+            error.code === '42P01' ||
+            error.message?.includes('Could not find the table') ||
+            error.message?.includes('relation "delay_reasons" does not exist') ||
+            error.message?.includes('does not exist') ||
+            error.status === 404 ||
+            error.statusCode === 404 ||
+            (error.hint && error.hint.includes('delay_reasons'));
+            
+        if (isTableNotFound) {
+          setDelayReasonsTableExists(false);
+          toast({
+            title: "Feature Unavailable",
+            description: "Delay reasons feature is not available. Please contact administrator.",
+            variant: "destructive",
+          });
+          return;
+        }
         throw error;
+      }
+      
+      // Mark table as existing if we successfully inserted
+      if (delayReasonsTableExists !== true) {
+        setDelayReasonsTableExists(true);
       }
       
       toast({
         title: "Delay Reason Recorded",
         description: "Delay reason has been recorded successfully",
       });
-    } catch (error) {
+    } catch (error: any) {
+      // Handle table not found errors
+      const isTableNotFound = error?.code === 'PGRST205' || 
+          error?.code === '42P01' ||
+          error?.message?.includes('Could not find the table') ||
+          error?.message?.includes('relation "delay_reasons" does not exist') ||
+          error?.message?.includes('does not exist') ||
+          error?.status === 404 ||
+          error?.statusCode === 404 ||
+          (error?.hint && error.hint.includes('delay_reasons'));
+          
+      if (isTableNotFound) {
+        setDelayReasonsTableExists(false);
+        toast({
+          title: "Feature Unavailable",
+          description: "Delay reasons feature is not available. Please contact administrator.",
+          variant: "destructive",
+        });
+        return;
+      }
       console.error('Error adding delay reason:', error);
       toast({
         title: "Error",
@@ -318,7 +508,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       });
       throw error;
     }
-  }, [user, profile]);
+  }, [user, profile, delayReasonsTableExists]);
 
   // Get Delay Reason Stats
   const getDelayReasonStats = useCallback(async (
@@ -329,6 +519,15 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     by_stage: Record<Stage, number>;
     most_common: Array<{ category: DelayReasonCategory; count: number }>;
   }> => {
+    // Early return if table doesn't exist
+    if (delayReasonsTableExists === false) {
+      return {
+        by_category: {} as Record<DelayReasonCategory, number>,
+        by_stage: {} as Record<Stage, number>,
+        most_common: [],
+      };
+    }
+    
     try {
       const { data, error } = await supabase
         .from('delay_reasons')
@@ -337,12 +536,35 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         .lte('reported_at', endDate.toISOString());
       
       if (error) {
+        // Handle table not found errors
+        const isTableNotFound = error.code === 'PGRST205' || 
+            error.code === '42P01' ||
+            error.message?.includes('Could not find the table') ||
+            error.message?.includes('relation "delay_reasons" does not exist') ||
+            error.message?.includes('does not exist') ||
+            error.status === 404 ||
+            error.statusCode === 404 ||
+            (error.hint && error.hint.includes('delay_reasons'));
+            
+        if (isTableNotFound) {
+          setDelayReasonsTableExists(false);
+          return {
+            by_category: {} as Record<DelayReasonCategory, number>,
+            by_stage: {} as Record<Stage, number>,
+            most_common: [],
+          };
+        }
         console.error('Error fetching delay reason stats:', error);
         return {
           by_category: {} as Record<DelayReasonCategory, number>,
           by_stage: {} as Record<Stage, number>,
           most_common: [],
         };
+      }
+      
+      // If we got data, table exists
+      if (data && delayReasonsTableExists !== true) {
+        setDelayReasonsTableExists(true);
       }
       
       if (!data) {

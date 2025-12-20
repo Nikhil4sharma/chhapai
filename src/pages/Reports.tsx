@@ -10,11 +10,23 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useOrders } from '@/contexts/OrderContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 
 export default function Reports() {
   const [period, setPeriod] = useState('month');
   const { orders, getCompletedOrders, isLoading } = useOrders();
+  const { profileReady, isLoading: authLoading } = useAuth();
+  
+  // CRITICAL: Wait for auth to be ready before rendering
+  if (!profileReady || authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+  
   const completedOrders = getCompletedOrders();
 
   // Calculate real stats from orders with department-wise counts

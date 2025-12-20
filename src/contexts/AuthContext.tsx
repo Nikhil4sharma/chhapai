@@ -259,7 +259,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       
-      console.log('[Auth] Auth state changed:', event, session?.user?.email);
+      // Suppress "Invalid Refresh Token" errors when user is not authenticated (expected behavior)
+      if (event === 'SIGNED_OUT' || (!session && event === 'TOKEN_REFRESHED')) {
+        // This is expected when user is not logged in, don't log as error
+        console.log('[Auth] Auth state changed:', event, 'No session');
+      } else {
+        console.log('[Auth] Auth state changed:', event, session?.user?.email);
+      }
       
       // Update session and user state
       setSession(session);

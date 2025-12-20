@@ -198,12 +198,23 @@ export function CreateOrderDialog({
   };
 
   const addSpecification = (productIndex: number, key: string, value: string) => {
-    if (!key.trim() || !value.trim()) return;
+    if (!key.trim() || !value.trim()) {
+      console.warn('[CreateOrderDialog] Cannot add specification: key or value is empty', { key, value, productIndex });
+      return;
+    }
     const newProducts = [...products];
-    newProducts[productIndex].specifications[key] = value;
+    // Ensure specifications object exists
+    if (!newProducts[productIndex].specifications) {
+      newProducts[productIndex].specifications = {};
+    }
+    newProducts[productIndex].specifications[key.trim()] = value.trim();
     setProducts(newProducts);
-    setNewSpecKey('');
-    setNewSpecValue('');
+    // Only clear if this was the active product
+    if (activeProductIndex === productIndex) {
+      setNewSpecKey('');
+      setNewSpecValue('');
+    }
+    console.log('[CreateOrderDialog] Specification added:', { productIndex, key, value, specs: newProducts[productIndex].specifications });
   };
 
   const removeSpecification = (productIndex: number, key: string) => {
@@ -233,7 +244,11 @@ export function CreateOrderDialog({
       if (!products[i].name.trim()) {
         return `Product ${i + 1} name is required`;
       }
-      if (Object.keys(products[i].specifications).length === 0) {
+      // CRITICAL: Check if specifications object exists and has at least one key with non-empty value
+      const specs = products[i].specifications || {};
+      const specKeys = Object.keys(specs).filter(key => specs[key] && String(specs[key]).trim());
+      if (specKeys.length === 0) {
+        console.warn('[CreateOrderDialog] Validation failed for product', i + 1, 'specifications:', specs);
         return `Product ${i + 1} requires at least one specification`;
       }
     }
@@ -699,6 +714,13 @@ export function CreateOrderDialog({
                               onClick={() => {
                                 setActiveProductIndex(index);
                                 setNewSpecKey(key);
+                                // Focus the value input after setting key
+                                setTimeout(() => {
+                                  const valueInput = document.getElementById(`spec_value_${index}`);
+                                  if (valueInput) {
+                                    valueInput.focus();
+                                  }
+                                }, 100);
                               }}
                             >
                               + {key}
@@ -742,8 +764,31 @@ export function CreateOrderDialog({
                             type="button"
                             variant="secondary"
                             size="sm"
-                            onClick={() => addSpecification(index, newSpecKey, newSpecValue)}
-                            disabled={!newSpecKey.trim() || !newSpecValue.trim() || activeProductIndex !== index}
+                            onClick={() => {
+                              // Get current values from inputs for this specific product
+                              const keyInput = document.getElementById(`spec_key_${index}`) as HTMLInputElement;
+                              const valueInput = document.getElementById(`spec_value_${index}`) as HTMLInputElement;
+                              const key = keyInput?.value.trim() || (activeProductIndex === index ? newSpecKey.trim() : '');
+                              const value = valueInput?.value.trim() || (activeProductIndex === index ? newSpecValue.trim() : '');
+                              
+                              if (key && value) {
+                                addSpecification(index, key, value);
+                                // Clear inputs after adding
+                                if (keyInput) keyInput.value = '';
+                                if (valueInput) valueInput.value = '';
+                                if (activeProductIndex === index) {
+                                  setNewSpecKey('');
+                                  setNewSpecValue('');
+                                }
+                              }
+                            }}
+                            disabled={(() => {
+                              const keyInput = document.getElementById(`spec_key_${index}`) as HTMLInputElement;
+                              const valueInput = document.getElementById(`spec_value_${index}`) as HTMLInputElement;
+                              const hasKey = keyInput?.value.trim() || (activeProductIndex === index && newSpecKey.trim());
+                              const hasValue = valueInput?.value.trim() || (activeProductIndex === index && newSpecValue.trim());
+                              return !hasKey || !hasValue;
+                            })()}
                           >
                             Add
                           </Button>
