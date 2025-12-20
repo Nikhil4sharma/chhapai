@@ -54,6 +54,14 @@ if (!supabaseClient) {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+        storageKey: 'sb-hswgdeldouyclpeqbbgq-auth-token',
+        flowType: 'pkce',
+      },
+      global: {
+        headers: {
+          'x-client-info': 'chhapai-tool@1.0.0',
+        },
       },
     });
   } catch (error) {

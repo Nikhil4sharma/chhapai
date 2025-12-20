@@ -97,10 +97,21 @@ export default function Admin() {
     setIsCreating(true);
     try {
       // Create user via Supabase Auth
+      // Note: Email auto-confirm trigger se automatically confirm ho jayega
+      // Agar trigger nahi hai, toh FIX_EMAIL_CONFIRMATION_AND_LOGIN.sql run karo
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: newEmail,
         password: newPassword,
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: {
+            full_name: newFullName,
+          }
+        }
       });
+      
+      // If user created but email not confirmed, try to confirm via SQL (if trigger exists)
+      // Note: Frontend se directly confirm nahi kar sakte, trigger automatically karega
 
       if (authError) throw authError;
       if (!authData.user) throw new Error('User creation failed');
@@ -130,9 +141,12 @@ export default function Admin() {
 
       if (roleError) throw roleError;
 
+      // Note: Email auto-confirm trigger se automatically confirm ho jayega
+      // Agar trigger nahi hai, toh FIX_EMAIL_CONFIRMATION_AND_LOGIN.sql run karo
+      
       toast({
         title: "Success",
-        description: `User ${newEmail} created successfully`,
+        description: `User ${newEmail} created successfully. Email will be auto-confirmed if trigger is enabled.`,
       });
       setDialogOpen(false);
       setNewEmail('');

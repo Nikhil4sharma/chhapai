@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
-import { ChevronRight, Calendar, Image as ImageIcon, Eye, Download, Trash2, ExternalLink } from 'lucide-react';
+import { ChevronRight, Calendar, Image as ImageIcon, Eye, Download, Trash2, ExternalLink, ShoppingCart } from 'lucide-react';
 import { Order, OrderFile } from '@/types/order';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PriorityBadge } from './PriorityBadge';
 import { StageBadge } from './StageBadge';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -177,9 +178,20 @@ export function OrderCard({ order, className }: OrderCardProps) {
           <div className="p-4">
             {/* Header - Order ID, Priority, Stage */}
             <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-semibold text-foreground">{order.order_id}</h3>
                 <PriorityBadge priority={order.priority_computed} />
+                {order.source === 'woocommerce' && (
+                  <Badge variant="outline" className="text-xs">
+                    <ShoppingCart className="h-3 w-3 mr-1" />
+                    WooCommerce
+                  </Badge>
+                )}
+                {order.meta?.imported && (
+                  <Badge variant="secondary" className="text-xs">
+                    Imported
+                  </Badge>
+                )}
               </div>
               {mainItem && <StageBadge stage={mainItem.current_stage} />}
             </div>

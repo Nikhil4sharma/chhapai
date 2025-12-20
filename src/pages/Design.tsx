@@ -13,8 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useWorkLogs } from '@/contexts/WorkLogContext';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Tooltip,
   TooltipContent,
@@ -59,15 +58,17 @@ export default function Design() {
     if (isAdmin) {
       const fetchDesignUsers = async () => {
         try {
-          const profilesQuery = query(
-            collection(db, 'profiles'),
-            where('department', '==', 'design')
-          );
-          const snapshot = await getDocs(profilesQuery);
-          const users = snapshot.docs.map(doc => ({
-            user_id: doc.data().user_id,
-            full_name: doc.data().full_name || 'Unknown',
-            department: doc.data().department || 'design',
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('user_id, full_name, department')
+            .eq('department', 'design');
+
+          if (profilesError) throw profilesError;
+
+          const users = (profilesData || []).map(profile => ({
+            user_id: profile.user_id,
+            full_name: profile.full_name || 'Unknown',
+            department: profile.department || 'design',
           }));
           setDesignUsers(users);
         } catch (error) {
@@ -86,51 +87,80 @@ export default function Design() {
     const deptLower = department.toLowerCase().trim();
     
     // Check user's department - use role first, then profile.department
-    const userDepartment = (role || profile?.department || '').toLowerCase().trim();
-    const isDesignUser = userDepartment === deptLower || isAdmin;
+    const userRole = (role || '').toLowerCase().trim();
+    const userProfileDept = (profile?.department || '').toLowerCase().trim();
+    const isDesignUser = userRole === deptLower || userProfileDept === deptLower || isAdmin;
     
-    return orders
+    console.log('[Design] Filtering items:', {
+      user_id: user?.id,
+      role: role,
+      userRole: userRole,
+      profileDepartment: profile?.department,
+      userProfileDept: userProfileDept,
+      deptLower: deptLower,
+      isDesignUser: isDesignUser,
+      isAdmin: isAdmin,
+      totalOrders: orders.length,
+    });
+    
+    const filtered = orders
       .filter(order => !order.is_completed && !order.archived_from_wc)
       .flatMap(order => 
         order.items
           .filter(item => {
-            // Filter by assigned_department AND current_stage
+            // Filter by assigned_department (primary check)
             const itemDept = (item.assigned_department || '').toLowerCase().trim();
             const itemStage = (item.current_stage || '').toLowerCase().trim();
-            const isDesignItem = itemDept === deptLower || itemStage === deptLower;
             
-            if (!isDesignItem) return false;
+            // CRITICAL: Item must be assigned to design department
+            // Check both assigned_department and current_stage as fallback
+            const isDesignItem = itemDept === deptLower || (itemStage === deptLower && !item.assigned_department);
             
-            // CRITICAL FIX: Visibility logic
+            if (!isDesignItem) {
+              return false;
+            }
+            
+            // CRITICAL FIX: Visibility logic (CORRECTED)
             // - Admin sees ALL items in design department
-            // - If item.assigned_to IS NULL → visible to ALL users in design department
-            // - If item.assigned_to IS SET:
-            //   - Admin sees it
-            //   - ONLY that assigned user sees it (even if they're in design department)
-            if (isAdmin) {
-              return true; // Admin sees everything
+            // - Sales sees ALL items in design department
+            // - Department users see ALL items in their department (regardless of assigned_to)
+            // - assigned_to does NOT control department-level visibility
+            // - assigned_to is only used for "Assigned to Me" tab filtering
+            
+            if (isAdmin || role === 'sales') {
+              return true; // Admin and Sales see everything
             }
             
-            // For non-admin users, check assignment
-            if (item.assigned_to) {
-              // Item is assigned - only the assigned user can see it
-              // CRITICAL: Must check if user is in design department AND is the assigned user
-              return isDesignUser && item.assigned_to === user?.uid;
+            // CRITICAL: User must be in design department to see any design items
+            if (!isDesignUser) {
+              return false;
             }
             
-            // No user assigned - visible to all users in design department
-            return isDesignUser;
+            // Department users ALWAYS see items in their department
+            // assigned_to does NOT filter out items from department view
+            // This ensures department-wide visibility (read-only for assigned items)
+            return true;
           })
           .map(item => ({
             order,
             item,
           }))
       );
+    
+    console.log('[Design] Filtered items count:', filtered.length, {
+      totalOrders: orders.length,
+      isDesignUser: isDesignUser,
+      userRole: role,
+      userProfileDept: profile?.department,
+    });
+    
+    return filtered;
   }, [orders, isAdmin, user, role, profile]);
 
   // Separate assigned items (assigned_to is set) from unassigned items
   const assignedDesignItems = useMemo(() => {
-    return allDesignItems.filter(({ item }) => item.assigned_to === user?.uid);
+    // FIX: Use user?.id instead of user?.uid (Supabase uses id, not uid)
+    return allDesignItems.filter(({ item }) => item.assigned_to === user?.id);
   }, [allDesignItems, user]);
 
   // Get urgent items for design department
@@ -190,7 +220,7 @@ export default function Design() {
   useEffect(() => {
     console.log('[Design] ========== DEBUG INFO ==========');
     console.log('[Design] User Info:', {
-      user_id: user?.uid,
+      user_id: user?.id, // FIX: Use user?.id instead of user?.uid (Supabase uses id, not uid)
       role: role,
       profile_department: profile?.department,
       isAdmin: isAdmin,
@@ -210,7 +240,7 @@ export default function Design() {
         assigned_department: item.assigned_department,
         current_stage: item.current_stage,
         assigned_to: item.assigned_to,
-        user_can_see: !item.assigned_to || item.assigned_to === user?.uid,
+        user_can_see: !item.assigned_to || item.assigned_to === user?.id, // FIX: Use user?.id instead of user?.uid
       })));
     } else {
       console.warn('[Design] No design items found!');

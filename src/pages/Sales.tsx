@@ -18,8 +18,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFinancialAccess } from '@/hooks/useFinancialAccess';
 import { toast } from '@/hooks/use-toast';
 import { format, differenceInDays } from 'date-fns';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 import {
   Collapsible,
   CollapsibleContent,
@@ -101,15 +100,17 @@ export default function Sales() {
       const fetchSalesUsers = async () => {
         setLoadingUsers(true);
         try {
-          const profilesQuery = query(
-            collection(db, 'profiles'),
-            where('department', '==', 'sales')
-          );
-          const snapshot = await getDocs(profilesQuery);
-          const users = snapshot.docs.map(doc => ({
-            user_id: doc.data().user_id,
-            full_name: doc.data().full_name || 'Unknown',
-            department: doc.data().department || 'sales',
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('user_id, full_name, department')
+            .eq('department', 'sales');
+
+          if (profilesError) throw profilesError;
+
+          const users = (profilesData || []).map(profile => ({
+            user_id: profile.user_id,
+            full_name: profile.full_name || 'Unknown',
+            department: profile.department || 'sales',
           }));
           setSalesUsers(users);
         } catch (error) {

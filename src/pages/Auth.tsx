@@ -22,9 +22,14 @@ export default function Auth() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // CRITICAL: Wait for auth to fully load and user data to be fetched
     if (!authLoading && user && role) {
+      console.log('[Auth] User authenticated, redirecting...', { user: user.email, role });
       const redirectPath = getRedirectPath(role);
-      navigate(redirectPath, { replace: true });
+      // Small delay to ensure state is fully updated
+      setTimeout(() => {
+        navigate(redirectPath, { replace: true });
+      }, 100);
     }
   }, [user, role, authLoading, navigate]);
 
@@ -58,12 +63,44 @@ export default function Auth() {
     }
 
     setIsLoading(true);
-    const { error } = await signIn(email, password);
-    
-    if (error) {
+    try {
+      const { error } = await signIn(email, password);
+      
+      if (error) {
+        let errorMessage = error.message || "Invalid email or password";
+        
+        // Better error messages for common issues
+        if (error.message?.includes('Email not confirmed')) {
+          errorMessage = "Email not confirmed. Please contact admin to confirm your email, or run CONFIRM_EXISTING_USERS_EMAIL.sql in Supabase SQL Editor.";
+        } else if (error.message?.includes('Invalid email or password')) {
+          errorMessage = "Invalid email or password. Please check your credentials.";
+        } else if (error.message?.includes('400')) {
+          errorMessage = "Login failed. Please check your email and password, or contact admin if email is not confirmed.";
+        }
+        
+        toast({
+          title: "Login Failed",
+          description: errorMessage,
+          variant: "destructive",
+        });
+        setIsLoading(false);
+      } else {
+        // Success - redirect will happen via useEffect when user/role is available
+        // Set a timeout to clear loading if redirect doesn't happen quickly
+        console.log('[Auth] Sign in successful, waiting for user data...');
+        setTimeout(() => {
+          // If still loading after 3 seconds, clear it (redirect should have happened)
+          if (isLoading) {
+            console.warn('[Auth] Loading timeout - clearing loading state');
+            setIsLoading(false);
+          }
+        }, 3000);
+      }
+    } catch (error: any) {
+      console.error('[Auth] Sign in error:', error);
       toast({
         title: "Login Failed",
-        description: error.message || "Invalid email or password",
+        description: error.message || "An unexpected error occurred",
         variant: "destructive",
       });
       setIsLoading(false);

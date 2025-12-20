@@ -1,55 +1,67 @@
 # ⚡ Quick Push Commands
 
-## Method 1: Personal Access Token
+## 🚀 One-Time Setup (First Time Only)
 
 ```bash
-# 1. Token generate karo (GitHub.com → Settings → Developer settings)
-# 2. Token copy karo
+# 1. Git initialize
+cd D:\Project\chhapai
+git init
 
-# 3. Push karo
-git push origin main
+# 2. Add all files
+git add .
 
-# Username: Nikhil4sharma
-# Password: PASTE_TOKEN_HERE (not actual password!)
+# 3. First commit
+git commit -m "Initial commit: Complete Order Flow Tool codebase"
+
+# 4. Add remote (YOUR_USERNAME aur REPO_NAME replace karo)
+git remote add origin https://github.com/YOUR_USERNAME/chhapai-order-flow.git
+
+# 5. Rename branch to main
+git branch -M main
+
+# 6. Push to GitHub
+git push -u origin main
 ```
 
 ---
 
-## Method 2: SSH (One-time Setup)
+## 🔄 Regular Updates (After First Push)
 
 ```bash
-# 1. SSH key generate
-ssh-keygen -t ed25519 -C "your_email@example.com"
+# 1. Check status
+git status
 
-# 2. Public key copy
-cat ~/.ssh/id_ed25519.pub
-# Copy output
+# 2. Add changes
+git add .
 
-# 3. GitHub → Settings → SSH keys → Add key
+# 3. Commit
+git commit -m "Update: Description of changes"
 
-# 4. Remote change to SSH
-git remote set-url origin git@github.com:Nikhil4sharma/chhapai.git
-
-# 5. Push
-git push origin main
+# 4. Push
+git push
 ```
 
 ---
 
-## Method 3: GitHub CLI
+## 🔐 Authentication
 
+**Personal Access Token use karo:**
+- Username: GitHub username
+- Password: Personal Access Token (GitHub → Settings → Developer settings → Personal access tokens)
+
+**Ya GitHub CLI:**
 ```bash
-# Install
-winget install GitHub.cli
-
-# Login
 gh auth login
-
-# Push
-git push origin main
+git push
 ```
 
 ---
 
-**Token method sabse simple! 2 minutes mein ho jayega! 🚀**
+## ✅ Verify Push
 
+GitHub repository page pe check karo:
+- https://github.com/YOUR_USERNAME/chhapai-order-flow
+
+---
+
+**Note:** Pehli baar push karte waqt authentication chahiye. Personal Access Token ya GitHub CLI use karo.

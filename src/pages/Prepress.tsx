@@ -31,8 +31,7 @@ import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
 import { ProductionStageSequenceDialog } from '@/components/dialogs/ProductionStageSequenceDialog';
 import { OutsourceAssignmentDialog } from '@/components/dialogs/OutsourceAssignmentDialog';
 import { VendorDetails, OutsourceJobDetails, Order, OrderItem } from '@/types/order';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface PrepressUser {
@@ -52,15 +51,17 @@ export default function Prepress() {
     if (isAdmin) {
       const fetchPrepressUsers = async () => {
         try {
-          const profilesQuery = query(
-            collection(db, 'profiles'),
-            where('department', '==', 'prepress')
-          );
-          const snapshot = await getDocs(profilesQuery);
-          const users = snapshot.docs.map(doc => ({
-            user_id: doc.data().user_id,
-            full_name: doc.data().full_name || 'Unknown',
-            department: doc.data().department || 'prepress',
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('user_id, full_name, department')
+            .eq('department', 'prepress');
+
+          if (profilesError) throw profilesError;
+
+          const users = (profilesData || []).map(profile => ({
+            user_id: profile.user_id,
+            full_name: profile.full_name || 'Unknown',
+            department: profile.department || 'prepress',
           }));
           setPrepressUsers(users);
         } catch (error) {
@@ -110,24 +111,20 @@ export default function Prepress() {
             
             if (!isPrepressItem) return false;
             
-            // CRITICAL FIX: Visibility logic
+            // CRITICAL FIX: Visibility logic (CORRECTED)
             // - Admin sees ALL items in prepress department
-            // - If item.assigned_to IS NULL → visible to ALL users in prepress department
-            // - If item.assigned_to IS SET:
-            //   - Admin sees it
-            //   - ONLY that assigned user sees it (even if they're in prepress department)
-            if (isAdmin) {
-              return true; // Admin sees everything
+            // - Sales sees ALL items in prepress department
+            // - Department users see ALL items in their department (regardless of assigned_to)
+            // - assigned_to does NOT control department-level visibility
+            // - assigned_to is only used for "Assigned to Me" tab filtering
+            
+            if (isAdmin || role === 'sales') {
+              return true; // Admin and Sales see everything
             }
             
-            // For non-admin users, check assignment
-            if (item.assigned_to) {
-              // Item is assigned - only the assigned user can see it
-              // CRITICAL: Must check if user is in prepress department AND is the assigned user
-              return isPrepressUser && item.assigned_to === user?.uid;
-            }
-            
-            // No user assigned - visible to all users in prepress department
+            // Department users ALWAYS see items in their department
+            // assigned_to does NOT filter out items from department view
+            // This ensures department-wide visibility (read-only for assigned items)
             return isPrepressUser;
           })
           .map(item => ({
@@ -172,7 +169,7 @@ export default function Prepress() {
 
   // Separate assigned items (assigned_to is set) from unassigned items
   const assignedPrepressItems = useMemo(() => {
-    return allPrepressItems.filter(({ item }) => item.assigned_to === user?.uid);
+    return allPrepressItems.filter(({ item }) => item.assigned_to === user?.id);
   }, [allPrepressItems, user]);
 
   // Calculate realtime stats for Prepress dashboard

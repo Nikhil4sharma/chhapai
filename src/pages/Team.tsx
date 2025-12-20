@@ -128,10 +128,20 @@ export default function Team() {
   }) => {
     try {
       // Create user via Supabase Auth
+      // Note: Email auto-confirm trigger se automatically confirm ho jayega
+      // Agar trigger nahi hai, toh FIX_EMAIL_CONFIRMATION_AND_LOGIN.sql run karo
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: member.email,
         password: member.password,
+        options: {
+          emailRedirectTo: window.location.origin,
+          data: {
+            full_name: member.name,
+          }
+        }
       });
+      
+      // If user created but email not confirmed, trigger automatically karega
 
       if (authError) throw authError;
       if (!authData.user) throw new Error('User creation failed');
@@ -161,9 +171,12 @@ export default function Team() {
 
       if (roleError) throw roleError;
 
+      // Note: Email auto-confirm trigger se automatically confirm ho jayega
+      // Agar trigger nahi hai, toh FIX_EMAIL_CONFIRMATION_AND_LOGIN.sql run karo
+      
       toast({
         title: "Success",
-        description: `${member.name} has been added to the team`,
+        description: `${member.name} has been added to the team. Email will be auto-confirmed if trigger is enabled.`,
       });
 
       fetchTeamMembers();

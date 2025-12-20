@@ -41,122 +41,203 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = role === 'admin';
 
   useEffect(() => {
-    // Set a timeout to prevent infinite loading
-    const loadingTimeout = setTimeout(() => {
-      console.warn('Auth loading timeout - setting isLoading to false');
-      setIsLoading(false);
-    }, 5000); // 5 second timeout
+    let mounted = true;
+    let loadingTimeout: NodeJS.Timeout;
+    let subscription: { unsubscribe: () => void } | null = null;
 
-    // Get initial session
-    supabase.auth.getSession()
-      .then(({ data: { session }, error }) => {
+    // Set a timeout to prevent infinite loading
+    loadingTimeout = setTimeout(() => {
+      if (mounted) {
+        console.warn('Auth loading timeout - setting isLoading to false');
+        setIsLoading(false);
+      }
+    }, 10000); // 10 second timeout (increased for Vercel)
+
+    // Get initial session - CRITICAL for page reload
+    const initializeAuth = async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (!mounted) return;
+        
         clearTimeout(loadingTimeout);
+        
         if (error) {
           console.error('Error getting session:', error);
-          setIsLoading(false);
+          if (mounted) setIsLoading(false);
           return;
         }
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          fetchUserData(session.user.id);
-        } else {
+
+        if (mounted) {
+          setSession(session);
+          setUser(session?.user ?? null);
+          
+          if (session?.user) {
+            // CRITICAL: Fetch user data before setting loading to false
+            await fetchUserData(session.user.id);
+          } else {
+            setIsLoading(false);
+          }
+        }
+      } catch (error) {
+        if (mounted) {
+          clearTimeout(loadingTimeout);
+          console.error('Error in getSession:', error);
           setIsLoading(false);
         }
-      })
-      .catch((error) => {
-        clearTimeout(loadingTimeout);
-        console.error('Error in getSession:', error);
-        setIsLoading(false);
-      });
+      }
+    };
 
-    // Listen for auth changes
+    // Initialize auth immediately
+    initializeAuth();
+
+    // Listen for auth changes - CRITICAL for session persistence
     const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      data: { subscription: authSubscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+      
       clearTimeout(loadingTimeout);
+      
+      console.log('[Auth] Auth state changed:', event, session?.user?.email);
+      
       setSession(session);
       setUser(session?.user ?? null);
       
       if (session?.user) {
+        // CRITICAL: Always fetch user data when session exists
         await fetchUserData(session.user.id);
+        // CRITICAL: Ensure loading is set to false after user data is fetched
+        // fetchUserData already sets isLoading to false, but ensure it here too
       } else {
+        // CRITICAL: Clear all data when session is null
         setProfile(null);
         setRole(null);
         setIsLoading(false);
       }
     });
 
+    subscription = authSubscription;
+
     return () => {
+      mounted = false;
       clearTimeout(loadingTimeout);
-      subscription.unsubscribe();
+      if (subscription) {
+        subscription.unsubscribe();
+      }
     };
   }, []);
 
   const fetchUserData = async (userId: string) => {
     try {
+      console.log('[Auth] Fetching user data for:', userId);
+      
       // Set timeout for fetch operations
       const fetchTimeout = setTimeout(() => {
         console.warn('fetchUserData timeout - setting isLoading to false');
         setIsLoading(false);
-      }, 10000); // 10 second timeout
+      }, 15000); // 15 second timeout (increased for Vercel)
 
-      // Fetch profile
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('user_id', userId)
-        .single();
+      // Fetch profile and role in parallel for better performance
+      const [profileResult, roleResult] = await Promise.allSettled([
+        supabase
+          .from('profiles')
+          .select('*')
+          .eq('user_id', userId)
+          .single(),
+        supabase
+          .from('user_roles')
+          .select('role')
+          .eq('user_id', userId)
+          .limit(1)
+          .single(),
+      ]);
 
-      if (profileError && profileError.code !== 'PGRST116') { // PGRST116 = no rows returned
-        console.error('Error fetching profile:', profileError);
+      // Handle profile result
+      if (profileResult.status === 'fulfilled') {
+        const { data: profileData, error: profileError } = profileResult.value;
+        
+        if (profileError && profileError.code !== 'PGRST116') { // PGRST116 = no rows returned
+          console.error('Error fetching profile:', profileError);
+        }
+
+        if (profileData) {
+          setProfile({
+            id: profileData.id,
+            user_id: userId,
+            full_name: profileData.full_name || null,
+            department: profileData.department || null,
+            phone: profileData.phone || null,
+            avatar_url: profileData.avatar_url || null,
+            production_stage: profileData.production_stage || null,
+          });
+          console.log('[Auth] Profile loaded:', profileData.full_name);
+        }
+      } else {
+        console.error('Error fetching profile (settled):', profileResult.reason);
       }
 
-      if (profileData) {
-        setProfile({
-          id: profileData.id,
-          user_id: userId,
-          full_name: profileData.full_name || null,
-          department: profileData.department || null,
-          phone: profileData.phone || null,
-          avatar_url: profileData.avatar_url || null,
-          production_stage: profileData.production_stage || null,
-        });
-      }
+      // Handle role result
+      if (roleResult.status === 'fulfilled') {
+        const { data: roleData, error: roleError } = roleResult.value;
+        
+        if (roleError && roleError.code !== 'PGRST116') {
+          console.error('Error fetching role:', roleError);
+        }
 
-      // Fetch role
-      const { data: roleData, error: roleError } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', userId)
-        .limit(1)
-        .single();
-
-      if (roleError && roleError.code !== 'PGRST116') {
-        console.error('Error fetching role:', roleError);
-      }
-
-      if (roleData) {
-        setRole(roleData.role as AppRole);
+        if (roleData) {
+          setRole(roleData.role as AppRole);
+          console.log('[Auth] Role loaded:', roleData.role);
+        }
+      } else {
+        console.error('Error fetching role (settled):', roleResult.reason);
       }
 
       clearTimeout(fetchTimeout);
+      setIsLoading(false);
+      console.log('[Auth] User data fetch complete');
     } catch (error) {
       console.error('Error fetching user data:', error);
-    } finally {
       setIsLoading(false);
     }
   };
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (error) throw error;
+      
+      if (error) {
+        console.error('[Auth] Sign in error:', error);
+        
+        // Handle specific error cases
+        if (error.message?.includes('Email not confirmed') || error.message?.includes('email_not_confirmed')) {
+          // If email not confirmed, try to confirm it automatically (for admin-created users)
+          console.log('[Auth] Email not confirmed, attempting auto-confirm...');
+          
+          // Note: Frontend se directly confirm nahi kar sakte, SQL query se karna padega
+          // But we can provide better error message
+          return { 
+            error: new Error('Email not confirmed. Please contact admin or run CONFIRM_EXISTING_USERS_EMAIL.sql in Supabase.') 
+          };
+        }
+        
+        if (error.message?.includes('Invalid login credentials') || error.status === 400) {
+          return { 
+            error: new Error('Invalid email or password. Please check your credentials.') 
+          };
+        }
+        
+        throw error;
+      }
+      
+      // Success - session will be handled by onAuthStateChange
+      console.log('[Auth] Sign in successful:', data.user?.email);
       return { error: null };
     } catch (error: any) {
+      console.error('[Auth] Sign in exception:', error);
       return { error: error as Error };
     }
   };
@@ -202,14 +283,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
+      console.log('[Auth] Signing out...');
+      
+      // Clear local state first
       setUser(null);
       setSession(null);
       setProfile(null);
       setRole(null);
+      
+      // Then sign out from Supabase
+      const { error } = await supabase.auth.signOut({
+        scope: 'global' // Sign out from all sessions
+      });
+      
+      if (error) {
+        console.error('Error signing out:', error);
+        // Even if error, clear local state
+        setUser(null);
+        setSession(null);
+        setProfile(null);
+        setRole(null);
+        throw error;
+      }
+      
+      console.log('[Auth] Signed out successfully');
+      
+      // Clear localStorage to ensure session is removed
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('sb-hswgdeldouyclpeqbbgq-auth-token');
+        // Clear all Supabase related storage
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('sb-')) {
+            localStorage.removeItem(key);
+          }
+        });
+      }
     } catch (error) {
       console.error('Error signing out:', error);
+      // Ensure state is cleared even on error
+      setUser(null);
+      setSession(null);
+      setProfile(null);
+      setRole(null);
       throw error;
     }
   };

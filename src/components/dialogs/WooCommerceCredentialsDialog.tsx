@@ -13,8 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
-import { doc, getDoc, setDoc, Timestamp } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 
 interface WooCommerceCredentialsDialogProps {
   open: boolean;
@@ -48,15 +47,21 @@ export function WooCommerceCredentialsDialog({
 
   const loadCredentials = async () => {
     try {
-      const credsRef = doc(db, 'woocommerce_credentials', 'config');
-      const credsSnap = await getDoc(credsRef);
-      
-      if (credsSnap.exists()) {
-        const data = credsSnap.data();
+      const { data: credsData, error: credsError } = await supabase
+        .from('woocommerce_credentials')
+        .select('store_url, consumer_key, consumer_secret')
+        .eq('setting_key', 'config')
+        .single();
+
+      if (credsError && credsError.code !== 'PGRST116') {
+        console.error('Error loading credentials:', credsError);
+      }
+
+      if (credsData) {
         setCredentials({
-          store_url: data.store_url || '',
-          consumer_key: data.consumer_key ? '••••••••••••••••' : '', // Mask existing key
-          consumer_secret: data.consumer_secret ? '••••••••••••••••' : '', // Mask existing secret
+          store_url: credsData.store_url || '',
+          consumer_key: credsData.consumer_key ? '••••••••••••••••' : '', // Mask existing key
+          consumer_secret: credsData.consumer_secret ? '••••••••••••••••' : '', // Mask existing secret
         });
       } else {
         // Pre-fill store URL if provided
@@ -114,15 +119,34 @@ export function WooCommerceCredentialsDialog({
         throw new Error(`Connection failed: ${testResponse.status} ${testResponse.statusText}`);
       }
 
-      // Save credentials to Firestore (admin-only collection)
-      const credsRef = doc(db, 'woocommerce_credentials', 'config');
-      await setDoc(credsRef, {
-        store_url: normalizedUrl,
-        consumer_key: credentials.consumer_key,
-        consumer_secret: credentials.consumer_secret,
-        updated_at: Timestamp.now(),
-        updated_by: 'admin', // In production, use actual user ID
-      }, { merge: true });
+      // Save credentials to Supabase (admin-only table)
+      // Check if masked values are being used (user didn't change them)
+      const { data: existingCreds } = await supabase
+        .from('woocommerce_credentials')
+        .select('consumer_key, consumer_secret')
+        .eq('setting_key', 'config')
+        .single();
+
+      const finalKey = credentials.consumer_key.includes('••••') && existingCreds?.consumer_key
+        ? existingCreds.consumer_key
+        : credentials.consumer_key;
+      
+      const finalSecret = credentials.consumer_secret.includes('••••') && existingCreds?.consumer_secret
+        ? existingCreds.consumer_secret
+        : credentials.consumer_secret;
+
+      const { error: saveError } = await supabase
+        .from('woocommerce_credentials')
+        .upsert({
+          setting_key: 'config',
+          store_url: normalizedUrl,
+          consumer_key: finalKey,
+          consumer_secret: finalSecret,
+        }, {
+          onConflict: 'setting_key'
+        });
+
+      if (saveError) throw saveError;
 
       toast({
         title: "Credentials Updated",

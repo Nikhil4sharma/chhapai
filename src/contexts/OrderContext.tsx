@@ -472,31 +472,39 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     targetDepartment: string,
     userDepartment: string,
     isAdminUser: boolean,
-    currentUserId?: string
+    currentUserId?: string,
+    isSalesUser?: boolean
   ): boolean => {
     const itemDept = (item.assigned_department || '').toLowerCase().trim();
     const itemStage = (item.current_stage || '').toLowerCase().trim();
     const targetDeptLower = targetDepartment.toLowerCase().trim();
     
-    // Check if item belongs to target department
+    // CRITICAL: Check if item belongs to target department
+    // Primary check: assigned_department must match
+    // Fallback: if no assigned_department, check current_stage
     const isDepartmentItem = itemDept === targetDeptLower || 
                             (itemStage === targetDeptLower && !item.assigned_department);
     
-    if (!isDepartmentItem) return false;
-    
-    // Visibility logic:
-    // - Admin sees everything
-    // - If item.assigned_to IS NULL → visible to ALL users in department
-    // - If item.assigned_to IS SET → only that assigned user sees it
-    if (isAdminUser) return true;
-    
-    if (item.assigned_to) {
-      // Item is assigned - only the assigned user can see it
-      return item.assigned_to === currentUserId;
+    if (!isDepartmentItem) {
+      return false;
     }
     
-    // No user assigned - visible to all users in department
-    return true;
+    // CRITICAL FIX: Visibility logic (CORRECTED)
+    // - Admin sees everything
+    // - Sales sees everything
+    // - Department users see ALL items in their department (regardless of assigned_to)
+    // - assigned_to does NOT control department-level visibility
+    // - assigned_to is only used for "Assigned to Me" tab filtering, not visibility
+    
+    if (isAdminUser || isSalesUser) {
+      return true; // Admin and Sales see everything
+    }
+    
+    // CRITICAL: Department users ALWAYS see items in their department
+    // assigned_to does NOT filter out items from department view
+    // This ensures department-wide visibility (read-only for assigned items)
+    const userDeptLower = (userDepartment || '').toLowerCase().trim();
+    return userDeptLower === targetDeptLower;
   }, []);
 
   const getOrdersByDepartment = useCallback(() => {
@@ -512,7 +520,10 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         activeOrders: activeOrders.length,
         completedOrders: orders.filter(o => o.is_completed).length,
         archivedOrders: orders.filter(o => o.archived_from_wc).length,
+        ordersWithItems: activeOrders.filter(o => o.items.length > 0).length,
+        ordersWithoutItems: activeOrders.filter(o => o.items.length === 0).length,
       });
+      // CRITICAL: Return all active orders for admin/sales, even if they have no items
       return activeOrders;
     }
     
@@ -533,16 +544,18 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           }
           
           // Use helper function for department matching and visibility
-          return itemMatchesDepartment(item, 'production', roleLower, isAdmin, user?.id);
+          const isSales = role === 'sales';
+          return itemMatchesDepartment(item, 'production', roleLower, isAdmin, user?.id, isSales);
         })
       );
     }
     
     // For other departments, apply visibility rules with case-insensitive matching
     // Use helper function to reduce code duplication
+    const isSales = role === 'sales';
     const filtered = activeOrders.filter(order =>
       order.items.some(item => 
-        itemMatchesDepartment(item, roleLower, roleLower, isAdmin, user?.id)
+        itemMatchesDepartment(item, roleLower, roleLower, isAdmin, user?.id, isSales)
       )
     );
     
@@ -578,31 +591,29 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
             return false;
           }
           
-          // If assigned to a user, only that user sees it
-          if (item.assigned_to) {
-            return item.assigned_to === user?.id;
-          }
-          
-          // No user assigned, visible to all production users in this substage
+          // CRITICAL FIX: Department users ALWAYS see items in their department
+          // assigned_to does NOT filter out items from department view
+          // This ensures department-wide visibility (read-only for assigned items)
           return true;
         })
       );
     }
 
     // For other departments, apply visibility rules
+    // CRITICAL: Use case-insensitive matching for department
+    const roleLower = (role || '').toLowerCase().trim();
     return activeOrders.filter(order =>
       order.items.some(item => {
-        // Must be assigned to user's department
-        if (item.assigned_department !== role) {
+        // Must be assigned to user's department (case-insensitive)
+        const itemDept = (item.assigned_department || '').toLowerCase().trim();
+        if (itemDept !== roleLower) {
           return false;
         }
         
-        // If assigned to a specific user, only that user sees it
-        if (item.assigned_to) {
-          return item.assigned_to === user?.uid;
-        }
-        
-        // No user assigned, visible to all department users
+        // CRITICAL FIX: Department users ALWAYS see items in their department
+        // assigned_to does NOT filter out items from department view
+        // This ensures department-wide visibility (read-only for assigned items)
+        // assigned_to is only used for "Assigned to Me" filtering, not visibility
         return true;
       })
     );
@@ -630,7 +641,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     if (isAdmin) {
       return activeOrders.filter(order =>
         order.items.some(item => 
-          itemMatchesDepartment(item, deptLower, deptLower, true, undefined)
+          itemMatchesDepartment(item, deptLower, deptLower, true, undefined, false)
         )
       );
     }
@@ -674,7 +685,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const hasVisibleItem = order.items.some(item => {
         // Use helper function to reduce code duplication
         const userDeptLower = (role || profile?.department || '').toLowerCase().trim();
-        return itemMatchesDepartment(item, deptLower, userDeptLower, isAdmin, user?.uid);
+        // FIX: Use user?.id instead of user?.uid (Supabase uses id, not uid)
+        return itemMatchesDepartment(item, deptLower, userDeptLower, isAdmin, user?.id, role === 'sales');
       });
       
       // Debug: Log orders that are being filtered out
@@ -732,10 +744,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         // Must be assigned to this department
         if (item.assigned_department !== department) return false;
         
-        // If assigned to a specific user, only that user sees it
-        if (item.assigned_to) {
-          return item.assigned_to === user?.uid;
-        }
+        // CRITICAL FIX: Department users ALWAYS see items in their department
+        // assigned_to does NOT filter out items from department view
+        return true;
         
         // No user assigned, visible to all department users
         return true;
@@ -790,6 +801,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         design: 'design', 
         prepress: 'prepress',
         production: 'production',
+        outsource: 'production',
         dispatch: 'production',
         completed: 'production',
       };
@@ -958,14 +970,14 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       stage: 'production',
       substage: item.current_substage,
       action: 'substage_completed',
-      performed_by: user?.uid || '',
+      performed_by: user?.id || '',
       performed_by_name: profile?.full_name || 'Unknown',
       notes: `Completed ${item.current_substage}`,
       is_public: true,
     });
 
     // Auto-log work action
-    if (user?.uid && profile?.full_name) {
+    if (user?.id && profile?.full_name) {
       const item = order!.items.find(i => i.item_id === itemId);
       const startTime = new Date();
       const endTime = new Date();

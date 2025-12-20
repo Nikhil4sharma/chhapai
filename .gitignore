@@ -17,6 +17,7 @@ dist-ssr
 .env.local
 .env.production
 .env.development
+.env*.local
 
 # Editor directories and files
 .vscode/*
@@ -28,3 +29,31 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Supabase
+.supabase
+
+# Firebase
+.firebase
+.firebaserc
+
+# Build outputs
+dist
+dist-ssr
+build
+*.tsbuildinfo
+
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Testing
+coverage
+.nyc_output
+
+# Misc
+*.log
+.cache
+.temp
+.tmp

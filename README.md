@@ -1,91 +1,209 @@
-# Welcome to your Lovable project
+# 🎨 Chhapai Order Flow Tool
 
-## Project info
+Complete order management system with WooCommerce integration, real-time updates, and multi-department workflow.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## ✨ Features
 
-## How can I edit this code?
+- **Order Management**: Complete order lifecycle from sales to dispatch
+- **WooCommerce Integration**: Fetch and import orders from WooCommerce
+- **Multi-Department Workflow**: Sales → Design → Prepress → Production → Dispatch
+- **Real-time Updates**: Supabase Realtime for instant order visibility
+- **Department Dashboards**: Design, Prepress, Production, Sales, Admin
+- **User Assignment**: Assign orders to specific users or departments
+- **Priority Management**: Red/Yellow/Blue priority system
+- **File Management**: Upload and manage order files (proofs, finals, images)
+- **Timeline Tracking**: Complete order history and activity log
+- **Outsource Management**: Track outsource jobs and vendor details
 
-There are several ways of editing your application.
+## 🛠️ Tech Stack
 
-**Use Lovable**
+- **Frontend**: React + TypeScript + Vite
+- **UI Library**: shadcn/ui + Tailwind CSS
+- **Backend**: Supabase (PostgreSQL + Realtime + Storage)
+- **Authentication**: Supabase Auth
+- **API Integration**: WooCommerce REST API
+- **State Management**: React Context API
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## 📋 Prerequisites
 
-Changes made via Lovable will be committed automatically to this repo.
+- Node.js 18+ 
+- npm or yarn
+- Supabase account
+- WooCommerce store (optional, for integration)
 
-**Use your preferred IDE**
+## 🚀 Quick Start
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### 1. Clone Repository
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+```bash
+git clone https://github.com/YOUR_USERNAME/chhapai-order-flow.git
+cd chhapai-order-flow
+```
 
-Follow these steps:
+### 2. Install Dependencies
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+```bash
+npm install
+```
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+### 3. Environment Setup
 
-# Step 3: Install the necessary dependencies.
-npm i
+Create `.env` file:
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```env
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
+
+### 4. Run Database Migrations
+
+Apply Supabase migrations in order:
+
+```bash
+# Supabase Dashboard → SQL Editor
+# Run migrations from supabase/migrations/ in chronological order
+```
+
+### 5. Start Development Server
+
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+App will be available at `http://localhost:8080`
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## 📁 Project Structure
 
-**Use GitHub Codespaces**
+```
+chhapai/
+├── src/
+│   ├── components/     # React components
+│   ├── contexts/       # React contexts (Order, Auth, etc.)
+│   ├── pages/          # Page components
+│   ├── services/       # API services
+│   ├── types/          # TypeScript types
+│   └── utils/          # Utility functions
+├── supabase/
+│   ├── functions/      # Supabase Edge Functions
+│   └── migrations/     # Database migrations
+├── public/             # Static assets
+└── dist/              # Build output
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## 🔐 Authentication
 
-## What technologies are used for this project?
+- Email/Password authentication via Supabase
+- Role-based access control (Admin, Sales, Design, Prepress, Production)
+- Department-based order visibility
 
-This project is built with:
+## 📊 Database Schema
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-- Firebase (Authentication, Firestore, Storage)
+### Main Tables
 
-## Firebase Setup
+- `orders` - Order information
+- `order_items` - Individual items in orders
+- `order_files` - File attachments
+- `timeline` - Order activity log
+- `profiles` - User profiles
+- `user_roles` - User role assignments
 
-1. Create a Firebase project at [Firebase Console](https://console.firebase.google.com/)
-2. Enable Authentication (Email/Password)
-3. Create a Firestore database
-4. Create a Storage bucket
-5. Copy your Firebase config to `.env` file (see `.env.example`)
-6. Update `.firebaserc` with your project ID
+### Key Features
 
-## Deployment to Firebase
+- Row-Level Security (RLS) for data access control
+- Real-time subscriptions for live updates
+- Department-based visibility rules
+- User assignment tracking
 
-1. Install Firebase CLI: `npm install -g firebase-tools`
-2. Login: `firebase login`
-3. Initialize: `firebase init` (select Hosting and Firestore)
-4. Build: `npm run build`
-5. Deploy: `firebase deploy`
+## 🔄 Workflow Stages
 
-## How can I deploy this project?
+1. **Sales** - Order creation and initial setup
+2. **Design** - Design work and approval
+3. **Prepress** - Pre-production preparation
+4. **Production** - Manufacturing/printing
+5. **Outsource** - External vendor work (optional)
+6. **Dispatch** - Shipping and delivery
+7. **Completed** - Order fulfillment
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## 🛡️ Security
 
-## Can I connect a custom domain to my Lovable project?
+- Row-Level Security (RLS) policies
+- Department-based access control
+- User assignment visibility rules
+- Secure file uploads
+- Environment variable protection
 
-Yes, you can!
+## 📝 Key Features
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+### Order Fetch from WooCommerce
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- Search by Order Number, Customer Email, Name, or Phone
+- Selective import of orders
+- Automatic assignment to importing user
+- Duplicate prevention
+
+### Department Visibility
+
+- Admin sees all orders
+- Sales sees all orders
+- Department users see all orders in their department
+- Assigned orders visible to assigned user + department
+
+### Real-time Updates
+
+- Instant order visibility after import
+- Live updates on assignment changes
+- Real-time dashboard updates
+
+## 🚀 Deployment
+
+### Build for Production
+
+```bash
+npm run build
+```
+
+### Deploy to Vercel/Netlify
+
+1. Connect GitHub repository
+2. Set environment variables
+3. Deploy automatically on push
+
+## 📚 Documentation
+
+- `MIGRATION_STEPS.md` - Database migration guide
+- `GITHUB_PUSH_COMPLETE.md` - GitHub push instructions
+- `FIXES_APPLIED.md` - Recent fixes and updates
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to branch (`git push origin feature/AmazingFeature`)
+5. Open Pull Request
+
+## 📄 License
+
+Private/Proprietary - All rights reserved
+
+## 👥 Team
+
+- Development: Chhapai Team
+- Contact: [Your Contact Info]
+
+## 🐛 Known Issues
+
+- Some TypeScript errors in legacy Firebase code (non-critical)
+- Migration required for full functionality
+
+## 🔮 Future Enhancements
+
+- [ ] Mobile app
+- [ ] Advanced analytics
+- [ ] Email notifications
+- [ ] Multi-language support
+- [ ] Advanced reporting
+
+---
+
+**Made with ❤️ by Chhapai Team**

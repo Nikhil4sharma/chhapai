@@ -129,6 +129,11 @@ function transformOrdersToAppFormat(
       priority_computed: computePriority(orderRow.delivery_date ? new Date(orderRow.delivery_date) : null),
       items: orderItems,
       archived_from_wc: orderRow.archived_from_wc || false,
+      last_seen_in_wc_sync: orderRow.last_seen_in_wc_sync ? new Date(orderRow.last_seen_in_wc_sync) : undefined,
+      meta: {
+        imported: !!orderRow.imported_by,
+        imported_by: orderRow.imported_by || undefined,
+      },
     };
   });
 }

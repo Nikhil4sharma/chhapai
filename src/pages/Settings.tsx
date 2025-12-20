@@ -41,10 +41,11 @@ import { useOrders } from '@/contexts/OrderContext';
 import { toast } from '@/hooks/use-toast';
 import { PRODUCTION_STEPS } from '@/types/order';
 import { WooCommerceCredentialsDialog } from '@/components/dialogs/WooCommerceCredentialsDialog';
+import { FetchOrdersPanel } from '@/components/dialogs/FetchOrdersPanel';
 import { formatDistanceToNow, format } from 'date-fns';
-// Firebase removed - using Supabase only
-// TODO: Migrate settings to Supabase tables
+import { supabase } from '@/integrations/supabase/client';
 import { uploadToWordPress, testWordPressConnection, WordPressConfig } from '@/utils/wordpressUpload';
+import { uploadFileToSupabase } from '@/services/supabaseStorage';
 
 export default function Settings() {
   const { isAdmin, user } = useAuth();
@@ -129,6 +130,7 @@ export default function Settings() {
   const [testingConnection, setTestingConnection] = useState(false);
   const [checkingConfig, setCheckingConfig] = useState(true);
   const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false);
+  const [fetchOrdersDialogOpen, setFetchOrdersDialogOpen] = useState(false);
   const [autoSyncInterval, setAutoSyncInterval] = useState<ReturnType<typeof setInterval> | null>(null);
   const handleManualSyncRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -157,6 +159,71 @@ export default function Settings() {
     const interval = setInterval(updateCountdown, 1000);
     return () => clearInterval(interval);
   }, [wooSettings.lastSync, wooSettings.autoSync, wooSettings.syncInterval]);
+
+  // Load vendors from Supabase
+  useEffect(() => {
+    if (!isAdmin) return;
+    
+    const loadVendors = async () => {
+      try {
+        const { data: vendorsData, error: vendorsError } = await supabase
+          .from('vendors')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (vendorsError) throw vendorsError;
+
+        const mappedVendors = (vendorsData || []).map(v => ({
+          id: v.id,
+          vendor_name: v.vendor_name,
+          vendor_company: v.vendor_company || undefined,
+          contact_person: v.contact_person,
+          phone: v.phone,
+          email: v.email || undefined,
+          city: v.city || undefined,
+          created_at: new Date(v.created_at),
+          updated_at: new Date(v.updated_at),
+        }));
+
+        setVendors(mappedVendors);
+      } catch (error) {
+        console.error('Error loading vendors:', error);
+      }
+    };
+
+    loadVendors();
+  }, [isAdmin]);
+
+  // Load production stages from Supabase
+  useEffect(() => {
+    if (!isAdmin) return;
+    
+    const loadProductionStages = async () => {
+      try {
+        const { data: settingsData, error: settingsError } = await supabase
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'production_stages')
+          .single();
+
+        if (settingsError && settingsError.code !== 'PGRST116') {
+          console.error('Error loading production stages:', settingsError);
+          return;
+        }
+
+        if (settingsData?.setting_value) {
+          const stages = settingsData.setting_value as Array<{ key: string; label: string; order: number }>;
+          if (Array.isArray(stages) && stages.length > 0) {
+            setProductionStages(stages);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading production stages:', error);
+      }
+    };
+
+    loadProductionStages();
+  }, [isAdmin]);
 
   // Load saved non-sensitive settings and check server config
   useEffect(() => {
@@ -220,7 +287,7 @@ export default function Settings() {
         siteUrl: wordpressConfig.siteUrl,
         username: wordpressConfig.username,
         applicationPassword: wordpressConfig.applicationPassword,
-        updated_at: Timestamp.now(),
+        updated_at: new Date(),
       }, { merge: true });
 
       toast({
@@ -284,7 +351,7 @@ export default function Settings() {
       // TODO: Migrate to Supabase woocommerce_credentials table
       // const credsRef = doc(db, 'woocommerce_credentials', 'config');
       // const credsSnap = await getDoc(credsRef);
-      const credsSnap = { exists: () => false };
+      const credsSnap = { exists: () => false, data: () => null };
       
       if (false) { // Temporarily disabled
         const data = credsSnap.data();
@@ -316,31 +383,51 @@ export default function Settings() {
     if (!user) return;
     
     try {
-        // TODO: Migrate to Supabase user_settings table
-        // const settingsRef = doc(db, 'user_settings', user.id);
-      
-      const settingsData: any = {
+      // Save user settings to Supabase
+      const settingsData = {
         user_id: user.id,
         email_notifications: notifications.email,
         push_notifications: notifications.push,
         order_updates: notifications.orderUpdates,
         urgent_alerts: notifications.urgentAlerts,
-        updated_at: Timestamp.now(),
       };
       
-      // TODO: Migrate to Supabase user_settings table
-      // await setDoc(settingsRef, settingsData, { merge: true });
-      console.log('Settings save (temporarily disabled):', settingsData);
+      // Save to user_settings table (if it exists) or use localStorage as fallback
+      try {
+        const { error: settingsError } = await supabase
+          .from('user_settings')
+          .upsert({
+            user_id: user.id,
+            ...settingsData,
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'user_id'
+          });
+
+        if (settingsError) {
+          console.warn('Error saving to user_settings, using localStorage:', settingsError);
+          // Fallback to localStorage
+          localStorage.setItem('user_notification_settings', JSON.stringify(settingsData));
+        }
+      } catch (error) {
+        console.warn('Error saving settings, using localStorage:', error);
+        localStorage.setItem('user_notification_settings', JSON.stringify(settingsData));
+      }
       
       // Save production stages separately to app_settings (admin only)
       if (isAdmin) {
         try {
-          // TODO: Migrate to Supabase app_settings table
-          // const appSettingsRef = doc(db, 'app_settings', 'production_stages');
-          // await setDoc(appSettingsRef, {
-          console.log('Production stages save (temporarily disabled):', {
-            stages: productionStages,
-          });
+          const { error: stagesError } = await supabase
+            .from('app_settings')
+            .upsert({
+              setting_key: 'production_stages',
+              setting_value: productionStages,
+              updated_at: new Date().toISOString(),
+            }, {
+              onConflict: 'setting_key'
+            });
+
+          if (stagesError) throw stagesError;
         } catch (error) {
           console.error('Error saving production stages:', error);
         }
@@ -392,13 +479,19 @@ export default function Settings() {
     setProductionStages(updatedStages);
     setNewStageName('');
     
-    // Save immediately to Firestore
+    // Save immediately to Supabase
     try {
-      const appSettingsRef = doc(db, 'app_settings', 'production_stages');
-      await setDoc(appSettingsRef, {
-        stages: updatedStages,
-        updated_at: Timestamp.now(),
-      }, { merge: true });
+      const { error: settingsError } = await supabase
+        .from('app_settings')
+        .upsert({
+          setting_key: 'production_stages',
+          setting_value: updatedStages,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'setting_key'
+        });
+
+      if (settingsError) throw settingsError;
       
       toast({
         title: "Stage Added",
@@ -434,25 +527,28 @@ export default function Settings() {
         phone: newVendor.phone.trim(),
         email: newVendor.email.trim() || null,
         city: newVendor.city.trim() || null,
-        created_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
       };
 
-      const vendorsRef = collection(db, 'vendors');
-      const newVendorRef = doc(vendorsRef);
-      await setDoc(newVendorRef, vendorData);
+      const { data: newVendorData, error: vendorError } = await supabase
+        .from('vendors')
+        .insert(vendorData)
+        .select()
+        .single();
+
+      if (vendorError) throw vendorError;
+      if (!newVendorData) throw new Error('Vendor creation failed');
 
       const addedVendorName = vendorData.vendor_name;
       setVendors([...vendors, { 
-        id: newVendorRef.id,
-        vendor_name: vendorData.vendor_name,
-        vendor_company: vendorData.vendor_company || undefined,
-        contact_person: vendorData.contact_person,
-        phone: vendorData.phone,
-        email: vendorData.email || undefined,
-        city: vendorData.city || undefined,
-        created_at: new Date(),
-        updated_at: new Date(),
+        id: newVendorData.id,
+        vendor_name: newVendorData.vendor_name,
+        vendor_company: newVendorData.vendor_company || undefined,
+        contact_person: newVendorData.contact_person,
+        phone: newVendorData.phone,
+        email: newVendorData.email || undefined,
+        city: newVendorData.city || undefined,
+        created_at: new Date(newVendorData.created_at),
+        updated_at: new Date(newVendorData.updated_at),
       }]);
       setNewVendor({
         vendor_name: '',
@@ -488,16 +584,19 @@ export default function Settings() {
     }
 
     try {
-      const vendorRef = doc(db, 'vendors', vendorId);
-      await updateDoc(vendorRef, {
-        vendor_name: updatedData.vendor_name.trim(),
-        vendor_company: updatedData.vendor_company.trim() || null,
-        contact_person: updatedData.contact_person.trim(),
-        phone: updatedData.phone.trim(),
-        email: updatedData.email.trim() || null,
-        city: updatedData.city.trim() || null,
-        updated_at: Timestamp.now(),
-      });
+      const { error: vendorError } = await supabase
+        .from('vendors')
+        .update({
+          vendor_name: updatedData.vendor_name.trim(),
+          vendor_company: updatedData.vendor_company.trim() || null,
+          contact_person: updatedData.contact_person.trim(),
+          phone: updatedData.phone.trim(),
+          email: updatedData.email.trim() || null,
+          city: updatedData.city.trim() || null,
+        })
+        .eq('id', vendorId);
+
+      if (vendorError) throw vendorError;
 
       setVendors(vendors.map(v => v.id === vendorId ? {
         ...v,
@@ -525,8 +624,12 @@ export default function Settings() {
 
   const handleDeleteVendor = async (vendorId: string) => {
     try {
-      const vendorRef = doc(db, 'vendors', vendorId);
-      await deleteDoc(vendorRef);
+      const { error: vendorError } = await supabase
+        .from('vendors')
+        .delete()
+        .eq('id', vendorId);
+
+      if (vendorError) throw vendorError;
 
       setVendors(vendors.filter(v => v.id !== vendorId));
 
@@ -557,13 +660,19 @@ export default function Settings() {
     const updatedStages = productionStages.filter(s => s.key !== key);
     setProductionStages(updatedStages);
     
-    // Save immediately to Firestore
+    // Save immediately to Supabase
     try {
-      const appSettingsRef = doc(db, 'app_settings', 'production_stages');
-      await setDoc(appSettingsRef, {
-        stages: updatedStages,
-        updated_at: Timestamp.now(),
-      }, { merge: true });
+      const { error: settingsError } = await supabase
+        .from('app_settings')
+        .upsert({
+          setting_key: 'production_stages',
+          setting_value: updatedStages,
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'setting_key'
+        });
+
+      if (settingsError) throw settingsError;
       
       toast({
         title: "Stage Removed",
@@ -599,17 +708,21 @@ export default function Settings() {
     
     setTestingConnection(true);
     try {
-      const credsRef = doc(db, 'woocommerce_credentials', 'config');
-      const credsSnap = await getDoc(credsRef);
+      const { data: credsData, error: credsError } = await supabase
+        .from('woocommerce_credentials')
+        .select('store_url, consumer_key, consumer_secret')
+        .eq('setting_key', 'config')
+        .single();
       
-      if (!credsSnap.exists()) {
+      if (credsError || !credsData) {
         throw new Error('WooCommerce credentials not configured');
       }
       
-      const data = credsSnap.data();
-      if (!data.store_url || !data.consumer_key || !data.consumer_secret) {
+      if (!credsData.store_url || !credsData.consumer_key || !credsData.consumer_secret) {
         throw new Error('Incomplete credentials');
       }
+      
+      const data = credsData;
 
       // Test connection
       const testAuth = btoa(`${data.consumer_key}:${data.consumer_secret}`);
@@ -657,18 +770,22 @@ export default function Settings() {
 
     setSyncLoading(true);
     try {
-      // Get WooCommerce credentials
-      const credsRef = doc(db, 'woocommerce_credentials', 'config');
-      const credsSnap = await getDoc(credsRef);
+      // Get WooCommerce credentials from Supabase
+      const { data: credsData, error: credsError } = await supabase
+        .from('woocommerce_credentials')
+        .select('store_url, consumer_key, consumer_secret')
+        .eq('setting_key', 'config')
+        .single();
       
-      if (!credsSnap.exists()) {
+      if (credsError || !credsData) {
         throw new Error('WooCommerce credentials not configured');
       }
       
-      const creds = credsSnap.data();
-      if (!creds.store_url || !creds.consumer_key || !creds.consumer_secret) {
+      if (!credsData.store_url || !credsData.consumer_key || !credsData.consumer_secret) {
         throw new Error('Incomplete credentials');
       }
+      
+      const creds = credsData;
 
       // Fetch processing orders from WooCommerce
       const auth = btoa(`${creds.consumer_key}:${creds.consumer_secret}`);
@@ -690,7 +807,7 @@ export default function Settings() {
       
       // SAFEGUARD: Generate sync ID and timestamp
       const syncId = `sync-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const syncedAt = Timestamp.now();
+      const syncedAt = new Date();
       const syncedAtDate = new Date();
       
       // Extract WooCommerce order IDs from current sync
@@ -731,8 +848,16 @@ export default function Settings() {
           const wooOrderId = wooOrder.id;
           
           // SAFEGUARD 8: Duplicate Prevention - Check by woo_order_id only
-          const existingQuery = query(collection(db, 'orders'), where('woo_order_id', '==', wooOrderId.toString()));
-          const existingSnapshot = await getDocs(existingQuery);
+          // TODO: Migrate to Supabase - check existing orders by woo_order_id
+          const { data: existingOrders } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('woo_order_id', wooOrderId.toString())
+            .limit(1);
+          
+          const existingSnapshot = existingOrders && existingOrders.length > 0 
+            ? { empty: false, docs: [{ id: existingOrders[0].id, data: () => existingOrders[0] }] }
+            : { empty: true, docs: [] };
           
           // SAFEGUARD 7: Manual Orders Protection - Never touch manual orders
           if (!existingSnapshot.empty) {
@@ -744,7 +869,7 @@ export default function Settings() {
           }
 
           const orderId = `WC-${wooOrderId}`;
-          const orderRef = doc(db, 'orders', orderId);
+          const orderRef = { id: existingSnapshot.empty ? null : existingSnapshot.docs[0].id };
           
           const isRestored = !existingSnapshot.empty && existingSnapshot.docs[0].data().archived_from_wc === true;
 
@@ -759,7 +884,10 @@ export default function Settings() {
               continue;
             }
 
-            await updateDoc(existingOrderDoc.ref, {
+            // TODO: Migrate to Supabase - update order
+            const { error: updateError } = await supabase
+              .from('orders')
+              .update({
               customer_name: `${wooOrder.billing.first_name} ${wooOrder.billing.last_name}`.trim(),
               customer_phone: wooOrder.billing.phone || '',
               customer_email: wooOrder.billing.email || '',
@@ -777,41 +905,180 @@ export default function Settings() {
               order_total: parseFloat(wooOrder.total) || 0,
               payment_status: wooOrder.status,
               order_status: wooOrder.status,
-              last_seen_in_wc_sync: syncedAt, // SAFEGUARD 4: Track last seen
+              last_seen_in_wc_sync: syncedAt.toISOString(), // SAFEGUARD 4: Track last seen
               archived_from_wc: false, // Restore if was archived
-              updated_at: Timestamp.now(),
+              updated_at: new Date().toISOString(),
               global_notes: wooOrder.customer_note || null,
-            });
+            })
+              .eq('id', existingOrderDoc.id);
+
+            if (updateError) {
+              console.error('Error updating order:', updateError);
+              continue;
+            }
 
             // Update or create order items (SAFEGUARD 3: Stage-agnostic, preserve stage/assignment)
             for (const lineItem of wooOrder.line_items || []) {
               const itemId = `${orderId}-${lineItem.id}`;
-              const itemRef = doc(db, 'order_items', itemId);
-              const itemSnap = await getDoc(itemRef);
+              
+              // TODO: Migrate to Supabase - check existing item
+              const { data: existingItems } = await supabase
+                .from('order_items')
+                .select('*')
+                .eq('item_id', itemId)
+                .limit(1);
               
               const specifications = parseProductMeta(lineItem.meta_data || []);
               
-              if (itemSnap.exists()) {
+              if (existingItems && existingItems.length > 0) {
                 // Update existing item (preserve stage/assignment)
-                const existingItem = itemSnap.data();
-                await updateDoc(itemRef, {
-                  product_name: lineItem.name,
-                  quantity: lineItem.quantity,
-                  line_total: parseFloat(lineItem.total) || 0,
-                  specifications: specifications,
-                  woo_meta: {
-                    product_id: lineItem.product_id,
-                    variation_id: lineItem.variation_id,
-                  },
-                  updated_at: Timestamp.now(),
-                  // Preserve: current_stage, assigned_to, assigned_department, etc.
-                });
+                const existingItem = existingItems[0];
+                await supabase
+                  .from('order_items')
+                  .update({
+                    product_name: lineItem.name,
+                    quantity: lineItem.quantity,
+                    line_total: parseFloat(lineItem.total) || 0,
+                    specifications: specifications,
+                    woo_meta: {
+                      product_id: lineItem.product_id,
+                      variation_id: lineItem.variation_id,
+                    },
+                    updated_at: new Date().toISOString(),
+                    // Preserve: current_stage, assigned_to, assigned_department, etc.
+                  })
+                  .eq('item_id', itemId);
               } else {
                 // Create new item
                 const deliveryDate = new Date();
                 deliveryDate.setDate(deliveryDate.getDate() + 7);
                 
-                await setDoc(itemRef, {
+                await supabase
+                  .from('order_items')
+                  .insert({
+                    item_id: itemId,
+                    order_id: orderId,
+                    product_name: lineItem.name,
+                    quantity: lineItem.quantity,
+                    line_total: parseFloat(lineItem.total) || 0,
+                    specifications: specifications,
+                    woo_meta: {
+                      product_id: lineItem.product_id,
+                      variation_id: lineItem.variation_id,
+                    },
+                    need_design: true,
+                    current_stage: 'sales',
+                    current_substage: null,
+                    assigned_to: null,
+                    assigned_department: 'sales',
+                    delivery_date: deliveryDate.toISOString(),
+                    is_ready_for_production: false,
+                    is_dispatched: false,
+                    created_at: new Date(wooOrder.date_created).toISOString(),
+                    updated_at: new Date().toISOString(),
+                  });
+              }
+            }
+
+            // ALWAYS delete old timeline entries for synced orders (both restored and updated)
+            // This ensures old history doesn't show up after sync
+            // TODO: Migrate to Supabase - delete old timeline entries
+            const { error: deleteTimelineError } = await supabase
+              .from('timeline')
+              .delete()
+              .eq('order_id', existingOrderDoc.id);
+            
+            if (isRestored) {
+              restored++;
+              // Create fresh timeline entry for restoration
+              await supabase
+                .from('timeline')
+                .insert({
+                  order_id: existingOrderDoc.id,
+                  action: 'created',
+                  stage: 'sales',
+                  performed_by: user?.id || '',
+                  performed_by_name: 'WooCommerce Sync',
+                  notes: `Order synced from WooCommerce (WC Order #${wooOrderId}). Previous history cleared.`,
+                  is_public: true,
+                  created_at: new Date().toISOString(),
+                });
+            } else {
+              updated++;
+              // Create fresh timeline entry for updated order
+              await supabase
+                .from('timeline')
+                .insert({
+                  order_id: existingOrderDoc.id,
+                  action: 'note_added',
+                  stage: existingOrderData.items?.[0]?.current_stage || 'sales',
+                  performed_by: user?.id || '',
+                  performed_by_name: 'WooCommerce Sync',
+                  notes: `Order synced from WooCommerce (WC Order #${wooOrderId}). Previous history cleared.`,
+                  is_public: true,
+                  created_at: new Date().toISOString(),
+                });
+            }
+          } else {
+            // SAFEGUARD 5: Missing Order Logic - Create new order
+            // TODO: Migrate to Supabase - create new order
+            const { data: newOrder, error: createOrderError } = await supabase
+              .from('orders')
+              .insert({
+                order_id: orderId,
+                woo_order_id: wooOrderId.toString(),
+                source: 'woocommerce', // SAFEGUARD 1: Mark as woocommerce source
+                customer_name: `${wooOrder.billing.first_name} ${wooOrder.billing.last_name}`.trim(),
+                customer_phone: wooOrder.billing.phone || '',
+                customer_email: wooOrder.billing.email || '',
+                customer_address: wooOrder.billing.address_1 || '',
+                billing_city: wooOrder.billing.city || '',
+                billing_state: wooOrder.billing.state || '',
+                billing_pincode: wooOrder.billing.postcode || '',
+                shipping_name: wooOrder.shipping.first_name ? `${wooOrder.shipping.first_name} ${wooOrder.shipping.last_name}`.trim() : null,
+                shipping_email: wooOrder.shipping.email || null,
+                shipping_phone: wooOrder.shipping.phone || null,
+                shipping_address: wooOrder.shipping.address_1 || null,
+                shipping_city: wooOrder.shipping.city || null,
+                shipping_state: wooOrder.shipping.state || null,
+                shipping_pincode: wooOrder.shipping.postcode || null,
+                order_total: parseFloat(wooOrder.total) || 0,
+                tax_cgst: null,
+                tax_sgst: null,
+                payment_status: wooOrder.status,
+                order_status: wooOrder.status,
+                created_by: user?.id || '',
+                created_at: new Date(wooOrder.date_created).toISOString(),
+                updated_at: new Date().toISOString(),
+                is_completed: false,
+                global_notes: wooOrder.customer_note || null,
+                last_seen_in_wc_sync: syncedAt.toISOString(), // SAFEGUARD 4
+                archived_from_wc: false,
+              })
+              .select()
+              .single();
+
+            if (createOrderError || !newOrder) {
+              console.error('Error creating order:', createOrderError);
+              errors.push(`Failed to create order ${orderId}: ${createOrderError?.message || 'Unknown error'}`);
+              continue;
+            }
+            
+            orderRef.id = newOrder.id;
+
+            // Create order items
+            for (const lineItem of wooOrder.line_items || []) {
+              const itemId = `${orderId}-${lineItem.id}`;
+              
+              const deliveryDate = new Date();
+              deliveryDate.setDate(deliveryDate.getDate() + 7);
+              
+              const specifications = parseProductMeta(lineItem.meta_data || []);
+              
+              await supabase
+                .from('order_items')
+                .insert({
+                  item_id: itemId,
                   order_id: orderId,
                   product_name: lineItem.name,
                   quantity: lineItem.quantity,
@@ -826,120 +1093,12 @@ export default function Settings() {
                   current_substage: null,
                   assigned_to: null,
                   assigned_department: 'sales',
-                  delivery_date: Timestamp.fromDate(deliveryDate),
+                  delivery_date: deliveryDate.toISOString(),
                   is_ready_for_production: false,
                   is_dispatched: false,
-                  created_at: Timestamp.fromDate(new Date(wooOrder.date_created)),
-                  updated_at: Timestamp.now(),
+                  created_at: new Date(wooOrder.date_created).toISOString(),
+                  updated_at: new Date().toISOString(),
                 });
-              }
-            }
-
-            // ALWAYS delete old timeline entries for synced orders (both restored and updated)
-            // This ensures old history doesn't show up after sync
-            const oldTimelineQuery = query(
-              collection(db, 'timeline'),
-              where('order_id', '==', existingOrderDoc.id)
-            );
-            const oldTimelineSnapshot = await getDocs(oldTimelineQuery);
-            if (!oldTimelineSnapshot.empty) {
-              const batch = writeBatch(db);
-              oldTimelineSnapshot.docs.forEach(doc => batch.delete(doc.ref));
-              await batch.commit();
-            }
-            
-            if (isRestored) {
-              restored++;
-              // Create fresh timeline entry for restoration
-              await setDoc(doc(collection(db, 'timeline')), {
-                order_id: existingOrderDoc.id,
-                action: 'created',
-                stage: 'sales',
-                performed_by: user?.uid || '',
-                performed_by_name: 'WooCommerce Sync',
-                notes: `Order synced from WooCommerce (WC Order #${wooOrderId}). Previous history cleared.`,
-                is_public: true,
-                created_at: Timestamp.now(),
-              });
-            } else {
-              updated++;
-              // Create fresh timeline entry for updated order
-              await setDoc(doc(collection(db, 'timeline')), {
-                order_id: existingOrderDoc.id,
-                action: 'note_added',
-                stage: existingOrderData.items?.[0]?.current_stage || 'sales',
-                performed_by: user?.uid || '',
-                performed_by_name: 'WooCommerce Sync',
-                notes: `Order synced from WooCommerce (WC Order #${wooOrderId}). Previous history cleared.`,
-                is_public: true,
-                created_at: Timestamp.now(),
-              });
-            }
-          } else {
-            // SAFEGUARD 5: Missing Order Logic - Create new order
-            await setDoc(orderRef, {
-              order_id: orderId,
-              woo_order_id: wooOrderId.toString(),
-              source: 'woocommerce', // SAFEGUARD 1: Mark as woocommerce source
-              customer_name: `${wooOrder.billing.first_name} ${wooOrder.billing.last_name}`.trim(),
-              customer_phone: wooOrder.billing.phone || '',
-              customer_email: wooOrder.billing.email || '',
-              customer_address: wooOrder.billing.address_1 || '',
-              billing_city: wooOrder.billing.city || '',
-              billing_state: wooOrder.billing.state || '',
-              billing_pincode: wooOrder.billing.postcode || '',
-              shipping_name: wooOrder.shipping.first_name ? `${wooOrder.shipping.first_name} ${wooOrder.shipping.last_name}`.trim() : null,
-              shipping_email: wooOrder.shipping.email || null,
-              shipping_phone: wooOrder.shipping.phone || null,
-              shipping_address: wooOrder.shipping.address_1 || null,
-              shipping_city: wooOrder.shipping.city || null,
-              shipping_state: wooOrder.shipping.state || null,
-              shipping_pincode: wooOrder.shipping.postcode || null,
-              order_total: parseFloat(wooOrder.total) || 0,
-              tax_cgst: null,
-              tax_sgst: null,
-              payment_status: wooOrder.status,
-              order_status: wooOrder.status,
-              created_by: user?.uid || '',
-              created_at: Timestamp.fromDate(new Date(wooOrder.date_created)),
-              updated_at: Timestamp.now(),
-              is_completed: false,
-              global_notes: wooOrder.customer_note || null,
-              last_seen_in_wc_sync: syncedAt, // SAFEGUARD 4
-              archived_from_wc: false,
-            });
-
-            // Create order items
-            for (const lineItem of wooOrder.line_items || []) {
-              const itemId = `${orderId}-${lineItem.id}`;
-              const itemRef = doc(db, 'order_items', itemId);
-              
-              const deliveryDate = new Date();
-              deliveryDate.setDate(deliveryDate.getDate() + 7);
-              
-              const specifications = parseProductMeta(lineItem.meta_data || []);
-              
-              await setDoc(itemRef, {
-                order_id: orderId,
-                product_name: lineItem.name,
-                quantity: lineItem.quantity,
-                line_total: parseFloat(lineItem.total) || 0,
-                specifications: specifications,
-                woo_meta: {
-                  product_id: lineItem.product_id,
-                  variation_id: lineItem.variation_id,
-                },
-                need_design: true,
-                current_stage: 'sales',
-                current_substage: null,
-                assigned_to: null,
-                assigned_department: 'sales',
-                delivery_date: Timestamp.fromDate(deliveryDate),
-                is_ready_for_production: false,
-                is_dispatched: false,
-                created_at: Timestamp.fromDate(new Date(wooOrder.date_created)),
-                updated_at: Timestamp.now(),
-              });
             }
 
             imported++;
@@ -947,28 +1106,27 @@ export default function Settings() {
             // Ensure no old timeline entries exist for this order (by order_id string)
             // Delete any orphaned timeline entries that might have same order_id string
             // This prevents old history from showing up after delete + sync
-            const oldTimelineByOrderIdQuery = query(
-              collection(db, 'timeline'),
-              where('order_id', '==', orderId)
-            );
-            const oldTimelineByOrderIdSnapshot = await getDocs(oldTimelineByOrderIdQuery);
-            if (!oldTimelineByOrderIdSnapshot.empty) {
-              const batch = writeBatch(db);
-              oldTimelineByOrderIdSnapshot.docs.forEach(doc => batch.delete(doc.ref));
-              await batch.commit();
+            // TODO: Migrate to Supabase - delete old timeline entries
+            if (orderRef.id) {
+              await supabase
+                .from('timeline')
+                .delete()
+                .eq('order_id', orderRef.id);
+              
+              // Create fresh timeline entry for new order
+              await supabase
+                .from('timeline')
+                .insert({
+                  order_id: orderRef.id, // Use UUID, not order_id string
+                  action: 'created',
+                  stage: 'sales',
+                  performed_by: user?.id || '',
+                  performed_by_name: 'WooCommerce Sync',
+                  notes: `Order imported from WooCommerce (WC Order #${wooOrderId})`,
+                  is_public: true,
+                  created_at: new Date().toISOString(),
+                });
             }
-            
-            // Create fresh timeline entry for new order
-            await setDoc(doc(collection(db, 'timeline')), {
-              order_id: orderRef.id, // Use UUID, not order_id string
-              action: 'created',
-              stage: 'sales',
-              performed_by: user?.uid || '',
-              performed_by_name: 'WooCommerce Sync',
-              notes: `Order imported from WooCommerce (WC Order #${wooOrderId})`,
-              is_public: true,
-              created_at: Timestamp.now(),
-            });
           }
         } catch (orderError: any) {
           const errorMsg = orderError instanceof Error ? orderError.message : 'Unknown error';
@@ -979,46 +1137,51 @@ export default function Settings() {
 
       // STEP 2: SAFEGUARD 6 - Archive orders not found in current sync (but preserve them)
       // Only archive WooCommerce orders that are not in the current sync
-      const allWooOrdersQuery = query(
-        collection(db, 'orders'),
-        where('source', '==', 'woocommerce')
-      );
-      const allWooOrdersSnapshot = await getDocs(allWooOrdersQuery);
+      // TODO: Migrate to Supabase - get all WooCommerce orders
+      const { data: allWooOrders } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('source', 'woocommerce');
 
-      for (const orderDoc of allWooOrdersSnapshot.docs) {
-        const orderData = orderDoc.data();
-        
-        // SAFEGUARD 7: Never archive manual orders
-        if (orderData.source === 'manual' || !orderData.woo_order_id) {
-          continue;
-        }
+      if (allWooOrders) {
+        for (const orderData of allWooOrders) {
+          // SAFEGUARD 7: Never archive manual orders
+          if (orderData.source === 'manual' || !orderData.woo_order_id) {
+            continue;
+          }
 
-        // If Woo order ID not in current sync, archive it
-        const wooOrderIdNum = typeof orderData.woo_order_id === 'string' 
-          ? parseInt(orderData.woo_order_id, 10) 
-          : orderData.woo_order_id;
-          
-        if (wooOrderIdNum && !wooOrderIds.includes(wooOrderIdNum)) {
-          // Only archive if not already archived
-          if (!orderData.archived_from_wc) {
-            await updateDoc(orderDoc.ref, {
-              archived_from_wc: true,
-              updated_at: Timestamp.now(),
-            });
+          // If Woo order ID not in current sync, archive it
+          const wooOrderIdNum = typeof orderData.woo_order_id === 'string' 
+            ? parseInt(orderData.woo_order_id, 10) 
+            : orderData.woo_order_id;
             
-            archived++;
-            
-            // Create timeline entry for archiving
-            await setDoc(doc(collection(db, 'timeline')), {
-              order_id: orderDoc.id,
-              action: 'note_added',
-              stage: 'sales',
-              performed_by: user?.uid || '',
-              performed_by_name: 'WooCommerce Sync',
-              notes: `Order archived from WooCommerce sync (not found in current sync). Order preserved with full history.`,
-              is_public: true,
-              created_at: Timestamp.now(),
-            });
+          if (wooOrderIdNum && !wooOrderIds.includes(wooOrderIdNum)) {
+            // Only archive if not already archived
+            if (!orderData.archived_from_wc) {
+              await supabase
+                .from('orders')
+                .update({
+                  archived_from_wc: true,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq('id', orderData.id);
+              
+              archived++;
+              
+              // Create timeline entry for archiving
+              await supabase
+                .from('timeline')
+                .insert({
+                  order_id: orderData.id,
+                  action: 'note_added',
+                  stage: 'sales',
+                  performed_by: user?.id || '',
+                  performed_by_name: 'WooCommerce Sync',
+                  notes: `Order archived from WooCommerce sync (not found in current sync). Order preserved with full history.`,
+                  is_public: true,
+                  created_at: new Date().toISOString(),
+                });
+            }
           }
         }
       }
@@ -1027,20 +1190,22 @@ export default function Settings() {
       const syncStatus = errors.length > 0 ? (errors.length === wooOrders.length ? 'failed' : 'partial') : 'completed';
       
       try {
-        // Use addDoc to auto-generate document ID (avoids permission issues with custom IDs)
-        await addDoc(collection(db, 'order_sync_logs'), {
-          sync_id: syncId,
-          synced_at: syncedAt,
-          woo_order_ids: wooOrderIds,
-          sync_status: syncStatus,
-          imported_count: imported,
-          updated_count: updated,
-          archived_count: archived,
-          restored_count: restored,
-          errors: errors.length > 0 ? errors : [],
-          performed_by: user?.uid || '',
-          created_at: Timestamp.now(),
-        });
+        // TODO: Migrate to Supabase - create sync log
+        await supabase
+          .from('order_sync_logs')
+          .insert({
+            sync_id: syncId,
+            synced_at: syncedAt.toISOString(),
+            woo_order_ids: wooOrderIds,
+            sync_status: syncStatus,
+            imported_count: imported,
+            updated_count: updated,
+            archived_count: archived,
+            restored_count: restored,
+            errors: errors.length > 0 ? errors : [],
+            performed_by: user?.id || '',
+            created_at: new Date().toISOString(),
+          });
       } catch (logError: any) {
         console.error('Failed to create sync log (non-critical):', logError);
         // Don't fail the entire sync if log creation fails
@@ -1548,16 +1713,26 @@ export default function Settings() {
                           try {
                             const fileExt = file.name.split('.').pop();
                             const fileName = `app-settings/favicon.${fileExt}`;
-                            const fileRef = ref(storage, fileName);
-                            await uploadBytes(fileRef, file);
-                            const downloadURL = await getDownloadURL(fileRef);
                             
-                            // Save to Firestore
-                            const settingsRef = doc(db, 'app_settings', 'appearance');
-                            await setDoc(settingsRef, {
-                              favicon_url: downloadURL,
-                              updated_at: Timestamp.now(),
-                            }, { merge: true });
+                            // Upload to Supabase Storage
+                            const { url: downloadURL } = await uploadFileToSupabase(
+                              file,
+                              'order-files',
+                              'app-settings'
+                            );
+                            
+                            // Save to Supabase app_settings table
+                            await supabase
+                              .from('app_settings')
+                              .upsert({
+                                setting_key: 'appearance',
+                                setting_value: {
+                                  favicon_url: downloadURL,
+                                },
+                                updated_at: new Date().toISOString(),
+                              }, {
+                                onConflict: 'setting_key'
+                              });
 
                             setFaviconUrl(downloadURL);
                             
@@ -1659,16 +1834,26 @@ export default function Settings() {
                           try {
                             const fileExt = file.name.split('.').pop();
                             const fileName = `app-settings/logo.${fileExt}`;
-                            const fileRef = ref(storage, fileName);
-                            await uploadBytes(fileRef, file);
-                            const downloadURL = await getDownloadURL(fileRef);
                             
-                            // Save to Firestore
-                            const settingsRef = doc(db, 'app_settings', 'appearance');
-                            await setDoc(settingsRef, {
-                              logo_url: downloadURL,
-                              updated_at: Timestamp.now(),
-                            }, { merge: true });
+                            // Upload to Supabase Storage
+                            const { url: downloadURL } = await uploadFileToSupabase(
+                              file,
+                              'order-files',
+                              'app-settings'
+                            );
+                            
+                            // Save to Supabase app_settings table
+                            await supabase
+                              .from('app_settings')
+                              .upsert({
+                                setting_key: 'appearance',
+                                setting_value: {
+                                  logo_url: downloadURL,
+                                },
+                                updated_at: new Date().toISOString(),
+                              }, {
+                                onConflict: 'setting_key'
+                              });
 
                             setLogoUrl(downloadURL);
 
@@ -1823,6 +2008,48 @@ export default function Settings() {
 
                   <Separator />
 
+                  {/* Fetch Orders Panel */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <ShoppingCart className="h-5 w-5" />
+                        Fetch WooCommerce Orders
+                      </CardTitle>
+                      <CardDescription>
+                        Search and selectively import orders from WooCommerce. Orders will be assigned to you and your department.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                          Use this tool to search for specific WooCommerce orders and import them into the Order Flow Tool.
+                          Imported orders are automatically assigned to you and your department.
+                        </p>
+                        <Button
+                          onClick={() => setFetchOrdersDialogOpen(true)}
+                          disabled={!wooSettings.isConnected}
+                          className="w-full sm:w-auto"
+                        >
+                          <ShoppingCart className="h-4 w-4 mr-2" />
+                          Open Fetch Orders Panel
+                        </Button>
+                        {!wooSettings.isConnected && (
+                          <p className="text-xs text-muted-foreground">
+                            Please configure WooCommerce credentials first
+                          </p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Fetch Orders Dialog */}
+                  <FetchOrdersPanel
+                    open={fetchOrdersDialogOpen}
+                    onOpenChange={setFetchOrdersDialogOpen}
+                  />
+
+                  <Separator />
+
                   <div className="space-y-4">
                     <h4 className="font-medium text-foreground">Sync Settings</h4>
                     
@@ -1969,20 +2196,29 @@ export default function Settings() {
                               setSyncLoading(true);
                               
                               // Get all orders
-                              const ordersSnapshot = await getDocs(collection(db, 'orders'));
-                              const orders = ordersSnapshot.docs;
+                              // TODO: Migrate to Supabase - get all orders
+                              const { data: ordersData } = await supabase
+                                .from('orders')
+                                .select('id');
+                              const orders = ordersData || [];
                               
                               // Get all items
-                              const itemsSnapshot = await getDocs(collection(db, 'order_items'));
-                              const items = itemsSnapshot.docs;
+                              const { data: itemsData } = await supabase
+                                .from('order_items')
+                                .select('id');
+                              const items = itemsData || [];
                               
                               // Get all files
-                              const filesSnapshot = await getDocs(collection(db, 'order_files'));
-                              const files = filesSnapshot.docs;
+                              const { data: filesData } = await supabase
+                                .from('order_files')
+                                .select('id');
+                              const files = filesData || [];
                               
                               // Get all timeline entries
-                              const timelineSnapshot = await getDocs(collection(db, 'timeline'));
-                              const timeline = timelineSnapshot.docs;
+                              const { data: timelineData } = await supabase
+                                .from('timeline')
+                                .select('id');
+                              const timeline = timelineData || [];
                               
                               const totalDocs = orders.length + items.length + files.length + timeline.length;
                               
@@ -1995,56 +2231,60 @@ export default function Settings() {
                                 return;
                               }
 
-                              // Delete in batches (Firestore limit is 500 per batch)
-                              const batchSize = 500;
+                              // Delete in batches (Supabase allows batch deletes)
                               let deleted = 0;
                               
                               // Delete orders
-                              for (let i = 0; i < orders.length; i += batchSize) {
-                                const batch = writeBatch(db);
-                                const batchOrders = orders.slice(i, i + batchSize);
-                                batchOrders.forEach(doc => batch.delete(doc.ref));
-                                await batch.commit();
-                                deleted += batchOrders.length;
+                              if (orders.length > 0) {
+                                const orderIds = orders.map(o => o.id);
+                                const { error: ordersError } = await supabase
+                                  .from('orders')
+                                  .delete()
+                                  .in('id', orderIds);
+                                if (!ordersError) deleted += orders.length;
                               }
                               
                               // Delete items
-                              for (let i = 0; i < items.length; i += batchSize) {
-                                const batch = writeBatch(db);
-                                const batchItems = items.slice(i, i + batchSize);
-                                batchItems.forEach(doc => batch.delete(doc.ref));
-                                await batch.commit();
-                                deleted += batchItems.length;
+                              if (items.length > 0) {
+                                const itemIds = items.map(i => i.id);
+                                const { error: itemsError } = await supabase
+                                  .from('order_items')
+                                  .delete()
+                                  .in('id', itemIds);
+                                if (!itemsError) deleted += items.length;
                               }
                               
                               // Delete files
-                              for (let i = 0; i < files.length; i += batchSize) {
-                                const batch = writeBatch(db);
-                                const batchFiles = files.slice(i, i + batchSize);
-                                batchFiles.forEach(doc => batch.delete(doc.ref));
-                                await batch.commit();
-                                deleted += batchFiles.length;
+                              if (files.length > 0) {
+                                const fileIds = files.map(f => f.id);
+                                const { error: filesError } = await supabase
+                                  .from('order_files')
+                                  .delete()
+                                  .in('id', fileIds);
+                                if (!filesError) deleted += files.length;
                               }
                               
                               // Delete timeline - ensure all entries are deleted
-                              for (let i = 0; i < timeline.length; i += batchSize) {
-                                const batch = writeBatch(db);
-                                const batchTimeline = timeline.slice(i, i + batchSize);
-                                batchTimeline.forEach(doc => batch.delete(doc.ref));
-                                await batch.commit();
-                                deleted += batchTimeline.length;
+                              if (timeline.length > 0) {
+                                const timelineIds = timeline.map(t => t.id);
+                                const { error: timelineError } = await supabase
+                                  .from('timeline')
+                                  .delete()
+                                  .in('id', timelineIds);
+                                if (!timelineError) deleted += timeline.length;
                               }
                               
                               // Double-check: Delete any remaining timeline entries (orphaned entries)
-                              const remainingTimelineSnapshot = await getDocs(collection(db, 'timeline'));
-                              if (remainingTimelineSnapshot.docs.length > 0) {
-                                for (let i = 0; i < remainingTimelineSnapshot.docs.length; i += batchSize) {
-                                  const batch = writeBatch(db);
-                                  const batchTimeline = remainingTimelineSnapshot.docs.slice(i, i + batchSize);
-                                  batchTimeline.forEach(doc => batch.delete(doc.ref));
-                                  await batch.commit();
-                                  deleted += batchTimeline.length;
-                                }
+                              const { data: remainingTimeline } = await supabase
+                                .from('timeline')
+                                .select('id');
+                              if (remainingTimeline && remainingTimeline.length > 0) {
+                                const remainingIds = remainingTimeline.map(t => t.id);
+                                const { error: remainingError } = await supabase
+                                  .from('timeline')
+                                  .delete()
+                                  .in('id', remainingIds);
+                                if (!remainingError) deleted += remainingTimeline.length;
                               }
                               
                               // Reset lastSync time

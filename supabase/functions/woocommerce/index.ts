@@ -1,4 +1,14 @@
+// Deno types for Supabase Edge Functions
+// @ts-ignore - Deno runtime provides these types
+declare const Deno: {
+  env: {
+    get(key: string): string | undefined;
+  };
+};
+
+// @ts-ignore - Deno imports are resolved at runtime
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+// @ts-ignore - Deno imports are resolved at runtime
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
@@ -87,7 +97,7 @@ serve(async (req) => {
       global: { headers: { Authorization: authHeader } }
     });
 
-    // Verify user is authenticated and is admin
+    // Verify user is authenticated
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) {
       console.error('User authentication failed:', userError);
@@ -97,7 +107,11 @@ serve(async (req) => {
       });
     }
 
-    // Check if user is admin
+    const body = await req.json();
+    const { action } = body;
+    console.log('WooCommerce action requested:', action);
+
+    // Check if user is admin (for admin-only actions)
     const { data: roleData, error: roleError } = await supabase
       .from('user_roles')
       .select('role')
@@ -105,17 +119,17 @@ serve(async (req) => {
       .eq('role', 'admin')
       .single();
 
-    if (roleError || !roleData) {
+    const isAdmin = !roleError && roleData;
+
+    // Actions that require admin access
+    const adminOnlyActions = ['sync-orders', 'update-credentials', 'test-connection', 'check-config'];
+    if (adminOnlyActions.includes(action) && !isAdmin) {
       console.error('User is not admin:', roleError);
       return new Response(JSON.stringify({ error: 'Admin access required' }), {
         status: 403,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-
-    const body = await req.json();
-    const { action } = body;
-    console.log('WooCommerce action requested:', action);
 
     // Get WooCommerce credentials (prefer runtime if recently updated, else from env)
     let storeUrl = runtimeCredentials.storeUrl || Deno.env.get('WOOCOMMERCE_STORE_URL');
@@ -255,6 +269,276 @@ serve(async (req) => {
       });
     }
 
+    if (action === 'search-orders') {
+      // Search WooCommerce orders by order number, email, name, or phone
+      const { order_number, customer_email, customer_name, customer_phone } = body;
+      
+      if (!order_number && !customer_email && !customer_name && !customer_phone) {
+        return new Response(JSON.stringify({ 
+          error: 'At least one search parameter is required' 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log('Searching WooCommerce orders:', { order_number, customer_email, customer_name, customer_phone });
+      
+      // Build search query
+      let searchParams = new URLSearchParams();
+      searchParams.append('per_page', '100'); // Get up to 100 results
+      
+      if (order_number) {
+        searchParams.append('number', order_number.toString());
+      }
+      
+      // WooCommerce API doesn't support direct email/name/phone search in query params
+      // We'll fetch all recent orders and filter client-side (or use search endpoint if available)
+      // For now, fetch recent orders and filter
+      const apiUrl = `${storeUrl}/wp-json/wc/v3/orders?${searchParams.toString()}`;
+      const auth = btoa(`${consumerKey}:${consumerSecret}`);
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('WooCommerce search failed:', response.status, errorText);
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: `Failed to search orders: ${response.status}` 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      let wooOrders = await response.json();
+      
+      // Filter by search criteria if not using order number
+      if (!order_number) {
+        wooOrders = wooOrders.filter((order: any) => {
+          const emailMatch = !customer_email || 
+            (order.billing?.email && order.billing.email.toLowerCase().includes(customer_email.toLowerCase()));
+          
+          const nameMatch = !customer_name || 
+            (order.billing?.first_name && `${order.billing.first_name} ${order.billing.last_name || ''}`.toLowerCase().includes(customer_name.toLowerCase())) ||
+            (order.billing?.last_name && `${order.billing.first_name || ''} ${order.billing.last_name}`.toLowerCase().includes(customer_name.toLowerCase()));
+          
+          const phoneMatch = !customer_phone || 
+            (order.billing?.phone && order.billing.phone.includes(customer_phone));
+          
+          return emailMatch || nameMatch || phoneMatch;
+        });
+      }
+
+      // Format results for frontend
+      const formattedOrders = wooOrders.map((order: any) => ({
+        id: order.id,
+        order_number: order.number || order.id,
+        customer_name: `${order.billing?.first_name || ''} ${order.billing?.last_name || ''}`.trim(),
+        customer_email: order.billing?.email || '',
+        customer_phone: order.billing?.phone || '',
+        order_date: order.date_created || order.date_created_gmt,
+        total: parseFloat(order.total) || 0,
+        status: order.status,
+        currency: order.currency || 'INR',
+        line_items: order.line_items?.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          total: parseFloat(item.total) || 0,
+        })) || [],
+      }));
+
+      console.log(`Found ${formattedOrders.length} matching orders`);
+      
+      return new Response(JSON.stringify({ 
+        success: true,
+        orders: formattedOrders,
+        count: formattedOrders.length
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (action === 'import-orders') {
+      // Import selected WooCommerce orders into Supabase
+      const { order_ids } = body; // Array of WooCommerce order IDs to import
+      
+      if (!Array.isArray(order_ids) || order_ids.length === 0) {
+        return new Response(JSON.stringify({ 
+          error: 'order_ids array is required' 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`Importing ${order_ids.length} WooCommerce orders for user ${user.id}`);
+      
+      // Get user's profile to determine department
+      const { data: userProfile, error: profileError } = await supabase
+        .from('profiles')
+        .select('department')
+        .eq('user_id', user.id)
+        .single();
+
+      const userDepartment = userProfile?.department || 'sales';
+      
+      // Fetch orders from WooCommerce
+      const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const adminSupabase = createClient(supabaseUrl, serviceRoleKey);
+      
+      const importedOrders: any[] = [];
+      const errors: string[] = [];
+      
+      for (const wooOrderId of order_ids) {
+        try {
+          // Fetch order from WooCommerce
+          const apiUrl = `${storeUrl}/wp-json/wc/v3/orders/${wooOrderId}`;
+          const auth = btoa(`${consumerKey}:${consumerSecret}`);
+          
+          const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Basic ${auth}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (!response.ok) {
+            errors.push(`Order ${wooOrderId}: Failed to fetch from WooCommerce (${response.status})`);
+            continue;
+          }
+
+          const wooOrder = await response.json();
+          
+          // Check if order already exists
+          const { data: existingOrder } = await adminSupabase
+            .from('orders')
+            .select('id, order_id')
+            .eq('woo_order_id', wooOrderId.toString())
+            .single();
+
+          if (existingOrder) {
+            errors.push(`Order ${wooOrderId}: Already imported (Order ID: ${existingOrder.order_id})`);
+            continue;
+          }
+
+          // Create order in Supabase
+          const orderId = `WC-${wooOrderId}`;
+          const { data: newOrder, error: orderError } = await adminSupabase
+            .from('orders')
+            .insert({
+              order_id: orderId,
+              woo_order_id: wooOrderId.toString(),
+              source: 'woocommerce',
+              customer_name: `${wooOrder.billing?.first_name || ''} ${wooOrder.billing?.last_name || ''}`.trim() || 'Unknown',
+              customer_phone: wooOrder.billing?.phone || '',
+              customer_email: wooOrder.billing?.email || '',
+              customer_address: wooOrder.billing?.address_1 || '',
+              billing_city: wooOrder.billing?.city || '',
+              billing_state: wooOrder.billing?.state || '',
+              billing_pincode: wooOrder.billing?.postcode || '',
+              shipping_name: wooOrder.shipping?.first_name ? `${wooOrder.shipping.first_name} ${wooOrder.shipping.last_name || ''}`.trim() : null,
+              shipping_email: wooOrder.shipping?.email || null,
+              shipping_phone: wooOrder.shipping?.phone || null,
+              shipping_address: wooOrder.shipping?.address_1 || null,
+              shipping_city: wooOrder.shipping?.city || null,
+              shipping_state: wooOrder.shipping?.state || null,
+              shipping_pincode: wooOrder.shipping?.postcode || null,
+              order_total: parseFloat(wooOrder.total) || 0,
+              payment_status: wooOrder.status,
+              order_status: wooOrder.status,
+              created_by: user.id,
+              imported_by: user.id, // Track who imported
+              current_department: userDepartment, // Assign to user's department
+              assigned_user: user.id, // Assign to importing user
+              global_notes: wooOrder.customer_note || null,
+              created_at: new Date(wooOrder.date_created).toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+
+          if (orderError || !newOrder) {
+            errors.push(`Order ${wooOrderId}: ${orderError?.message || 'Failed to create order'}`);
+            continue;
+          }
+
+          // Create order items
+          for (const lineItem of wooOrder.line_items || []) {
+            const itemId = `${orderId}-${lineItem.id}`;
+            const { specifications } = parseProductMeta(lineItem.meta_data || []);
+            
+            const deliveryDate = new Date();
+            deliveryDate.setDate(deliveryDate.getDate() + 7);
+            
+            await adminSupabase
+              .from('order_items')
+              .insert({
+                item_id: itemId,
+                order_id: newOrder.id,
+                product_name: lineItem.name,
+                quantity: lineItem.quantity,
+                line_total: parseFloat(lineItem.total) || 0,
+                specifications: specifications,
+                woo_meta: {
+                  product_id: lineItem.product_id,
+                  variation_id: lineItem.variation_id,
+                },
+                need_design: true,
+                current_stage: 'sales',
+                current_substage: null,
+                assigned_to: user.id, // Assign to importing user
+                assigned_department: userDepartment, // Assign to user's department
+                delivery_date: deliveryDate.toISOString(),
+                is_ready_for_production: false,
+                is_dispatched: false,
+                created_at: new Date(wooOrder.date_created).toISOString(),
+                updated_at: new Date().toISOString(),
+              });
+          }
+
+          // Create timeline entry
+          await adminSupabase
+            .from('timeline')
+            .insert({
+              order_id: newOrder.id,
+              action: 'created',
+              stage: 'sales',
+              performed_by: user.id,
+              performed_by_name: userProfile?.full_name || 'Unknown',
+              notes: `Order imported from WooCommerce (WC Order #${wooOrderId})`,
+              is_public: true,
+              created_at: new Date().toISOString(),
+            });
+
+          importedOrders.push({
+            woo_order_id: wooOrderId,
+            order_id: orderId,
+            supabase_id: newOrder.id,
+          });
+        } catch (error: any) {
+          errors.push(`Order ${wooOrderId}: ${error.message || 'Unknown error'}`);
+        }
+      }
+
+      return new Response(JSON.stringify({ 
+        success: true,
+        imported: importedOrders.length,
+        errors: errors.length > 0 ? errors : undefined,
+        orders: importedOrders
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     if (action === 'sync-orders') {
       console.log('Syncing orders from WooCommerce with advanced safeguards:', storeUrl);
       
@@ -358,7 +642,7 @@ serve(async (req) => {
           }
           
           // Get delivery date from order meta if available
-          let deliveryDate = null;
+          let deliveryDate: string | null = null;
           if (Array.isArray(wooOrder.meta_data)) {
             const deliveryMeta = wooOrder.meta_data.find((m: any) => 
               m.key === 'delivery_date' || m.key === '_delivery_date' || m.key === 'expected_delivery'

@@ -65,9 +65,15 @@ export default function Dashboard() {
   // CRITICAL FIX: For admin, use allOrders directly if getOrdersByDepartment returns empty
   // This ensures admin always sees orders even if filtering fails
   const adminOrders = useMemo(() => {
-    if (isAdmin && orders.length === 0 && allOrders.length > 0) {
-      console.warn('[Dashboard] Admin: getOrdersByDepartment returned empty, using allOrders directly');
-      return allOrders.filter(o => !o.is_completed && !o.archived_from_wc);
+    // CRITICAL: Admin should always see all active orders
+    if (isAdmin) {
+      const activeAllOrders = allOrders.filter(o => !o.is_completed && !o.archived_from_wc);
+      if (orders.length === 0 && activeAllOrders.length > 0) {
+        console.warn('[Dashboard] Admin: getOrdersByDepartment returned empty, using allOrders directly');
+        return activeAllOrders;
+      }
+      // If orders from getOrdersByDepartment exist, use them (they should match allOrders for admin)
+      return orders.length > 0 ? orders : activeAllOrders;
     }
     return orders;
   }, [isAdmin, orders, allOrders]);

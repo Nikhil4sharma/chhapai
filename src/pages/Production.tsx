@@ -27,8 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
 import { AddDelayReasonDialog } from '@/components/dialogs/AddDelayReasonDialog';
-import { collection, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 
 interface ProductionUser {
   user_id: string;
@@ -38,7 +37,7 @@ interface ProductionUser {
 
 export default function Production() {
   const { orders, updateItemStage, updateItemSubstage, completeSubstage, uploadFile, getTimelineForOrder, addNote } = useOrders();
-  const { profile, isAdmin, user } = useAuth();
+  const { profile, isAdmin, user, role } = useAuth();
   const [selectedUserTab, setSelectedUserTab] = useState<string>('all');
   const [productionUsers, setProductionUsers] = useState<ProductionUser[]>([]);
 
@@ -47,15 +46,17 @@ export default function Production() {
     if (isAdmin) {
       const fetchProductionUsers = async () => {
         try {
-          const profilesQuery = query(
-            collection(db, 'profiles'),
-            where('department', '==', 'production')
-          );
-          const snapshot = await getDocs(profilesQuery);
-          const users = snapshot.docs.map(doc => ({
-            user_id: doc.data().user_id,
-            full_name: doc.data().full_name || 'Unknown',
-            department: doc.data().department || 'production',
+          const { data: profilesData, error: profilesError } = await supabase
+            .from('profiles')
+            .select('user_id, full_name, department')
+            .eq('department', 'production');
+
+          if (profilesError) throw profilesError;
+
+          const users = (profilesData || []).map(profile => ({
+            user_id: profile.user_id,
+            full_name: profile.full_name || 'Unknown',
+            department: profile.department || 'production',
           }));
           setProductionUsers(users);
         } catch (error) {
@@ -101,24 +102,20 @@ export default function Production() {
               }
             }
             
-            // CRITICAL FIX: Visibility logic
+            // CRITICAL FIX: Visibility logic (CORRECTED)
             // - Admin sees ALL items in production department
-            // - If item.assigned_to IS NULL → visible to ALL users in production department
-            // - If item.assigned_to IS SET:
-            //   - Admin sees it
-            //   - ONLY that assigned user sees it (even if they're in production department)
-            if (isAdmin) {
-              return true; // Admin sees everything
+            // - Sales sees ALL items in production department
+            // - Department users see ALL items in their department (regardless of assigned_to)
+            // - assigned_to does NOT control department-level visibility
+            // - assigned_to is only used for "Assigned to Me" tab filtering
+            
+            if (isAdmin || role === 'sales') {
+              return true; // Admin and Sales see everything
             }
             
-            // For non-admin users, check assignment
-            if (item.assigned_to) {
-              // Item is assigned - only the assigned user can see it
-              // CRITICAL: Must check if user is in production department AND is the assigned user
-              return isProductionUser && item.assigned_to === user?.uid;
-            }
-            
-            // No user assigned - visible to all users in production department
+            // Department users ALWAYS see items in their department
+            // assigned_to does NOT filter out items from department view
+            // This ensures department-wide visibility (read-only for assigned items)
             return isProductionUser;
           })
           .map(item => ({
@@ -143,7 +140,7 @@ export default function Production() {
 
   // Separate assigned items (assigned_to is set) from unassigned items
   const assignedProductionItems = useMemo(() => {
-    return allProductionItems.filter(({ item }) => item.assigned_to === user?.uid);
+    return allProductionItems.filter(({ item }) => item.assigned_to === user?.id);
   }, [allProductionItems, user]);
 
   // Calculate realtime stats for Production dashboard

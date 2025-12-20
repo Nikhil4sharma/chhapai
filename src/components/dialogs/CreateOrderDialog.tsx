@@ -393,6 +393,7 @@ export function CreateOrderDialog({
                   <div className="space-y-1">
                     <Input
                       id="order_number"
+                      name="order_number"
                       placeholder="e.g., WC-12345 or MAN-001"
                       value={orderNumber}
                       onChange={(e) => handleOrderNumberChange(e.target.value)}
@@ -425,6 +426,7 @@ export function CreateOrderDialog({
                   <Label htmlFor="customer_name">Customer Name *</Label>
                   <Input
                     id="customer_name"
+                    name="customer_name"
                     placeholder="Enter customer name"
                     value={customerData.name}
                     onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
@@ -434,6 +436,7 @@ export function CreateOrderDialog({
                   <Label htmlFor="customer_phone">Phone</Label>
                   <Input
                     id="customer_phone"
+                    name="customer_phone"
                     placeholder="Enter phone number"
                     value={customerData.phone}
                     onChange={(e) => setCustomerData({...customerData, phone: e.target.value})}
@@ -445,6 +448,7 @@ export function CreateOrderDialog({
                 <Label htmlFor="customer_email">Email</Label>
                 <Input
                   id="customer_email"
+                  name="customer_email"
                   type="email"
                   placeholder="Enter email address"
                   value={customerData.email}
@@ -456,6 +460,7 @@ export function CreateOrderDialog({
                 <Label htmlFor="customer_address">Address</Label>
                 <Input
                   id="customer_address"
+                  name="customer_address"
                   placeholder="Enter full address"
                   value={customerData.address}
                   onChange={(e) => setCustomerData({...customerData, address: e.target.value})}
@@ -467,6 +472,7 @@ export function CreateOrderDialog({
                   <Label htmlFor="city">City</Label>
                   <Input
                     id="city"
+                    name="city"
                     placeholder="City"
                     value={customerData.city}
                     onChange={(e) => setCustomerData({...customerData, city: e.target.value})}
@@ -476,6 +482,7 @@ export function CreateOrderDialog({
                   <Label htmlFor="state">State</Label>
                   <Input
                     id="state"
+                    name="state"
                     placeholder="State"
                     value={customerData.state}
                     onChange={(e) => setCustomerData({...customerData, state: e.target.value})}
@@ -485,6 +492,7 @@ export function CreateOrderDialog({
                   <Label htmlFor="pincode">Pincode</Label>
                   <Input
                     id="pincode"
+                    name="pincode"
                     placeholder="Pincode"
                     value={customerData.pincode}
                     onChange={(e) => setCustomerData({...customerData, pincode: e.target.value})}
@@ -583,16 +591,20 @@ export function CreateOrderDialog({
                     <CardContent className="space-y-4 px-4 pb-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label>Product Name *</Label>
+                          <Label htmlFor={`product_name_${index}`}>Product Name *</Label>
                           <Input
+                            id={`product_name_${index}`}
+                            name={`product_name_${index}`}
                             placeholder="Enter product name"
                             value={product.name}
                             onChange={(e) => updateProduct(index, 'name', e.target.value)}
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label>Quantity</Label>
+                          <Label htmlFor={`product_quantity_${index}`}>Quantity</Label>
                           <Input
+                            id={`product_quantity_${index}`}
+                            name={`product_quantity_${index}`}
                             type="number"
                             min="1"
                             value={product.quantity}
@@ -645,6 +657,8 @@ export function CreateOrderDialog({
                         {/* Add spec form */}
                         <div className="flex gap-2">
                           <Input
+                            id={`spec_key_${index}`}
+                            name={`spec_key_${index}`}
                             placeholder="Spec name (e.g., Size)"
                             value={activeProductIndex === index ? newSpecKey : ''}
                             onChange={(e) => {
@@ -655,6 +669,8 @@ export function CreateOrderDialog({
                             className="flex-1"
                           />
                           <Input
+                            id={`spec_value_${index}`}
+                            name={`spec_value_${index}`}
                             placeholder="Value (e.g., A4)"
                             value={activeProductIndex === index ? newSpecValue : ''}
                             onChange={(e) => {
