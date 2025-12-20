@@ -285,7 +285,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         });
       }
     }
-  }, [canViewFinancials]);
+  }, [canViewFinancials, user]);
 
   const fetchTimeline = useCallback(async () => {
     try {
