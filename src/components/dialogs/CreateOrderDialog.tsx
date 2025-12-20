@@ -29,13 +29,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { collection, doc, setDoc, Timestamp, query, where, getDocs } from 'firebase/firestore';
-import { db } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
+import { autoLogWorkAction } from '@/utils/workLogHelper';
 
 interface ProductItem {
   id: string;
@@ -120,18 +120,19 @@ export function CreateOrderDialog({
     
     try {
       setIsCheckingDuplicate(true);
-      // Check in orders collection
-      const ordersQuery = query(
-        collection(db, 'orders'),
-        where('order_id', '==', orderNum.trim())
-      );
-      const ordersSnapshot = await getDocs(ordersQuery);
+      // Check in orders table
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('order_id', orderNum.trim())
+        .maybeSingle();
       
-      if (!ordersSnapshot.empty) {
-        return true; // Duplicate found
+      if (error && error.code !== 'PGRST116') {
+        console.error('Error checking order number:', error);
+        return false; // On error, allow creation (fail-safe)
       }
       
-      return false; // No duplicate
+      return !!data; // Return true if duplicate found
     } catch (error) {
       console.error('Error checking order number:', error);
       return false; // On error, allow creation (fail-safe)
@@ -243,72 +244,93 @@ export function CreateOrderDialog({
     try {
       if (!user) throw new Error('User not authenticated');
       
+      // Get user profile for name
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('user_id', user.id)
+        .single();
+      
+      const userName = profileData?.full_name || user.email || 'Unknown';
+      
       // Create order
-      const orderRef = doc(collection(db, 'orders'));
-      await setDoc(orderRef, {
-        order_id: orderNumber.trim(),
-        customer_name: customerData.name,
-        customer_phone: customerData.phone,
-        customer_email: customerData.email,
-        customer_address: customerData.address,
-        billing_city: customerData.city,
-        billing_state: customerData.state,
-        billing_pincode: customerData.pincode,
-        shipping_name: customerData.name,
-        shipping_phone: customerData.phone,
-        shipping_address: customerData.address,
-        shipping_city: customerData.city,
-        shipping_state: customerData.state,
-        shipping_pincode: customerData.pincode,
-        delivery_date: Timestamp.fromDate(deliveryDate!),
-        priority: priority,
-        source: 'manual',
-        global_notes: globalNotes,
-        created_by: user.uid,
-        is_completed: false,
-        created_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
-      });
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          order_id: orderNumber.trim(),
+          customer_name: customerData.name,
+          customer_phone: customerData.phone || null,
+          customer_email: customerData.email || null,
+          customer_address: customerData.address || null,
+          billing_city: customerData.city || null,
+          billing_state: customerData.state || null,
+          billing_pincode: customerData.pincode || null,
+          shipping_name: customerData.name,
+          shipping_phone: customerData.phone || null,
+          shipping_address: customerData.address || null,
+          shipping_city: customerData.city || null,
+          shipping_state: customerData.state || null,
+          shipping_pincode: customerData.pincode || null,
+          delivery_date: deliveryDate?.toISOString() || null,
+          priority: priority,
+          source: 'manual',
+          global_notes: globalNotes || null,
+          created_by: user.id,
+          is_completed: false,
+        })
+        .select()
+        .single();
+
+      if (orderError) throw orderError;
+      if (!orderData) throw new Error('Order creation failed');
 
       // Create order items for each product
-      for (const product of products) {
-        await setDoc(doc(collection(db, 'order_items')), {
-          order_id: orderRef.id,
-          product_name: product.name,
-          quantity: product.quantity,
-          specifications: product.specifications,
-          priority: priority,
-          current_stage: 'sales',
-          assigned_department: 'sales',
-          delivery_date: Timestamp.fromDate(deliveryDate!),
-          need_design: false,
-          is_ready_for_production: false,
-          is_dispatched: false,
-          created_at: Timestamp.now(),
-          updated_at: Timestamp.now(),
-        });
-      }
+      const orderItems = products.map(product => ({
+        order_id: orderData.id,
+        product_name: product.name,
+        quantity: product.quantity,
+        specifications: product.specifications,
+        priority: priority,
+        current_stage: 'sales',
+        assigned_department: 'sales',
+        delivery_date: deliveryDate?.toISOString() || null,
+        need_design: false,
+        is_ready_for_production: false,
+        is_dispatched: false,
+      }));
+
+      const { error: itemsError } = await supabase
+        .from('order_items')
+        .insert(orderItems);
+
+      if (itemsError) throw itemsError;
 
       // Create timeline entry
-      await setDoc(doc(collection(db, 'timeline')), {
-        order_id: orderRef.id,
-        stage: 'sales',
-        action: 'created',
-        performed_by: user.uid,
-        performed_by_name: 'System',
-        notes: `Order created manually with ${products.length} product(s)`,
-        is_public: true,
-        created_at: Timestamp.now(),
-      });
+      const { error: timelineError } = await supabase
+        .from('timeline')
+        .insert({
+          order_id: orderData.id,
+          stage: 'sales',
+          action: 'created',
+          performed_by: user.id,
+          performed_by_name: userName,
+          notes: `Order created manually with ${products.length} product(s)`,
+          is_public: true,
+        });
+
+      if (timelineError) {
+        console.error('Error creating timeline entry:', timelineError);
+        // Don't throw - timeline is not critical
+      }
 
       // Auto-log work action for order creation
       const startTime = new Date();
       const endTime = new Date();
       await autoLogWorkAction(
-        user.uid,
-        user.displayName || 'Unknown',
+        user.id,
+        userName,
         'sales',
-        orderRef.id,
+        orderData.id,
         orderNumber.trim(),
         null,
         'sales',

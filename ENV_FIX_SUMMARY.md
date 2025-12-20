@@ -83,3 +83,4 @@ Vercel mein bhi environment variables set karne honge:
 
 **Note:** `.env` file `.gitignore` mein hai, isliye repo mein push nahi hogi (security ke liye sahi hai). Vercel mein manually set karni hogi.
 
+

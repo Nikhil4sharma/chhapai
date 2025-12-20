@@ -28,16 +28,24 @@ interface AddTeamMemberDialogProps {
     email: string;
     phone: string;
     role: string;
+    department: string;
     password: string;
   }) => void;
 }
 
 const roles = [
+  { value: 'admin', label: 'Admin' },
   { value: 'sales', label: 'Sales' },
   { value: 'design', label: 'Design' },
   { value: 'prepress', label: 'Prepress' },
   { value: 'production', label: 'Production' },
-  { value: 'admin', label: 'Admin' },
+];
+
+const departments = [
+  { value: 'sales', label: 'Sales' },
+  { value: 'design', label: 'Design' },
+  { value: 'prepress', label: 'Prepress' },
+  { value: 'production', label: 'Production' },
 ];
 
 export function AddTeamMemberDialog({ open, onOpenChange, onAdd }: AddTeamMemberDialogProps) {
@@ -45,13 +53,14 @@ export function AddTeamMemberDialog({ open, onOpenChange, onAdd }: AddTeamMember
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState('');
+  const [department, setDepartment] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!name || !email || !role || !password) {
+    if (!name || !email || !role || !department || !password) {
       toast({
         title: "Error",
         description: "Please fill in all required fields",
@@ -62,11 +71,12 @@ export function AddTeamMemberDialog({ open, onOpenChange, onAdd }: AddTeamMember
 
     setLoading(true);
     try {
-      await onAdd({ name, email, phone, role, password });
+      await onAdd({ name, email, phone, role, department, password });
       setName('');
       setEmail('');
       setPhone('');
       setRole('');
+      setDepartment('');
       setPassword('');
       onOpenChange(false);
     } catch (error) {
@@ -124,7 +134,7 @@ export function AddTeamMemberDialog({ open, onOpenChange, onAdd }: AddTeamMember
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="role">Role *</Label>
+            <Label htmlFor="role">Role (Permissions) *</Label>
             <Select value={role} onValueChange={setRole}>
               <SelectTrigger>
                 <SelectValue placeholder="Select a role" />
@@ -137,6 +147,24 @@ export function AddTeamMemberDialog({ open, onOpenChange, onAdd }: AddTeamMember
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">Controls user permissions and access</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="department">Department *</Label>
+            <Select value={department} onValueChange={setDepartment}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select department" />
+              </SelectTrigger>
+              <SelectContent>
+                {departments.map((d) => (
+                  <SelectItem key={d.value} value={d.value}>
+                    {d.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">Which orders they can see and work on</p>
           </div>
 
           <div className="space-y-2">

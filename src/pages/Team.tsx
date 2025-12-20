@@ -17,9 +17,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { collection, query, getDocs, doc, setDoc, updateDoc, deleteDoc, where, Timestamp } from 'firebase/firestore';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { db, auth } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { AddTeamMemberDialog } from '@/components/dialogs/AddTeamMemberDialog';
@@ -60,26 +58,33 @@ export default function Team() {
   const fetchTeamMembers = async () => {
     setLoading(true);
     try {
-      // Fetch profiles
-      const profilesQuery = query(collection(db, 'profiles'));
-      const profilesSnapshot = await getDocs(profilesQuery);
-      const profiles = profilesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      // Fetch profiles with user emails
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*');
+
+      if (profilesError) throw profilesError;
 
       // Fetch roles
-      const rolesQuery = query(collection(db, 'user_roles'));
-      const rolesSnapshot = await getDocs(rolesQuery);
-      const roles = rolesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const { data: roles, error: rolesError } = await supabase
+        .from('user_roles')
+        .select('*');
 
-      // Combine profiles with roles
-      const members: TeamMember[] = profiles.map(profile => {
-        const userRoles = roles.filter(r => r.user_id === profile.user_id).map(r => r.role) || [];
+      if (rolesError) throw rolesError;
+
+      // Fetch user emails from auth.users (via admin API or get user info)
+      // Note: We'll get email from auth.users if possible, otherwise use user_id
+      const members: TeamMember[] = (profiles || []).map(profile => {
+        const userRoles = (roles || [])
+          .filter(r => r.user_id === profile.user_id)
+          .map(r => r.role) || [];
         const primaryRole = userRoles[0] || 'sales';
         const team = primaryRole.charAt(0).toUpperCase() + primaryRole.slice(1);
         
         return {
           user_id: profile.user_id,
           name: profile.full_name || 'Unknown',
-          email: profile.user_id, // Email is in Firebase Auth
+          email: profile.user_id, // Will try to get from auth if possible
           phone: profile.phone || undefined,
           roles: userRoles,
           team,
@@ -87,12 +92,15 @@ export default function Team() {
         };
       });
 
+      // Try to get emails from auth users (if admin)
+      // For now, we'll use user_id as email placeholder
+      // In production, you might want to create a view or function to get emails
       setUsers(members);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching team members:', error);
       toast({
         title: "Error",
-        description: "Failed to load team members",
+        description: error.message || "Failed to load team members",
         variant: "destructive",
       });
     } finally {
@@ -115,32 +123,43 @@ export default function Team() {
     email: string;
     phone: string;
     role: string;
+    department: string;
     password: string;
   }) => {
     try {
-      // Create user via Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, member.email, member.password);
-      const newUser = userCredential.user;
-
-      // Create profile in Firestore
-      const profileRef = doc(db, 'profiles', newUser.uid);
-      await setDoc(profileRef, {
-        user_id: newUser.uid,
-        full_name: member.name,
-        phone: member.phone || null,
-        department: member.role,
-        avatar_url: null,
-        created_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
+      // Create user via Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: member.email,
+        password: member.password,
       });
 
-      // Create role in Firestore
-      const roleRef = doc(db, 'user_roles', `${newUser.uid}_${member.role}`);
-      await setDoc(roleRef, {
-        user_id: newUser.uid,
-        role: member.role,
-        created_at: Timestamp.now(),
-      });
+      if (authError) throw authError;
+      if (!authData.user) throw new Error('User creation failed');
+
+      const newUser = authData.user;
+
+      // Create profile in Supabase
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          user_id: newUser.id,
+          full_name: member.name,
+          phone: member.phone || null,
+          department: member.department,
+          avatar_url: null,
+        });
+
+      if (profileError) throw profileError;
+
+      // Create role in Supabase
+      const { error: roleError } = await supabase
+        .from('user_roles')
+        .insert({
+          user_id: newUser.id,
+          role: member.role as any,
+        });
+
+      if (roleError) throw roleError;
 
       toast({
         title: "Success",
@@ -162,27 +181,35 @@ export default function Team() {
   const handleEditMember = async (memberId: string, updates: { name: string; phone: string; role: string; department: string }) => {
     try {
       // Update profile
-      const profileRef = doc(db, 'profiles', memberId);
-      await updateDoc(profileRef, {
-        full_name: updates.name,
-        phone: updates.phone || null,
-        department: updates.department,
-        updated_at: Timestamp.now(),
-      });
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          full_name: updates.name,
+          phone: updates.phone || null,
+          department: updates.department,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', memberId);
+
+      if (profileError) throw profileError;
 
       // Delete all existing roles for this user
-      const rolesQuery = query(collection(db, 'user_roles'), where('user_id', '==', memberId));
-      const rolesSnapshot = await getDocs(rolesQuery);
-      const deletePromises = rolesSnapshot.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deletePromises);
+      const { error: deleteError } = await supabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', memberId);
+
+      if (deleteError) throw deleteError;
 
       // Create new role
-      const roleRef = doc(db, 'user_roles', `${memberId}_${updates.role}`);
-      await setDoc(roleRef, {
-        user_id: memberId,
-        role: updates.role,
-        created_at: Timestamp.now(),
-      });
+      const { error: roleError } = await supabase
+        .from('user_roles')
+        .insert({
+          user_id: memberId,
+          role: updates.role as any,
+        });
+
+      if (roleError) throw roleError;
 
       toast({
         title: "Success",
@@ -206,19 +233,32 @@ export default function Team() {
     
     setDeleteLoading(true);
     try {
-      // Delete user roles
-      const rolesQuery = query(collection(db, 'user_roles'), where('user_id', '==', selectedMember.user_id));
-      const rolesSnapshot = await getDocs(rolesQuery);
-      const deleteRolePromises = rolesSnapshot.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deleteRolePromises);
+      // Delete user roles (CASCADE will handle related data)
+      const { error: rolesError } = await supabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', selectedMember.user_id);
 
-      // Delete profile
-      const profileRef = doc(db, 'profiles', selectedMember.user_id);
-      await deleteDoc(profileRef);
+      if (rolesError) throw rolesError;
+
+      // Delete profile (CASCADE will automatically delete from auth.users if trigger is set)
+      // This will also trigger handle_user_deletion() which clears assigned_to references
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('user_id', selectedMember.user_id);
+
+      if (profileError) throw profileError;
+
+      // Note: auth.users se user delete karne ke liye Supabase Admin API chahiye
+      // Frontend se directly nahi ho sakta. Agar completely remove karna ho toh:
+      // 1. Supabase Dashboard > Authentication > Users se manually delete karo
+      // 2. Ya backend Edge Function banao jo admin API use kare
+      // Profile aur roles delete ho chuke hain, user ab system me access nahi kar payega
 
       toast({
         title: "Success",
-        description: `${selectedMember.name} has been removed from the team`,
+        description: `${selectedMember.name} has been removed from the team. Their profile and roles have been deleted.`,
       });
 
       setDeleteDialogOpen(false);

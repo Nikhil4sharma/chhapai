@@ -8,9 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { collection, query, getDocs, doc, setDoc, updateDoc, deleteDoc, where, Timestamp } from 'firebase/firestore';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { db, auth } from '@/integrations/firebase/config';
+import { supabase } from '@/integrations/supabase/client';
 import { useAuth, AppRole } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
 
@@ -45,34 +43,38 @@ export default function Admin() {
     setIsLoading(true);
     try {
       // Fetch profiles
-      const profilesQuery = query(collection(db, 'profiles'));
-      const profilesSnapshot = await getDocs(profilesQuery);
-      const profiles = profilesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('*');
+
+      if (profilesError) throw profilesError;
 
       // Fetch roles
-      const rolesQuery = query(collection(db, 'user_roles'));
-      const rolesSnapshot = await getDocs(rolesQuery);
-      const roles = rolesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const { data: roles, error: rolesError } = await supabase
+        .from('user_roles')
+        .select('*');
+
+      if (rolesError) throw rolesError;
 
       // Combine profiles with roles
-      const combinedUsers: UserWithRole[] = profiles.map(profile => {
-        const userRole = roles.find(r => r.user_id === profile.user_id);
+      const combinedUsers: UserWithRole[] = (profiles || []).map(profile => {
+        const userRole = (roles || []).find(r => r.user_id === profile.user_id);
         return {
           id: profile.id,
           user_id: profile.user_id,
           full_name: profile.full_name,
           department: profile.department,
-          email: '', // Email is stored in Firebase Auth, not in Firestore
+          email: '', // Email is in auth.users, not in profiles
           role: (userRole?.role as AppRole) || 'sales',
         };
       });
 
       setUsers(combinedUsers);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching users:', error);
       toast({
         title: "Error",
-        description: "Failed to load users",
+        description: error.message || "Failed to load users",
         variant: "destructive",
       });
     } finally {
@@ -94,31 +96,39 @@ export default function Admin() {
 
     setIsCreating(true);
     try {
-      // Create user via Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(auth, newEmail, newPassword);
-      const newUser = userCredential.user;
-
-      // Create profile in Firestore
-      const profileRef = doc(db, 'profiles', newUser.uid);
-      const profileData: any = {
-        user_id: newUser.uid,
-        full_name: newFullName,
-        department: newDepartment,
-        phone: null,
-        avatar_url: null,
-        created_at: Timestamp.now(),
-        updated_at: Timestamp.now(),
-      };
-      
-      await setDoc(profileRef, profileData);
-
-      // Create role in Firestore
-      const roleRef = doc(db, 'user_roles', `${newUser.uid}_${newRole}`);
-      await setDoc(roleRef, {
-        user_id: newUser.uid,
-        role: newRole,
-        created_at: Timestamp.now(),
+      // Create user via Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newEmail,
+        password: newPassword,
       });
+
+      if (authError) throw authError;
+      if (!authData.user) throw new Error('User creation failed');
+
+      const newUser = authData.user;
+
+      // Create profile in Supabase
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          user_id: newUser.id,
+          full_name: newFullName,
+          department: newDepartment,
+          phone: null,
+          avatar_url: null,
+        });
+
+      if (profileError) throw profileError;
+
+      // Create role in Supabase
+      const { error: roleError } = await supabase
+        .from('user_roles')
+        .insert({
+          user_id: newUser.id,
+          role: newRole as any,
+        });
+
+      if (roleError) throw roleError;
 
       toast({
         title: "Success",
@@ -130,7 +140,6 @@ export default function Admin() {
       setNewFullName('');
       setNewRole('sales');
       setNewDepartment('sales');
-      setNewProductionStage('');
       fetchUsers();
     } catch (error: any) {
       console.error('Error creating user:', error);
@@ -147,14 +156,20 @@ export default function Admin() {
   const handleDeleteUser = async (userId: string, userName: string) => {
     try {
       // Delete user roles
-      const rolesQuery = query(collection(db, 'user_roles'), where('user_id', '==', userId));
-      const rolesSnapshot = await getDocs(rolesQuery);
-      const deleteRolePromises = rolesSnapshot.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deleteRolePromises);
+      const { error: rolesError } = await supabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', userId);
 
-      // Delete profile
-      const profileRef = doc(db, 'profiles', userId);
-      await deleteDoc(profileRef);
+      if (rolesError) throw rolesError;
+
+      // Delete profile (CASCADE will handle related data)
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('user_id', userId);
+
+      if (profileError) throw profileError;
 
       toast({
         title: "Success",
@@ -175,18 +190,22 @@ export default function Admin() {
   const handleUpdateRole = async (userId: string, newRole: AppRole) => {
     try {
       // Delete all existing roles for this user
-      const rolesQuery = query(collection(db, 'user_roles'), where('user_id', '==', userId));
-      const rolesSnapshot = await getDocs(rolesQuery);
-      const deletePromises = rolesSnapshot.docs.map(doc => deleteDoc(doc.ref));
-      await Promise.all(deletePromises);
+      const { error: deleteError } = await supabase
+        .from('user_roles')
+        .delete()
+        .eq('user_id', userId);
+
+      if (deleteError) throw deleteError;
 
       // Create new role
-      const roleRef = doc(db, 'user_roles', `${userId}_${newRole}`);
-      await setDoc(roleRef, {
-        user_id: userId,
-        role: newRole,
-        created_at: Timestamp.now(),
-      });
+      const { error: insertError } = await supabase
+        .from('user_roles')
+        .insert({
+          user_id: userId,
+          role: newRole as any,
+        });
+
+      if (insertError) throw insertError;
 
       toast({
         title: "Success",
@@ -206,11 +225,15 @@ export default function Admin() {
 
   const handleUpdateDepartment = async (userId: string, department: string) => {
     try {
-      const profileRef = doc(db, 'profiles', userId);
-      await updateDoc(profileRef, {
-        department,
-        updated_at: Timestamp.now(),
-      });
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          department,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('user_id', userId);
+
+      if (error) throw error;
 
       toast({
         title: "Success",
@@ -218,11 +241,11 @@ export default function Admin() {
       });
       
       fetchUsers();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating department:', error);
       toast({
         title: "Error",
-        description: "Failed to update department",
+        description: error.message || "Failed to update department",
         variant: "destructive",
       });
     }
