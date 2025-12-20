@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PriorityBadge } from '@/components/orders/PriorityBadge';
 import { FilePreview } from '@/components/orders/FilePreview';
-import { PRODUCTION_STEPS, SubStage } from '@/types/order';
+import { PRODUCTION_STEPS, SubStage, DispatchInfo } from '@/types/order';
 import { useOrders } from '@/contexts/OrderContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
 import { AddDelayReasonDialog } from '@/components/dialogs/AddDelayReasonDialog';
+import { DispatchValidationDialog } from '@/components/dialogs/DispatchValidationDialog';
 import { supabase } from '@/integrations/supabase/client';
 
 interface ProductionUser {
@@ -36,10 +37,12 @@ interface ProductionUser {
 }
 
 export default function Production() {
-  const { orders, updateItemStage, updateItemSubstage, completeSubstage, uploadFile, getTimelineForOrder, addNote } = useOrders();
+  const { orders, updateItemStage, updateItemSubstage, completeSubstage, uploadFile, getTimelineForOrder, addNote, markAsDispatched } = useOrders();
   const { profile, isAdmin, user, role } = useAuth();
   const [selectedUserTab, setSelectedUserTab] = useState<string>('all');
   const [productionUsers, setProductionUsers] = useState<ProductionUser[]>([]);
+  const [dispatchDialogOpen, setDispatchDialogOpen] = useState(false);
+  const [selectedItemForDispatch, setSelectedItemForDispatch] = useState<{ orderId: string; itemId: string; productName: string } | null>(null);
 
   // Fetch production users for admin tabs
   useEffect(() => {
@@ -88,6 +91,17 @@ export default function Production() {
       .flatMap(order => 
         order.items
           .filter(item => {
+            // CRITICAL: Exclude items in dispatch stage - they should only show in Dispatch page
+            if (item.current_stage === 'dispatch') {
+              return false;
+            }
+            
+            // CRITICAL: Exclude items in packing substage - they are ready for dispatch
+            // Packing is the last production stage, so items in packing should show in Dispatch page, not Production
+            if (item.current_stage === 'production' && item.current_substage === 'packing') {
+              return false;
+            }
+            
             // Filter by assigned_department AND current_stage
             const itemDept = (item.assigned_department || '').toLowerCase().trim();
             const itemStage = (item.current_stage || '').toLowerCase().trim();
@@ -167,8 +181,72 @@ export default function Production() {
     });
   };
 
-  const handleCompleteStage = (orderId: string, itemId: string) => {
-    completeSubstage(orderId, itemId);
+  const handleCompleteStage = async (orderId: string, itemId: string) => {
+    const order = orders.find(o => o.order_id === orderId);
+    const item = order?.items.find(i => i.item_id === itemId);
+    
+    if (!order || !item) return;
+    
+    // Check if this is the last substage (packing)
+    const sequence = (item as any).production_stage_sequence || ['foiling', 'printing', 'pasting', 'cutting', 'letterpress', 'embossing', 'packing'];
+    const currentIndex = sequence.indexOf(item.current_substage);
+    const isLastSubstage = currentIndex === sequence.length - 1;
+    
+    // CRITICAL: If completing packing (last stage), show dispatch tracking dialog
+    // User must fill tracking details before item is marked as dispatched
+    if (isLastSubstage && item.current_substage === 'packing') {
+      setSelectedItemForDispatch({ orderId, itemId, productName: item.product_name });
+      setDispatchDialogOpen(true);
+    } else {
+      // For other stages, just complete normally
+      await completeSubstage(orderId, itemId);
+    }
+  };
+
+  const handleConfirmDispatch = async (dispatchInfo: DispatchInfo) => {
+    if (!selectedItemForDispatch) return;
+    
+    try {
+      // First complete the substage (this will move item to dispatch stage)
+      await completeSubstage(selectedItemForDispatch.orderId, selectedItemForDispatch.itemId);
+      
+      // Then mark as dispatched with tracking details (this marks as completed)
+      await markAsDispatched(selectedItemForDispatch.orderId, selectedItemForDispatch.itemId, dispatchInfo);
+      
+      setDispatchDialogOpen(false);
+      setSelectedItemForDispatch(null);
+      
+      toast({
+        title: "Item Dispatched",
+        description: "Item has been marked as dispatched with tracking details",
+      });
+    } catch (error) {
+      console.error('Error dispatching item:', error);
+      toast({
+        title: "Error",
+        description: "Failed to dispatch item",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleCancelDispatch = async () => {
+    if (!selectedItemForDispatch) return;
+    
+    // If user cancels, still complete the substage to move to dispatch stage
+    // But don't mark as dispatched - user can do that later from Dispatch page
+    try {
+      await completeSubstage(selectedItemForDispatch.orderId, selectedItemForDispatch.itemId);
+      toast({
+        title: "Packing Complete",
+        description: "Item moved to dispatch stage. Add tracking details from Dispatch page.",
+      });
+    } catch (error) {
+      console.error('Error completing substage:', error);
+    }
+    
+    setDispatchDialogOpen(false);
+    setSelectedItemForDispatch(null);
   };
 
   const handleSendToDispatch = (orderId: string, itemId: string) => {
@@ -460,7 +538,23 @@ export default function Production() {
                                 <TooltipContent>Upload production photo</TooltipContent>
                               </Tooltip>
 
-                              {item.current_substage ? (
+                              {/* CRITICAL: If item is in dispatch stage, don't show production controls */}
+                              {item.current_stage === 'dispatch' ? (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      className="text-green-600 border-green-600 hover:bg-green-50 dark:hover:bg-green-950"
+                                      disabled
+                                    >
+                                      <Truck className="h-4 w-4 mr-2" />
+                                      Ready for Dispatch
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Item is ready for dispatch. Go to Dispatch page to add tracking details.</TooltipContent>
+                                </Tooltip>
+                              ) : item.current_substage ? (
                                 <DropdownMenu>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
@@ -503,11 +597,6 @@ export default function Production() {
                                     >
                                       <AlertTriangle className="h-4 w-4 mr-2" />
                                       Add Delay Reason
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onClick={() => handleSendToDispatch(order.order_id, item.item_id)}>
-                                      <Truck className="h-4 w-4 mr-2" />
-                                      Send to Dispatch
                                     </DropdownMenuItem>
                                   </DropdownMenuContent>
                                 </DropdownMenu>
@@ -577,6 +666,22 @@ export default function Production() {
               });
               setSelectedItemForDelay(null);
             }}
+          />
+        )}
+
+        {/* Dispatch Tracking Dialog - Shows when packing is completed */}
+        {selectedItemForDispatch && (
+          <DispatchValidationDialog
+            open={dispatchDialogOpen}
+            onOpenChange={(open) => {
+              if (!open) {
+                // If dialog is closed without confirming, still complete substage
+                handleCancelDispatch();
+              }
+            }}
+            productName={selectedItemForDispatch.productName}
+            orderId={selectedItemForDispatch.orderId}
+            onConfirm={handleConfirmDispatch}
           />
         )}
       </div>

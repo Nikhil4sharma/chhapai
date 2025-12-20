@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { Order, OrderItem, TimelineEntry, Stage, SubStage, Priority, VendorDetails, OutsourceJobDetails, OutsourceInfo, OutsourceStage, UserRole, OUTSOURCE_STAGE_LABELS } from '@/types/order';
+import { Order, OrderItem, TimelineEntry, Stage, SubStage, Priority, VendorDetails, OutsourceJobDetails, OutsourceInfo, OutsourceStage, UserRole, OUTSOURCE_STAGE_LABELS, DispatchInfo } from '@/types/order';
 import { useAuth } from './AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
@@ -44,7 +44,7 @@ interface OrderContextType {
   deleteOrder: (orderId: string) => Promise<void>;
   completeSubstage: (orderId: string, itemId: string) => Promise<void>;
   startSubstage: (orderId: string, itemId: string, substage: SubStage) => Promise<void>;
-  markAsDispatched: (orderId: string, itemId: string) => Promise<void>;
+  markAsDispatched: (orderId: string, itemId: string, dispatchInfo?: DispatchInfo) => Promise<void>;
   sendToProduction: (orderId: string, itemId: string, stageSequence: string[]) => Promise<void>;
   setProductionStageSequence: (orderId: string, itemId: string, sequence: string[]) => Promise<void>;
   updateItemDeliveryDate: (orderId: string, itemId: string, deliveryDate: Date) => Promise<void>;
@@ -230,11 +230,31 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const fetchOrdersRef = useRef<((showLoading?: boolean) => Promise<void>) | null>(null);
   const fetchTimelineRef = useRef<(() => Promise<void>) | null>(null);
   
+  // CRITICAL: Guard to ensure fetchOrders runs only once per authenticated session
+  const hasFetchedRef = useRef<{ userId: string; role: string } | null>(null);
+  
+  // CRITICAL: Guard to prevent concurrent fetches
+  const isFetchingRef = useRef<boolean>(false);
+  
+  // CRITICAL: Store current auth values in refs to prevent function recreation
+  const authRefs = useRef({ isAdmin, role, profile, userId: user?.id });
+  
+  // Update refs when values change
+  useEffect(() => {
+    authRefs.current = { isAdmin, role, profile, userId: user?.id };
+  }, [isAdmin, role, profile, user?.id]);
+  
   // Check if user can view financial data
   const canViewFinancials = isAdmin || role === 'sales';
 
   // Fetch orders from Supabase - RLS automatically filters based on user role/department
   const fetchOrders = useCallback(async (showLoading = false, forceRefresh = false) => {
+    // CRITICAL: Prevent concurrent fetches
+    if (isFetchingRef.current) {
+      console.log('[fetchOrders] Already fetching, skipping concurrent fetch');
+      return;
+    }
+    
     // CRITICAL: Don't fetch if profile is not ready
     // Orders require role and department to filter correctly
     if (!profileReady || !authReady) {
@@ -242,17 +262,37 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     
-    if (!user) {
+    if (!user?.id) {
       console.warn('[fetchOrders] No user, skipping fetch');
       return; // Don't fetch if no user
     }
     
-    // CRITICAL: Guard - Don't fetch if role or department is missing (unless admin)
-    // Admin can fetch without department, but other roles need department
-    if (!isAdmin && (!role || !profile?.department)) {
-      console.warn('[fetchOrders] Role or department missing, skipping fetch', { role, department: profile?.department });
+    // CRITICAL: Guard - Don't fetch if role is missing (unless admin)
+    // Admin can fetch without role, but other roles need role
+    if (!isAdmin && !role) {
+      console.warn('[fetchOrders] Role missing, skipping fetch', { role, isAdmin });
       setIsLoading(false);
       return;
+    }
+    
+    // CRITICAL: Check if we've already fetched for this user+role combination (unless force refresh)
+    if (!forceRefresh && hasFetchedRef.current) {
+      const { userId, role: fetchedRole } = hasFetchedRef.current;
+      if (userId === user.id && fetchedRole === role) {
+        console.log('[fetchOrders] Already fetched for this session, using cache or skipping', { userId, role });
+        // Still check cache for fresh data
+        if (ordersCacheRef.current) {
+          const cacheAge = Date.now() - ordersCacheRef.current.timestamp;
+          if (cacheAge < CACHE_DURATION) {
+            console.log('[fetchOrders] Using cached orders, age:', cacheAge, 'ms');
+            setOrders(ordersCacheRef.current.orders);
+            if (showLoading) setIsLoading(false);
+            return;
+          }
+        }
+        // Cache expired but already fetched - only refresh if explicitly requested
+        return;
+      }
     }
     
     // Check cache first (unless force refresh)
@@ -262,11 +302,16 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         console.log('[fetchOrders] Using cached orders, age:', cacheAge, 'ms');
         setOrders(ordersCacheRef.current.orders);
         if (showLoading) setIsLoading(false);
+        // Mark as fetched even when using cache
+        hasFetchedRef.current = { userId: user.id, role: role || '' };
         return;
       }
     }
     
-    console.log('[fetchOrders] Starting fetch from Supabase, showLoading:', showLoading, 'user:', user.id);
+    // Set fetching flag
+    isFetchingRef.current = true;
+    
+    console.log('[fetchOrders] Starting fetch from Supabase, showLoading:', showLoading, 'user:', user.id, 'role:', role);
     
     try {
       // Only show loading on initial fetch, not on real-time updates
@@ -298,6 +343,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         timestamp: Date.now(),
       };
       
+      // CRITICAL: Mark as fetched for this user+role combination
+      hasFetchedRef.current = { userId: user.id, role: role || '' };
+      
       // If no orders found, log warning
       if (mappedOrders.length === 0) {
         console.warn('[fetchOrders] ⚠️ NO ORDERS FOUND! Database might be empty. Run WooCommerce sync to import orders.');
@@ -320,8 +368,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           variant: "destructive",
         });
       }
+    } finally {
+      // Always clear fetching flag
+      isFetchingRef.current = false;
     }
-  }, [canViewFinancials, user, profileReady, authReady, role, profile, isAdmin]);
+  }, [user?.id, role, profileReady, authReady, isAdmin]); // CRITICAL: Only depend on user.id and role, not profile or derived state
 
   const fetchTimeline = useCallback(async () => {
     try {
@@ -404,36 +455,62 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     
-    if (!user) {
+    if (!user?.id) {
       // Clear data when user logs out
       setOrders([]);
       setTimeline([]);
       setIsLoading(false);
-      // Clear cache
+      // Clear cache and fetch guard
       ordersCacheRef.current = null;
+      hasFetchedRef.current = null;
       return;
     }
 
-    // CRITICAL: Guard - Don't fetch if role or department is missing (unless admin)
-    if (!isAdmin && (!role || !profile?.department)) {
-      console.warn('[OrderContext] Role or department missing, skipping fetch', { 
+    // CRITICAL: Guard - Don't fetch if role is missing (unless admin)
+    // Only check role, not profile.department (removed from dependencies)
+    if (!isAdmin && !role) {
+      console.warn('[OrderContext] Role missing, skipping fetch', { 
         role, 
-        department: profile?.department,
         isAdmin 
       });
       setIsLoading(false);
       return;
     }
 
-    // CRITICAL: Ensure we fetch orders on mount/reload
+    // CRITICAL: Reset fetch guard when user or role changes
+    const shouldFetch = !hasFetchedRef.current || 
+      hasFetchedRef.current.userId !== user.id || 
+      hasFetchedRef.current.role !== role;
+    
+    if (!shouldFetch && hasFetchedRef.current) {
+      console.log('[OrderContext] Already fetched for this session, skipping initial fetch', { 
+        userId: hasFetchedRef.current.userId, 
+        role: hasFetchedRef.current.role 
+      });
+    } else if (hasFetchedRef.current) {
+      console.log('[OrderContext] User or role changed, resetting fetch guard', { 
+        oldUserId: hasFetchedRef.current.userId, 
+        newUserId: user.id,
+        oldRole: hasFetchedRef.current.role,
+        newRole: role
+      });
+      hasFetchedRef.current = null;
+    }
+
+    // CRITICAL: Ensure we fetch orders on mount/reload (only if not already fetched)
     // This prevents orders from disappearing on page reload
     // Mark initial fetch as complete so real-time listeners can start updating
-    let initialFetchComplete = false;
+    let initialFetchComplete = !shouldFetch; // If already fetched, mark as complete immediately
     let isMounted = true; // Track if component is still mounted
     
-    // CRITICAL: Fetch orders immediately when profile is ready
+    // CRITICAL: Fetch orders immediately when profile is ready (only if needed)
     const fetchWhenReady = async () => {
-      if (!isMounted) return;
+      if (!isMounted || !shouldFetch) {
+        if (!shouldFetch) {
+          console.log('[OrderContext] Skipping fetch - already fetched for this session');
+        }
+        return;
+      }
       
       console.log('[OrderContext] Starting initial fetch for user:', user.id, 'role:', role);
       if (fetchOrdersRef.current) {
@@ -449,8 +526,10 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       console.log('[OrderContext] Initial fetch complete, real-time listeners active');
     };
     
-    // Start fetch immediately (profile is ready)
-    fetchWhenReady();
+    // Start fetch immediately (profile is ready) - only if needed
+    if (shouldFetch) {
+      fetchWhenReady();
+    }
 
     // Use debounce to prevent too many rapid updates
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -513,10 +592,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       unsubscribeItems();
       supabase.removeChannel(timelineChannel);
       // CRITICAL: DO NOT call setOrders([]) here - it causes orders to disappear
-      // Clear cache on unmount
-      ordersCacheRef.current = null;
+      // DO NOT clear cache or fetch guard on unmount - keep for session persistence
     };
-  }, [user, profileReady, authReady, role, profile, isAdmin]); // CRITICAL: Depend on profileReady and role
+  }, [user?.id, role, profileReady, authReady, isAdmin]); // CRITICAL: Only depend on user.id and role, remove profile and derived state
 
   const refreshOrders = useCallback(async () => {
     // Force refresh by bypassing cache
@@ -568,19 +646,19 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     return userDeptLower === targetDeptLower;
   }, []);
 
+  // CRITICAL: Make getOrdersByDepartment a PURE function
+  // No fetching, no state updates, only filter and return orders
+  // Use refs to access current auth values without recreating the function
   const getOrdersByDepartment = useCallback(() => {
+    const { isAdmin: currentIsAdmin, role: currentRole, profile: currentProfile, userId: currentUserId } = authRefs.current;
+    
+    // Check if user is sales (before type narrowing)
+    const isSalesUser = currentRole === 'sales';
+    
     // CRITICAL FIX: Admin and Sales should see ALL orders (including synced orders)
     // Only filter out completed orders, but show archived synced orders too
-    if (isAdmin || role === 'sales') {
+    if (currentIsAdmin || isSalesUser) {
       const activeOrders = orders.filter(o => !o.is_completed);
-      console.log('[getOrdersByDepartment] Admin/Sales - Returning all active orders:', {
-        totalOrders: orders.length,
-        activeOrders: activeOrders.length,
-        completedOrders: orders.filter(o => o.is_completed).length,
-        archivedOrders: orders.filter(o => o.archived_from_wc).length,
-        ordersWithItems: activeOrders.filter(o => o.items.length > 0).length,
-        ordersWithoutItems: activeOrders.filter(o => o.items.length === 0).length,
-      });
       // CRITICAL: Return all active orders for admin/sales, including synced orders
       return activeOrders;
     }
@@ -588,47 +666,37 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     // For other departments, filter out archived WooCommerce orders
     const activeOrders = orders.filter(o => !o.is_completed && !o.archived_from_wc);
     
-    if (!role) {
-      console.warn('[getOrdersByDepartment] No role found for user');
+    if (!currentRole) {
       return [];
     }
     
-    const roleLower = role.toLowerCase().trim();
+    const roleLower = currentRole.toLowerCase().trim();
     
     // For production users, filter by assigned production stage
-    if (role === 'production' && profile?.production_stage) {
+    if (currentRole === 'production' && currentProfile?.production_stage) {
       return activeOrders.filter(order =>
         order.items.some(item => {
           // Must be in production stage and assigned substage
-          if (item.current_stage !== 'production' || item.current_substage !== profile.production_stage) {
+          if (item.current_stage !== 'production' || item.current_substage !== currentProfile.production_stage) {
             return false;
           }
           
           // Use helper function for department matching and visibility
-          const isSales = role === 'sales';
-          return itemMatchesDepartment(item, 'production', roleLower, isAdmin, user?.id, isSales);
+          return itemMatchesDepartment(item, 'production', roleLower, currentIsAdmin, currentUserId, isSalesUser);
         })
       );
     }
     
     // For other departments, apply visibility rules with case-insensitive matching
     // Use helper function to reduce code duplication
-    const isSales = role === 'sales';
     const filtered = activeOrders.filter(order =>
       order.items.some(item => 
-        itemMatchesDepartment(item, roleLower, roleLower, isAdmin, user?.id, isSales)
+        itemMatchesDepartment(item, roleLower, roleLower, currentIsAdmin, currentUserId, isSalesUser)
       )
     );
     
-    console.log(`[getOrdersByDepartment] Filtered ${filtered.length} orders for role ${role}`, {
-      totalActiveOrders: activeOrders.length,
-      role: role,
-      roleLower: roleLower,
-      user_id: user?.id,
-    });
-    
     return filtered;
-  }, [orders, role, isAdmin, profile, user]);
+  }, [orders, itemMatchesDepartment]); // CRITICAL: Only depend on orders and itemMatchesDepartment
 
   const getOrdersForUser = useCallback(() => {
     // SAFEGUARD 6: Filter out archived WooCommerce orders
@@ -698,11 +766,14 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     const activeOrders = orders.filter(o => !o.is_completed && !o.archived_from_wc);
     const deptLower = department.toLowerCase();
     
+    // Check if user is sales (before type narrowing)
+    const isSalesRole = role === 'sales';
+    
     // Admin and Sales can see all orders for any department
-    if (isAdmin || role === 'sales') {
+    if (isAdmin || isSalesRole) {
       return activeOrders.filter(order =>
         order.items.some(item => 
-          itemMatchesDepartment(item, deptLower, deptLower, true, undefined, role === 'sales')
+          itemMatchesDepartment(item, deptLower, deptLower, true, undefined, isSalesRole)
         )
       );
     }
@@ -716,7 +787,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     const profileMatches = profileDeptLower === deptLower;
     
     // Debug logging (only for non-admin/sales users)
-    if (!isAdmin && role !== 'sales') {
+    if (!isAdmin && !isSalesRole) {
       console.log(`[getOrdersForDepartment] Checking access for department: ${department}`, {
         user_id: user?.id,
         role: role,
@@ -737,13 +808,13 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       // Special case: If user has no role/profile set, but they're requesting a department that matches their current context
       // This handles edge cases where user data might be incomplete
       if (!role && !profile?.department) {
-        if (!isAdmin && role !== 'sales') {
+        if (!isAdmin && !isSalesRole) {
           console.warn(`[getOrdersForDepartment] User has no role or profile department set. Denying access to ${department}`);
         }
         return [];
       }
       // Only log warning for non-admin/sales users
-      if (!isAdmin && role !== 'sales') {
+      if (!isAdmin && !isSalesRole) {
         console.warn(`[getOrdersForDepartment] User role (${role}) and profile department (${profile?.department}) do not match requested department (${department})`);
       }
       return []; // Return empty array if neither role nor profile department matches
@@ -754,7 +825,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         // Use helper function to reduce code duplication
         const userDeptLower = (role || profile?.department || '').toLowerCase().trim();
         // FIX: Use user?.id instead of user?.uid (Supabase uses id, not uid)
-        return itemMatchesDepartment(item, deptLower, userDeptLower, isAdmin, user?.id, role === 'sales');
+        return itemMatchesDepartment(item, deptLower, userDeptLower, isAdmin, user?.id, isSalesRole);
       });
       
       // Debug: Log orders that are being filtered out
@@ -925,7 +996,13 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       }
       
       // Debug log to track assignment
-      console.log(`[updateItemStage] Order ${order.order_id}, Item ${itemId}: Stage=${newStage}, AssignedDept=${assignedDept}`, updateData);
+      console.log(`[updateItemStage] Order ${order.order_id}, Item ${itemId}: Stage=${newStage}, AssignedDept=${assignedDept}`, {
+        orderId: order.order_id,
+        itemId,
+        newStage,
+        substage,
+        assignedDept
+      });
 
       // Send notifications for stage change
       if (user?.id) {
@@ -1099,21 +1176,29 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     await updateItemSubstage(orderId, itemId, substage);
   }, [updateItemSubstage]);
 
-  const markAsDispatched = useCallback(async (orderId: string, itemId: string) => {
+  const markAsDispatched = useCallback(async (orderId: string, itemId: string, dispatchInfo?: DispatchInfo) => {
     try {
       const order = orders.find(o => o.order_id === orderId);
       if (!order) return;
 
       const item = order.items.find(i => i.item_id === itemId);
 
+      // Prepare update data
+      const updateData: any = {
+        current_stage: 'completed',
+        is_dispatched: true,
+        updated_at: new Date().toISOString(),
+      };
+
+      // If dispatchInfo is provided, include it
+      if (dispatchInfo) {
+        updateData.dispatch_info = dispatchInfo;
+      }
+
       // Update via Supabase
       await supabase
         .from('order_items')
-        .update({
-          current_stage: 'completed',
-          is_dispatched: true,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', itemId);
 
       await addTimelineEntry({
@@ -1481,7 +1566,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
             assigned_at: new Date().toISOString(),
             assigned_by: user.id,
             assigned_by_name: profile.full_name || 'Unknown',
-            assigned_by_role: (profile.role as UserRole) || 'admin',
+            assigned_by_role: (role as UserRole) || 'admin',
             follow_up_notes: [],
           },
           updated_at: new Date().toISOString(),
@@ -1774,9 +1859,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         updates = restUpdates;
       }
 
-      const orderRef = doc(db, 'orders', order.id!);
+      // Prepare update data for Supabase
       const updateData: any = {
-        updated_at: Timestamp.now(),
+        updated_at: new Date().toISOString(),
       };
 
       if (updates.customer) {
@@ -1789,24 +1874,36 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       
       // If order-level delivery date is updated, also update all items' delivery dates
       if (updates.order_level_delivery_date) {
-        updateData.delivery_date = Timestamp.fromDate(updates.order_level_delivery_date);
+        updateData.delivery_date = updates.order_level_delivery_date.toISOString();
         
         // Update all items' delivery dates to match order-level delivery date
-        const itemsQuery = query(collection(db, 'order_items'), where('order_id', '==', order.id));
-        const itemsSnapshot = await getDocs(itemsQuery);
+        const { data: itemsData } = await supabase
+          .from('order_items')
+          .select('id')
+          .eq('order_id', order.id!);
         
-        const batch = writeBatch(db);
-        itemsSnapshot.docs.forEach((itemDoc) => {
-          const itemRef = doc(db, 'order_items', itemDoc.id);
-          batch.update(itemRef, {
-            delivery_date: Timestamp.fromDate(updates.order_level_delivery_date!),
-            updated_at: Timestamp.now(),
-          });
-        });
-        await batch.commit();
+        if (itemsData && itemsData.length > 0) {
+          // Update all items in parallel
+          const updatePromises = itemsData.map(item => 
+            supabase
+              .from('order_items')
+              .update({
+                delivery_date: updates.order_level_delivery_date!.toISOString(),
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', item.id)
+          );
+          await Promise.all(updatePromises);
+        }
       }
 
-      await updateDoc(orderRef, updateData);
+      // Update order in Supabase
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update(updateData)
+        .eq('id', order.id!);
+
+      if (updateError) throw updateError;
 
       await fetchOrders(false);
 
@@ -1892,11 +1989,17 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       // Update priority will be computed automatically
       // Also update order-level delivery date in same update
-      const orderRef = doc(db, 'orders', order.id!);
-      await updateDoc(orderRef, {
-        delivery_date: Timestamp.fromDate(deliveryDate),
-        updated_at: Timestamp.now(),
-      });
+      const { error: orderUpdateError } = await supabase
+        .from('orders')
+        .update({
+          delivery_date: deliveryDate.toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', order.id!);
+
+      if (orderUpdateError) {
+        console.error('Error updating order delivery date:', orderUpdateError);
+      }
 
       const item = order.items.find(i => i.item_id === itemId);
       
@@ -1904,7 +2007,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         order_id: orderId,
         item_id: itemId,
         product_name: item?.product_name,
-        stage: (itemData?.current_stage as Stage) || 'sales',
+        stage: (item?.current_stage as Stage) || 'sales',
         action: 'note_added',
         performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',

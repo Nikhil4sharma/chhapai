@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 
@@ -41,10 +41,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [authReady, setAuthReady] = useState(false); // Session initialized
   const [profileReady, setProfileReady] = useState(false); // Profile + role loaded
 
+  // CRITICAL: Guard to prevent infinite loops
+  const hasInitializedRef = useRef<boolean>(false);
+  const isFetchingRef = useRef<boolean>(false);
+  const lastFetchedUserIdRef = useRef<string | null>(null);
+
   const isAdmin = useMemo(() => role === 'admin', [role]);
 
   // Memoized fetchUserData to prevent unnecessary re-renders
   const fetchUserData = useCallback(async (userId: string) => {
+    // CRITICAL: Prevent concurrent fetches for the same user
+    if (isFetchingRef.current && lastFetchedUserIdRef.current === userId) {
+      console.log('[Auth] Already fetching user data for:', userId, '- skipping');
+      return;
+    }
+    
+    // CRITICAL: If we've already fetched for this user, skip
+    if (lastFetchedUserIdRef.current === userId && profile && profile.user_id === userId) {
+      console.log('[Auth] Already fetched user data for:', userId, '- skipping');
+      return;
+    }
+    
+    isFetchingRef.current = true;
+    lastFetchedUserIdRef.current = userId;
+    
     try {
       console.log('[Auth] Fetching user data for:', userId);
       
@@ -167,16 +187,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('[Auth] Error fetching user data:', error);
       setProfileReady(true); // Still mark as ready to prevent infinite loading
+    } finally {
+      isFetchingRef.current = false;
     }
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
     let mounted = true;
     let subscription: { unsubscribe: () => void } | null = null;
 
+    // CRITICAL: Only initialize once
+    if (hasInitializedRef.current) {
+      console.log('[Auth] Already initialized, skipping initialization');
+      return;
+    }
+
     // CRITICAL: Use getSession() FIRST for initial session check
     // This prevents auth flicker on hard reload
     const initializeAuth = async () => {
+      // CRITICAL: Mark as initialized immediately to prevent re-runs
+      hasInitializedRef.current = true;
+      
       try {
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
         
@@ -212,7 +243,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Initialize auth immediately
+    // Initialize auth immediately (only once)
     initializeAuth();
 
     // CRITICAL: Use onAuthStateChange ONLY for updates after initial load
@@ -221,6 +252,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       data: { subscription: authSubscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
+      
+      // CRITICAL: Ignore INITIAL_SESSION event - we already handled it in initializeAuth
+      if (event === 'INITIAL_SESSION' && hasInitializedRef.current) {
+        console.log('[Auth] Ignoring INITIAL_SESSION event - already initialized');
+        return;
+      }
       
       console.log('[Auth] Auth state changed:', event, session?.user?.email);
       
@@ -234,16 +271,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (session?.user) {
-        // Only fetch if profile is not already loaded for this user
-        // This prevents unnecessary refetches during auth state changes
-        if (!profile || profile.user_id !== session.user.id) {
+        // CRITICAL: Only fetch if profile is not already loaded for this user
+        // AND we haven't already fetched for this user
+        const shouldFetch = !profile || 
+                           profile.user_id !== session.user.id ||
+                           lastFetchedUserIdRef.current !== session.user.id;
+        
+        if (shouldFetch) {
           setProfileReady(false); // Reset profile ready state
           await fetchUserData(session.user.id);
+        } else {
+          console.log('[Auth] Profile already loaded for user, skipping fetch');
         }
       } else {
         // Session cleared - reset all state
         setProfile(null);
         setRole(null);
+        lastFetchedUserIdRef.current = null;
         setProfileReady(true); // Mark as ready (no profile to load)
       }
     });
@@ -256,7 +300,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         subscription.unsubscribe();
       }
     };
-  }, [authReady, fetchUserData, profile]);
+  }, []); // CRITICAL: Empty dependencies - only run once on mount
 
   const signIn = async (email: string, password: string) => {
     try {

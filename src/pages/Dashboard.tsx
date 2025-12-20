@@ -69,8 +69,101 @@ export default function Dashboard() {
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
   
   // CRITICAL: Memoize orders to prevent flickering from reference changes
-  const orders = useMemo(() => getOrdersByDepartment(), [getOrdersByDepartment, allOrders.length, isAdmin, role, profile?.department]);
-  const completedOrders = useMemo(() => getCompletedOrders(), [getCompletedOrders, allOrders.length, isAdmin, role]);
+  // Use ref to cache and only recalculate when order IDs actually change
+  const ordersCacheRef = useRef<{ orders: typeof allOrders; orderIds: string } | null>(null);
+  const prevOrderIdsRef = useRef<string>('');
+  
+  // Create stable key from order IDs - use ref to track previous IDs
+  const ordersKey = useMemo(() => {
+    if (allOrders.length === 0) {
+      if (prevOrderIdsRef.current !== 'empty') {
+        prevOrderIdsRef.current = 'empty';
+      }
+      return 'empty';
+    }
+    
+    // Use first 10 order IDs for key (sorted for consistency)
+    const currentIds = allOrders.slice(0, 10).map(o => o.order_id).sort().join(',');
+    const key = `${allOrders.length}-${currentIds}-${role || ''}-${profile?.production_stage || ''}-${profile?.department || ''}-${isAdmin}`;
+    
+    // Only update if IDs actually changed
+    if (prevOrderIdsRef.current !== currentIds) {
+      prevOrderIdsRef.current = currentIds;
+    }
+    
+    return key;
+  }, [
+    allOrders.length,
+    // Use ref value in dependency - but this won't trigger recalculation
+    // Instead, we'll check inside the useMemo
+    role,
+    profile?.production_stage,
+    profile?.department,
+    isAdmin,
+    // Add a dependency that changes when order IDs change
+    allOrders.length > 0 ? allOrders[0]?.order_id : '',
+    allOrders.length > 1 ? allOrders[1]?.order_id : '',
+    allOrders.length > 2 ? allOrders[2]?.order_id : '',
+  ]);
+  
+  const orders = useMemo(() => {
+    // Return cached if key matches
+    if (ordersCacheRef.current && ordersCacheRef.current.orderIds === ordersKey) {
+      return ordersCacheRef.current.orders;
+    }
+    
+    // Calculate orders directly from allOrders
+    let result: typeof allOrders;
+    
+    // For admin/sales, return all active orders
+    if (isAdmin || role === 'sales') {
+      result = allOrders.filter(o => !o.is_completed);
+    } else if (!role) {
+      result = [];
+    } else {
+      const activeOrders = allOrders.filter(o => !o.is_completed && !o.archived_from_wc);
+      const roleLower = role.toLowerCase().trim();
+      
+      // For production users with production_stage, filter by stage
+      if (role === 'production' && profile?.production_stage) {
+        result = activeOrders.filter(order =>
+          order.items.some(item => 
+            item.current_stage === 'production' && 
+            item.current_substage === profile.production_stage &&
+            (item.assigned_department?.toLowerCase() === 'production' || item.current_stage === 'production')
+          )
+        );
+      } else {
+        // For other departments, filter by assigned_department or current_stage
+        result = activeOrders.filter(order =>
+          order.items.some(item => {
+            const itemDept = (item.assigned_department || item.current_stage || '').toLowerCase().trim();
+            return itemDept === roleLower;
+          })
+        );
+      }
+    }
+    
+    // Cache result
+    ordersCacheRef.current = { orders: result, orderIds: ordersKey };
+    return result;
+  }, [ordersKey]);
+  
+  // CRITICAL: Calculate completed orders directly to avoid function reference issues
+  const completedOrders = useMemo(() => {
+    if (isAdmin || role === 'sales') {
+      return allOrders.filter(o => o.is_completed);
+    }
+    if (!role) return [];
+    
+    return allOrders.filter(o => 
+      o.is_completed && 
+      o.items.some(item => {
+        const itemDept = (item.assigned_department || item.current_stage || '').toLowerCase().trim();
+        return itemDept === role.toLowerCase().trim();
+      })
+    );
+  }, [allOrders, isAdmin, role]);
   
   // CRITICAL FIX: For admin, use allOrders directly if getOrdersByDepartment returns empty
   // This ensures admin always sees orders even if filtering fails
@@ -121,6 +214,12 @@ export default function Dashboard() {
   
   // For Admin/Sales: show all urgent orders across all departments
   // For other departments: show urgent orders for their department only
+  // CRITICAL: Memoize with stable dependencies
+  const urgentOrdersKey = useMemo(() => {
+    const urgentCount = allOrders.filter(o => !o.is_completed && o.priority_computed === 'red').length;
+    return `${allOrders.length}-${urgentCount}-${isAdmin}-${role}`;
+  }, [allOrders.length, isAdmin, role]);
+  
   const urgentOrders = useMemo(() => {
     if (isAdmin) {
       return getUrgentOrdersForAdmin();
@@ -132,7 +231,7 @@ export default function Dashboard() {
       return getUrgentOrdersForDepartment(role);
     }
     return [];
-  }, [isAdmin, role, getUrgentOrdersForAdmin, getUrgentOrdersForDepartment, allOrders]);
+  }, [urgentOrdersKey, isAdmin, role, allOrders]);
   
   // Total orders count: For Admin/Sales show all, for others show only their department
   const totalOrdersCount = useMemo(() => {
@@ -173,21 +272,57 @@ export default function Dashboard() {
   };
 
   // Use adminOrders for admin, regular orders for others
-  const ordersToProcess = isAdmin ? adminOrders : orders;
+  // CRITICAL: Memoize ordersToProcess to prevent reference changes
+  const ordersToProcess = useMemo(() => {
+    return isAdmin ? adminOrders : orders;
+  }, [isAdmin, adminOrders, orders]);
   
-  const processedOrders = useMemo(() => 
-    filterOrders(sortOrders(ordersToProcess)), 
-    [ordersToProcess, sortBy, filterBy, isAdmin]
-  );
+  // CRITICAL: Use stable comparison for processedOrders
+  // Create a stable key from order IDs to detect actual changes
+  const processedOrdersKey = useMemo(() => {
+    return ordersToProcess.map(o => o.order_id).join(',');
+  }, [ordersToProcess.length, ordersToProcess.map(o => o.order_id).slice(0, 5).join(',')]);
   
-  const processedCompletedOrders = useMemo(() => 
-    sortOrders(completedOrders), 
-    [completedOrders, sortBy]
-  );
+  const processedOrders = useMemo(() => {
+    if (ordersToProcess.length === 0) return [];
+    return filterOrders(sortOrders(ordersToProcess));
+  }, [processedOrdersKey, sortBy, filterBy]);
+  
+  // CRITICAL: Use stable comparison for processedCompletedOrders
+  const completedOrdersKey = useMemo(() => {
+    return completedOrders.map(o => o.order_id).join(',');
+  }, [completedOrders.length, completedOrders.map(o => o.order_id).slice(0, 5).join(',')]);
+  
+  const processedCompletedOrders = useMemo(() => {
+    if (completedOrders.length === 0) return [];
+    return sortOrders(completedOrders);
+  }, [completedOrdersKey, sortBy]);
   
   // Calculate stats with useMemo for realtime updates
   // CRITICAL: For non-admin/sales users, stats should only show their department
+  // Use stable key to prevent unnecessary recalculations
+  const statsKey = useMemo(() => {
+    const orderIds = (isAdmin || role === 'sales' ? allOrders : orders)
+      .slice(0, 10)
+      .map(o => o.order_id)
+      .join(',');
+    return `${orderIds}-${totalOrdersCount}-${isAdmin}-${role}-${user?.id || ''}`;
+  }, [
+    isAdmin || role === 'sales' ? allOrders.length : orders.length,
+    totalOrdersCount,
+    isAdmin,
+    role,
+    user?.id
+  ]);
+  
+  const statsCacheRef = useRef<{ stats: any; key: string } | null>(null);
+  
   const stats = useMemo(() => {
+    // Return cached if key matches
+    if (statsCacheRef.current && statsCacheRef.current.key === statsKey) {
+      return statsCacheRef.current.stats;
+    }
+    
     const calculated = {
       totalOrders: totalOrdersCount,
       urgentItems: 0,
@@ -240,11 +375,31 @@ export default function Dashboard() {
       });
     });
 
+    // Cache result
+    statsCacheRef.current = { stats: calculated, key: statsKey };
     return calculated;
-  }, [orders, allOrders, completedOrders, totalOrdersCount, isAdmin, role, user]);
+  }, [statsKey, orders, allOrders, totalOrdersCount, isAdmin, role, user?.id]);
 
+  // CRITICAL: Department-based routing for cards
   const handleCardClick = (path: string) => {
-    navigate(path);
+    // If path starts with /, use it directly
+    // Otherwise, prepend / for department-based routing
+    const finalPath = path.startsWith('/') ? path : `/${path}`;
+    navigate(finalPath);
+  };
+
+  // Get department-based route for cards
+  const getDepartmentRoute = (defaultPath: string) => {
+    if (isAdmin) {
+      // Admin can access all routes
+      return defaultPath;
+    }
+    // For non-admin users, route to their department page
+    if (role) {
+      return `/${role}`;
+    }
+    // Fallback to default
+    return defaultPath;
   };
 
   // Pagination component
@@ -372,7 +527,7 @@ export default function Dashboard() {
             <TooltipTrigger asChild>
               <div 
                 className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
-                onClick={() => handleCardClick('/sales')}
+                onClick={() => handleCardClick(getDepartmentRoute('/sales'))}
               >
                 <StatsCard
                   title={isAdmin || role === 'sales' ? "Total Orders" : `${role?.charAt(0).toUpperCase()}${role?.slice(1)} Orders`}
@@ -419,7 +574,14 @@ export default function Dashboard() {
             <TooltipTrigger asChild>
               <div 
                 className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
-                onClick={() => handleCardClick('/production')}
+                onClick={() => {
+                  // Production card - route based on department
+                  if (isAdmin || role === 'production') {
+                    handleCardClick('/production');
+                  } else if (role) {
+                    handleCardClick(`/${role}`);
+                  }
+                }}
               >
                 <StatsCard
                   title="In Production"
@@ -429,14 +591,23 @@ export default function Dashboard() {
                 />
               </div>
             </TooltipTrigger>
-            <TooltipContent>View production queue</TooltipContent>
+            <TooltipContent>
+              {isAdmin || role === 'production' ? "View production queue" : `View ${role} department`}
+            </TooltipContent>
           </Tooltip>
           
           <Tooltip>
             <TooltipTrigger asChild>
               <div 
                 className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
-                onClick={() => handleCardClick('/dispatch')}
+                onClick={() => {
+                  // Completed/Dispatch card - route based on department
+                  if (isAdmin || role === 'production' || role === 'sales') {
+                    handleCardClick('/dispatch');
+                  } else if (role) {
+                    handleCardClick(`/${role}`);
+                  }
+                }}
               >
                 <StatsCard
                   title="Completed"
@@ -445,7 +616,11 @@ export default function Dashboard() {
                 />
               </div>
             </TooltipTrigger>
-            <TooltipContent>View completed orders</TooltipContent>
+            <TooltipContent>
+              {isAdmin || role === 'production' || role === 'sales' 
+                ? "View dispatch/completed orders" 
+                : `View ${role} department`}
+            </TooltipContent>
           </Tooltip>
         </div>
 

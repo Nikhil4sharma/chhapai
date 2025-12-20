@@ -61,65 +61,16 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
   };
 
   if (!files || files.length === 0) return null;
-
-  // Helper to get file URL - use signed URL for private buckets
-  const getFileUrl = async (file: OrderFile): Promise<string> => {
-    let url = file.url || '';
-    
-    // If URL is a Supabase storage URL, try to get signed URL
-    if (url && url.includes('supabase.co/storage')) {
-      try {
-        // Extract bucket and path from URL
-        const urlObj = new URL(url);
-        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
-        
-        if (pathMatch) {
-          const bucket = pathMatch[1];
-          const filePath = pathMatch[2];
-          
-          // Check cache first
-          if (fileUrlCache.has(filePath)) {
-            return fileUrlCache.get(filePath)!;
-          }
-          
-          // Get signed URL for private bucket
-          const signedUrl = await getSupabaseSignedUrl(filePath, bucket);
-          
-          // Cache the URL
-          setFileUrlCache(prev => new Map(prev).set(filePath, signedUrl));
-          
-          return signedUrl;
-        }
-      } catch (e) {
-        console.warn('Failed to get signed URL, using original:', url, e);
-      }
-    }
-    
-    return url;
-  };
-
-  // Synchronous version for immediate use (returns cached URL or original)
-  const getFileUrlSync = (file: OrderFile): string => {
-    let url = file.url || '';
-    
-    // If URL is a Supabase storage URL, check cache
-    if (url && url.includes('supabase.co/storage')) {
-      try {
-        const urlObj = new URL(url);
-        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
-        
-        if (pathMatch) {
-          const filePath = pathMatch[2];
-          if (fileUrlCache.has(filePath)) {
-            return fileUrlCache.get(filePath)!;
-          }
-        }
-      } catch (e) {
-        // Ignore errors
-      }
-    }
-    
-    return url;
+  
+  // Helper functions (defined before useEffect)
+  const getFileName = (file: OrderFile) => {
+    if (file.file_name) return file.file_name;
+    const url = file.url || '';
+    const urlParts = url.split('/');
+    const lastPart = urlParts[urlParts.length - 1];
+    // Remove query parameters
+    const fileName = lastPart.split('?')[0];
+    return fileName || 'File';
   };
 
   const isImage = (fileName: string | undefined, fileUrl?: string, fileType?: string) => {
@@ -136,6 +87,138 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     
     return false;
   };
+  
+  // Pre-load signed URLs for all images when files change
+  useEffect(() => {
+    let isMounted = true;
+    
+    const loadSignedUrls = async () => {
+      const pathsToLoad: Array<{ path: string; bucket: string }> = [];
+      
+      // Collect all image paths that need signed URLs
+      for (const file of files) {
+        const fileName = getFileName(file);
+        const fileUrl = file.url || '';
+        
+        // Only pre-load for images
+        if (isImage(fileName, fileUrl, file.type) && fileUrl.includes('supabase.co/storage')) {
+          try {
+            const urlObj = new URL(fileUrl);
+            const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+            
+            if (pathMatch) {
+              const filePath = decodeURIComponent(pathMatch[2]);
+              pathsToLoad.push({ path: filePath, bucket: pathMatch[1] });
+            }
+          } catch (e) {
+            console.warn('Failed to parse URL for file:', fileUrl, e);
+          }
+        }
+      }
+      
+      // Load signed URLs for all collected paths
+      const newCache = new Map(fileUrlCache);
+      for (const { path, bucket } of pathsToLoad) {
+        // Skip if already in cache
+        if (newCache.has(path)) continue;
+        
+        try {
+          const signedUrl = await getSupabaseSignedUrl(path, bucket);
+          if (signedUrl && isMounted) {
+            newCache.set(path, signedUrl);
+          }
+        } catch (e) {
+          console.warn('Failed to pre-load signed URL for path:', path, e);
+        }
+      }
+      
+      // Update cache once with all new URLs
+      if (isMounted && newCache.size > fileUrlCache.size) {
+        setFileUrlCache(newCache);
+      }
+    };
+    
+    if (files.length > 0) {
+      loadSignedUrls();
+    }
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [files]); // CRITICAL: Only depend on files
+
+  // Helper to get file URL - use signed URL for private buckets
+  const getFileUrl = async (file: OrderFile): Promise<string> => {
+    let url = file.url || '';
+    
+    // If URL is a Supabase storage URL, try to get signed URL
+    if (url && url.includes('supabase.co/storage')) {
+      try {
+        // Extract bucket and path from URL - handle both public and signed URLs
+        const urlObj = new URL(url);
+        // Match patterns like:
+        // /storage/v1/object/public/order-files/path/to/file.jpg
+        // /storage/v1/object/sign/order-files/path/to/file.jpg
+        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+        
+        if (pathMatch) {
+          const bucket = pathMatch[1];
+          const filePath = decodeURIComponent(pathMatch[2]); // Decode URL-encoded path
+          
+          // Check cache first
+          if (fileUrlCache.has(filePath)) {
+            return fileUrlCache.get(filePath)!;
+          }
+          
+          // Get signed URL for private bucket
+          const signedUrl = await getSupabaseSignedUrl(filePath, bucket);
+          
+          // Cache the URL
+          if (signedUrl) {
+            setFileUrlCache(prev => new Map(prev).set(filePath, signedUrl));
+            return signedUrl;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to get signed URL, using original:', url, e);
+      }
+    }
+    
+    return url;
+  };
+
+  // Synchronous version for immediate use (returns cached URL or original)
+  // Also triggers async signed URL fetch for images
+  const getFileUrlSync = (file: OrderFile): string => {
+    let url = file.url || '';
+    
+    // If URL is a Supabase storage URL, check cache
+    if (url && url.includes('supabase.co/storage')) {
+      try {
+        const urlObj = new URL(url);
+        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+        
+        if (pathMatch) {
+          const filePath = decodeURIComponent(pathMatch[2]);
+          if (fileUrlCache.has(filePath)) {
+            return fileUrlCache.get(filePath)!;
+          }
+          
+          // For images, trigger async fetch to get signed URL
+          // This will update the cache and re-render when ready
+          if (isImage(getFileName(file), url, file.type)) {
+            getFileUrl(file).catch(err => {
+              console.warn('Failed to fetch signed URL for image:', err);
+            });
+          }
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+    
+    return url;
+  };
 
   const isPdf = (fileName: string | undefined, fileUrl?: string, fileType?: string) => {
     // Check file type first (from database)
@@ -147,16 +230,6 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     if (!fileName && !fileUrl) return false;
     const name = fileName || fileUrl || '';
     return /\.pdf$/i.test(name);
-  };
-
-  const getFileName = (file: OrderFile) => {
-    if (file.file_name) return file.file_name;
-    const url = file.url || '';
-    const urlParts = url.split('/');
-    const lastPart = urlParts[urlParts.length - 1];
-    // Remove query parameters
-    const fileName = lastPart.split('?')[0];
-    return fileName || 'File';
   };
 
   const handlePreview = (file: OrderFile) => {

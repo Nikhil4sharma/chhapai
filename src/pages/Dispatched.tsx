@@ -10,11 +10,14 @@ import {
   ExternalLink,
   Filter,
   Loader2,
+  PackageCheck,
+  Clock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -31,41 +34,104 @@ export default function Dispatched() {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'customer'>('date');
 
-  // Get dispatched orders (completed orders with dispatched items)
+  // CRITICAL: Get orders stage-wise - dispatched but not completed
+  const dispatchedItems = useMemo(() => {
+    return orders.flatMap(order =>
+      order.items
+        .filter(item => 
+          item.is_dispatched && 
+          item.dispatch_info &&
+          item.current_stage !== 'completed'
+        )
+        .map(item => ({
+          order_id: order.order_id,
+          order_uuid: order.id,
+          customer: order.customer,
+          item,
+          order,
+        }))
+    );
+  }, [orders]);
+
+  // CRITICAL: Get delivered/completed orders with dispatch info
+  const deliveredItems = useMemo(() => {
+    return orders.flatMap(order =>
+      order.items
+        .filter(item => 
+          item.is_dispatched && 
+          item.dispatch_info &&
+          item.current_stage === 'completed'
+        )
+        .map(item => ({
+          order_id: order.order_id,
+          order_uuid: order.id,
+          customer: order.customer,
+          item,
+          order,
+        }))
+    );
+  }, [orders]);
+
+  // Get all dispatched orders (for stats)
   const dispatchedOrders = useMemo(() => {
     return orders.filter(order => 
       order.is_completed || order.items.some(item => item.is_dispatched || item.current_stage === 'completed')
     );
   }, [orders]);
 
-  // Filter and sort orders
-  const filteredOrders = useMemo(() => {
-    let filtered = dispatchedOrders;
+  // Filter items by search term
+  const filterItems = (items: typeof dispatchedItems) => 
+    items.filter(({ order_id, customer, item }) =>
+      item.product_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      customer.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
 
-    // Apply search
-    if (searchTerm) {
-      const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(order =>
-        order.order_id.toLowerCase().includes(term) ||
-        order.customer.name.toLowerCase().includes(term) ||
-        order.customer.phone?.toLowerCase().includes(term) ||
-        order.items.some(item => item.product_name.toLowerCase().includes(term))
-      );
-    }
-
+  const filteredDispatchedItems = useMemo(() => {
+    let filtered = filterItems(dispatchedItems);
+    
     // Sort
     if (sortBy === 'date') {
-      filtered = [...filtered].sort((a, b) => 
-        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-      );
+      filtered = [...filtered].sort((a, b) => {
+        const dateA = a.item.dispatch_info?.dispatch_date 
+          ? new Date(a.item.dispatch_info.dispatch_date).getTime()
+          : new Date(a.order.updated_at).getTime();
+        const dateB = b.item.dispatch_info?.dispatch_date 
+          ? new Date(b.item.dispatch_info.dispatch_date).getTime()
+          : new Date(b.order.updated_at).getTime();
+        return dateB - dateA;
+      });
     } else if (sortBy === 'customer') {
       filtered = [...filtered].sort((a, b) => 
         a.customer.name.localeCompare(b.customer.name)
       );
     }
-
+    
     return filtered;
-  }, [dispatchedOrders, searchTerm, sortBy]);
+  }, [dispatchedItems, searchTerm, sortBy]);
+
+  const filteredDeliveredItems = useMemo(() => {
+    let filtered = filterItems(deliveredItems);
+    
+    // Sort
+    if (sortBy === 'date') {
+      filtered = [...filtered].sort((a, b) => {
+        const dateA = a.item.dispatch_info?.dispatch_date 
+          ? new Date(a.item.dispatch_info.dispatch_date).getTime()
+          : new Date(a.order.updated_at).getTime();
+        const dateB = b.item.dispatch_info?.dispatch_date 
+          ? new Date(b.item.dispatch_info.dispatch_date).getTime()
+          : new Date(b.order.updated_at).getTime();
+        return dateB - dateA;
+      });
+    } else if (sortBy === 'customer') {
+      filtered = [...filtered].sort((a, b) => 
+        a.customer.name.localeCompare(b.customer.name)
+      );
+    }
+    
+    return filtered;
+  }, [deliveredItems, searchTerm, sortBy]);
 
   if (!isAdmin && role !== 'sales') {
     return (
@@ -105,11 +171,11 @@ export default function Dispatched() {
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                  <Package className="h-5 w-5 text-green-500" />
+                  <Truck className="h-5 w-5 text-green-500" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold">{filteredOrders.length}</p>
-                  <p className="text-xs text-muted-foreground">Total Dispatched</p>
+                  <p className="text-2xl font-bold">{filteredDispatchedItems.length}</p>
+                  <p className="text-xs text-muted-foreground">Dispatched</p>
                 </div>
               </div>
             </CardContent>
@@ -119,19 +185,48 @@ export default function Dispatched() {
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                  <Calendar className="h-5 w-5 text-blue-500" />
+                  <PackageCheck className="h-5 w-5 text-blue-500" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{filteredDeliveredItems.length}</p>
+                  <p className="text-xs text-muted-foreground">Delivered</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                  <Package className="h-5 w-5 text-purple-500" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{dispatchedOrders.length}</p>
+                  <p className="text-xs text-muted-foreground">Total Orders</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+                  <Calendar className="h-5 w-5 text-orange-500" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold">
-                    {filteredOrders.filter(o => {
+                    {filteredDispatchedItems.filter(({ item }) => {
+                      if (!item.dispatch_info?.dispatch_date) return false;
                       const today = new Date();
                       today.setHours(0, 0, 0, 0);
-                      const updated = new Date(o.updated_at);
-                      updated.setHours(0, 0, 0, 0);
-                      return updated.getTime() === today.getTime();
+                      const dispatchDate = new Date(item.dispatch_info.dispatch_date);
+                      dispatchDate.setHours(0, 0, 0, 0);
+                      return dispatchDate.getTime() === today.getTime();
                     }).length}
                   </p>
-                  <p className="text-xs text-muted-foreground">Today</p>
+                  <p className="text-xs text-muted-foreground">Dispatched Today</p>
                 </div>
               </div>
             </CardContent>
@@ -162,83 +257,196 @@ export default function Dispatched() {
         </div>
       </div>
 
-      {/* Scrollable Orders List */}
-      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar space-y-3">
-        {filteredOrders.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Truck className="h-12 w-12 text-muted-foreground/50 mb-4" />
-              <h3 className="font-medium text-lg mb-1">No Dispatched Orders</h3>
-              <p className="text-muted-foreground text-sm text-center">
-                {searchTerm 
-                  ? "No orders match your search criteria"
-                  : "Dispatched orders will appear here"}
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          filteredOrders.map(order => (
-            <Card key={order.id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                  {/* Order Info */}
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <Link 
-                        to={`/orders/${order.order_id}`}
-                        className="font-bold text-primary hover:underline"
-                      >
-                        {order.order_id}
-                      </Link>
-                      <Badge variant="default" className="bg-green-500">
-                        Dispatched
-                      </Badge>
-                      {order.source === 'wordpress' && (
-                        <Badge variant="outline">WooCommerce</Badge>
-                      )}
-                    </div>
+      {/* Stage-wise Tabs */}
+      <div className="flex-1 min-h-0 flex flex-col">
+        <Tabs defaultValue="dispatched" className="h-full flex flex-col">
+          <TabsList className="flex-shrink-0">
+            <TabsTrigger value="dispatched">
+              <Truck className="h-4 w-4 mr-2" />
+              Dispatched
+              <Badge variant="secondary" className="ml-2">{filteredDispatchedItems.length}</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="delivered">
+              <PackageCheck className="h-4 w-4 mr-2" />
+              Delivered
+              <Badge variant="secondary" className="ml-2">{filteredDeliveredItems.length}</Badge>
+            </TabsTrigger>
+          </TabsList>
 
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <User className="h-4 w-4" />
-                        <span>{order.customer.name}</span>
+          {/* Dispatched Tab */}
+          <TabsContent value="dispatched" className="flex-1 mt-4 overflow-hidden">
+            <div className="h-full overflow-y-auto custom-scrollbar pr-2 space-y-3">
+              {filteredDispatchedItems.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <Truck className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                    <h3 className="font-medium text-lg mb-1">No Dispatched Items</h3>
+                    <p className="text-muted-foreground text-sm text-center">
+                      {searchTerm 
+                        ? "No items match your search criteria"
+                        : "Items that have been dispatched will appear here"}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                filteredDispatchedItems.map(({ customer, order_id, order_uuid, item, order }) => (
+                  <Card key={`${order_id}-${item.item_id}`} className="hover:shadow-md transition-shadow border-green-200 dark:border-green-800">
+                    <CardContent className="p-4">
+                      <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <Link 
+                              to={`/orders/${order_id}`}
+                              className="font-bold text-primary hover:underline"
+                            >
+                              {order_id}
+                            </Link>
+                            <Badge variant="default" className="bg-green-500">
+                              Dispatched
+                            </Badge>
+                            {order.source === 'wordpress' && (
+                              <Badge variant="outline">WooCommerce</Badge>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-semibold">{item.product_name}</h3>
+                            <span className="text-sm text-muted-foreground">× {item.quantity}</span>
+                          </div>
+
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <div className="flex items-center gap-1">
+                              <User className="h-4 w-4" />
+                              <span>{customer.name}</span>
+                            </div>
+                            {customer.phone && (
+                              <span>{customer.phone}</span>
+                            )}
+                          </div>
+
+                          {item.dispatch_info && (
+                            <div className="mt-2 p-2 bg-green-50 dark:bg-green-900/10 rounded border border-green-200 dark:border-green-800">
+                              <div className="text-sm space-y-1">
+                                <p><span className="font-medium">Courier:</span> {item.dispatch_info.courier_company}</p>
+                                <p><span className="font-medium">Tracking:</span> {item.dispatch_info.tracking_number}</p>
+                                <p><span className="font-medium">Date:</span> {format(new Date(item.dispatch_info.dispatch_date), 'MMM d, yyyy')}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 lg:gap-6">
+                          <div className="text-sm">
+                            <p className="text-muted-foreground">Dispatched</p>
+                            <p className="font-medium">
+                              {item.dispatch_info?.dispatch_date 
+                                ? format(new Date(item.dispatch_info.dispatch_date), 'MMM d, yyyy')
+                                : format(order.updated_at, 'MMM d, yyyy')}
+                            </p>
+                          </div>
+
+                          <Button variant="outline" size="sm" asChild>
+                            <Link to={`/orders/${order_id}`}>
+                              <ExternalLink className="h-4 w-4 mr-2" />
+                              View Details
+                            </Link>
+                          </Button>
+                        </div>
                       </div>
-                      {order.customer.phone && (
-                        <span>{order.customer.phone}</span>
-                      )}
-                    </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
 
-                    {/* Products */}
-                    <div className="flex flex-wrap gap-2">
-                      {order.items.map(item => (
-                        <Badge key={item.item_id} variant="secondary" className="text-xs">
-                          {item.product_name} × {item.quantity}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
+          {/* Delivered Tab */}
+          <TabsContent value="delivered" className="flex-1 mt-4 overflow-hidden">
+            <div className="h-full overflow-y-auto custom-scrollbar pr-2 space-y-3">
+              {filteredDeliveredItems.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <PackageCheck className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                    <h3 className="font-medium text-lg mb-1">No Delivered Items</h3>
+                    <p className="text-muted-foreground text-sm text-center">
+                      {searchTerm 
+                        ? "No items match your search criteria"
+                        : "Items that have been delivered will appear here"}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                filteredDeliveredItems.map(({ customer, order_id, order_uuid, item, order }) => (
+                  <Card key={`${order_id}-${item.item_id}`} className="hover:shadow-md transition-shadow border-blue-200 dark:border-blue-800">
+                    <CardContent className="p-4">
+                      <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                        <div className="flex-1 space-y-2">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <Link 
+                              to={`/orders/${order_id}`}
+                              className="font-bold text-primary hover:underline"
+                            >
+                              {order_id}
+                            </Link>
+                            <Badge variant="default" className="bg-blue-500">
+                              Delivered
+                            </Badge>
+                            {order.source === 'wordpress' && (
+                              <Badge variant="outline">WooCommerce</Badge>
+                            )}
+                          </div>
 
-                  {/* Dispatch Info */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 lg:gap-6">
-                    <div className="text-sm">
-                      <p className="text-muted-foreground">Dispatched</p>
-                      <p className="font-medium">
-                        {format(order.updated_at, 'MMM d, yyyy')}
-                      </p>
-                    </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="font-semibold">{item.product_name}</h3>
+                            <span className="text-sm text-muted-foreground">× {item.quantity}</span>
+                          </div>
 
-                    <Button variant="outline" size="sm" asChild>
-                      <Link to={`/orders/${order.order_id}`}>
-                        <ExternalLink className="h-4 w-4 mr-2" />
-                        View Details
-                      </Link>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        )}
+                          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                            <div className="flex items-center gap-1">
+                              <User className="h-4 w-4" />
+                              <span>{customer.name}</span>
+                            </div>
+                            {customer.phone && (
+                              <span>{customer.phone}</span>
+                            )}
+                          </div>
+
+                          {item.dispatch_info && (
+                            <div className="mt-2 p-2 bg-blue-50 dark:bg-blue-900/10 rounded border border-blue-200 dark:border-blue-800">
+                              <div className="text-sm space-y-1">
+                                <p><span className="font-medium">Courier:</span> {item.dispatch_info.courier_company}</p>
+                                <p><span className="font-medium">Tracking:</span> {item.dispatch_info.tracking_number}</p>
+                                <p><span className="font-medium">Dispatched:</span> {format(new Date(item.dispatch_info.dispatch_date), 'MMM d, yyyy')}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 lg:gap-6">
+                          <div className="text-sm">
+                            <p className="text-muted-foreground">Delivered</p>
+                            <p className="font-medium">
+                              {item.dispatch_info?.dispatch_date 
+                                ? format(new Date(item.dispatch_info.dispatch_date), 'MMM d, yyyy')
+                                : format(order.updated_at, 'MMM d, yyyy')}
+                            </p>
+                          </div>
+
+                          <Button variant="outline" size="sm" asChild>
+                            <Link to={`/orders/${order_id}`}>
+                              <ExternalLink className="h-4 w-4 mr-2" />
+                              View Details
+                            </Link>
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
