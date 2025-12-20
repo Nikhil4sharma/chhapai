@@ -66,11 +66,14 @@ export function CreateOrderDialog({
   onOpenChange,
   onOrderCreated
 }: CreateOrderDialogProps) {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [isCreating, setIsCreating] = useState(false);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
+  const [isFetchingWooCommerce, setIsFetchingWooCommerce] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
   const [orderNumberError, setOrderNumberError] = useState<string | null>(null);
+  const [wooOrderData, setWooOrderData] = useState<any>(null);
+  const [isWooCommerceOrder, setIsWooCommerceOrder] = useState(false);
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined);
   
   const [customerData, setCustomerData] = useState({
@@ -112,50 +115,181 @@ export function CreateOrderDialog({
     setActiveProductIndex(null);
     setOrderNumber('');
     setOrderNumberError(null);
+    setWooOrderData(null);
+    setIsWooCommerceOrder(false);
   };
 
-  // Check if order number already exists - memoized to avoid recreating on every render
-  const checkOrderNumberDuplicate = useCallback(async (orderNum: string): Promise<boolean> => {
-    if (!orderNum.trim()) return false;
+  // Check if order number already exists - enhanced to check both order_id and woo_order_id
+  const checkOrderNumberDuplicate = useCallback(async (orderNum: string, wooOrderId?: number): Promise<{ isDuplicate: boolean; message?: string }> => {
+    if (!orderNum.trim()) return { isDuplicate: false };
     
     try {
       setIsCheckingDuplicate(true);
-      // Check in orders table
-      const { data, error } = await supabase
+      
+      // Check by order_id
+      const { data: orderData, error: orderError } = await supabase
         .from('orders')
-        .select('id')
+        .select('id, order_id')
         .eq('order_id', orderNum.trim())
         .maybeSingle();
       
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error checking order number:', error);
-        return false; // On error, allow creation (fail-safe)
+      if (orderError && orderError.code !== 'PGRST116') {
+        console.error('Error checking order number:', orderError);
+        return { isDuplicate: false }; // On error, allow creation (fail-safe)
       }
       
-      return !!data; // Return true if duplicate found
+      if (orderData) {
+        return { isDuplicate: true, message: 'Order number already exists in Order Flow' };
+      }
+      
+      // If we have woo_order_id, also check by that
+      if (wooOrderId) {
+        const { data: wooOrderData, error: wooError } = await supabase
+          .from('orders')
+          .select('id, order_id, woo_order_id')
+          .eq('woo_order_id', wooOrderId.toString())
+          .maybeSingle();
+        
+        if (wooError && wooError.code !== 'PGRST116') {
+          console.error('Error checking woo_order_id:', wooError);
+          return { isDuplicate: false };
+        }
+        
+        if (wooOrderData) {
+          return { isDuplicate: true, message: `This WooCommerce order already exists in Order Flow (Order ID: ${wooOrderData.order_id})` };
+        }
+      }
+      
+      return { isDuplicate: false };
     } catch (error) {
       console.error('Error checking order number:', error);
-      return false; // On error, allow creation (fail-safe)
+      return { isDuplicate: false }; // On error, allow creation (fail-safe)
     } finally {
       setIsCheckingDuplicate(false);
     }
   }, []);
 
-  // Debounce timer ref for duplicate check
-  const duplicateCheckTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Fetch WooCommerce order by number
+  const fetchWooCommerceOrder = useCallback(async (orderNum: string) => {
+    if (!orderNum.trim() || !session?.access_token) {
+      return null;
+    }
 
-  // Validate order number on change - immediate update, debounced duplicate check
+    try {
+      setIsFetchingWooCommerce(true);
+      console.log('[CreateOrderDialog] Fetching WooCommerce order:', orderNum);
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      if (!supabaseUrl) {
+        console.error('[CreateOrderDialog] Supabase URL not configured');
+        return null;
+      }
+
+      const response = await fetch(`${supabaseUrl}/functions/v1/woocommerce`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+        },
+        body: JSON.stringify({
+          action: 'order-by-number',
+          orderNumber: orderNum.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.log('[CreateOrderDialog] WooCommerce order not found:', errorData);
+        return null;
+      }
+
+      const data = await response.json();
+      
+      if (data.found && data.order) {
+        console.log('[CreateOrderDialog] WooCommerce order found:', data.order.order_number);
+        return data.order;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[CreateOrderDialog] Error fetching WooCommerce order:', error);
+      return null;
+    } finally {
+      setIsFetchingWooCommerce(false);
+    }
+  }, [session]);
+
+  // Autofill form from WooCommerce order data
+  const autofillFromWooCommerce = useCallback((wooOrder: any) => {
+    if (!wooOrder) return;
+
+    console.log('[CreateOrderDialog] Autofilling form from WooCommerce order');
+
+    // Format order number as WC-{number} for consistency with existing system
+    const formattedOrderNumber = `WC-${wooOrder.id}`;
+    setOrderNumber(formattedOrderNumber);
+
+    // Autofill customer data
+    setCustomerData({
+      name: wooOrder.customer_name || '',
+      phone: wooOrder.customer_phone || '',
+      email: wooOrder.customer_email || '',
+      address: wooOrder.billing_address || '',
+      city: wooOrder.billing_city || '',
+      state: wooOrder.billing_state || '',
+      pincode: wooOrder.billing_pincode || '',
+    });
+
+    // Autofill products from line items
+    if (wooOrder.line_items && wooOrder.line_items.length > 0) {
+      const autofilledProducts = wooOrder.line_items.map((item: any) => ({
+        id: generateId(),
+        name: item.name || '',
+        quantity: item.quantity || 1,
+        specifications: item.specifications || {},
+      }));
+      setProducts(autofilledProducts);
+    }
+
+    // Set delivery date if available (parse from date_created or use a default)
+    if (wooOrder.date_created) {
+      const orderDate = new Date(wooOrder.date_created);
+      // Set delivery date to 7 days from order date (or user can change)
+      const defaultDeliveryDate = new Date(orderDate);
+      defaultDeliveryDate.setDate(defaultDeliveryDate.getDate() + 7);
+      setDeliveryDate(defaultDeliveryDate);
+    }
+
+    // Set global notes with order info
+    const notes = `Order imported from WooCommerce\nOrder Number: ${wooOrder.order_number}\nTotal: ${wooOrder.currency} ${wooOrder.order_total}\nPayment Status: ${wooOrder.payment_status}`;
+    setGlobalNotes(notes);
+
+    setIsWooCommerceOrder(true);
+    setWooOrderData(wooOrder);
+  }, []);
+
+  // Debounce timer refs
+  const duplicateCheckTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const wooCommerceLookupTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Validate order number on change - immediate update, debounced duplicate check and WooCommerce lookup
   const handleOrderNumberChange = useCallback((value: string) => {
     // Immediately update the input value
     setOrderNumber(value);
     
-    // Clear existing timer
+    // Clear existing timers
     if (duplicateCheckTimerRef.current) {
       clearTimeout(duplicateCheckTimerRef.current);
     }
+    if (wooCommerceLookupTimerRef.current) {
+      clearTimeout(wooCommerceLookupTimerRef.current);
+    }
     
-    // Clear error immediately for better UX
+    // Clear error and WooCommerce data immediately for better UX
     setOrderNumberError(null);
+    setWooOrderData(null);
+    setIsWooCommerceOrder(false);
     
     if (!value.trim()) {
       setOrderNumberError('Order number is required');
@@ -164,18 +298,73 @@ export function CreateOrderDialog({
     
     // Debounce the duplicate check - wait 500ms after user stops typing
     duplicateCheckTimerRef.current = setTimeout(async () => {
-      const isDuplicate = await checkOrderNumberDuplicate(value);
-      if (isDuplicate) {
-        setOrderNumberError('Order number already exists');
+      const result = await checkOrderNumberDuplicate(value);
+      if (result.isDuplicate) {
+        setOrderNumberError(result.message || 'Order number already exists');
       }
     }, 500);
-  }, [checkOrderNumberDuplicate]);
+    
+    // Debounce WooCommerce lookup - wait 600ms after user stops typing
+    wooCommerceLookupTimerRef.current = setTimeout(async () => {
+      const wooOrder = await fetchWooCommerceOrder(value);
+      if (wooOrder) {
+        autofillFromWooCommerce(wooOrder);
+        // Check for duplicate with woo_order_id (use number format)
+        const duplicateCheck = await checkOrderNumberDuplicate(value, Number(wooOrder.id));
+        if (duplicateCheck.isDuplicate) {
+          setOrderNumberError(duplicateCheck.message || 'This WooCommerce order already exists in Order Flow');
+        }
+      }
+    }, 600);
+  }, [checkOrderNumberDuplicate, fetchWooCommerceOrder, autofillFromWooCommerce]);
 
-  // Cleanup timer on unmount
+  // Handle order number field blur - trigger immediate lookup
+  const handleOrderNumberBlur = useCallback(async () => {
+    if (!orderNumber.trim()) return;
+    
+    // Clear timers
+    if (duplicateCheckTimerRef.current) {
+      clearTimeout(duplicateCheckTimerRef.current);
+    }
+    if (wooCommerceLookupTimerRef.current) {
+      clearTimeout(wooCommerceLookupTimerRef.current);
+    }
+    
+    // Immediate duplicate check
+    const duplicateResult = await checkOrderNumberDuplicate(orderNumber);
+    if (duplicateResult.isDuplicate) {
+      setOrderNumberError(duplicateResult.message || 'Order number already exists');
+      return;
+    }
+    
+    // Immediate WooCommerce lookup
+    const wooOrder = await fetchWooCommerceOrder(orderNumber);
+    if (wooOrder) {
+      autofillFromWooCommerce(wooOrder);
+      // Check for duplicate with woo_order_id (use number format)
+      const duplicateCheck = await checkOrderNumberDuplicate(orderNumber, Number(wooOrder.id));
+      if (duplicateCheck.isDuplicate) {
+        setOrderNumberError(duplicateCheck.message || 'This WooCommerce order already exists in Order Flow');
+      }
+    }
+  }, [orderNumber, checkOrderNumberDuplicate, fetchWooCommerceOrder, autofillFromWooCommerce]);
+
+  // Handle Enter key on order number field
+  const handleOrderNumberKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleOrderNumberBlur();
+    }
+  }, [handleOrderNumberBlur]);
+
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (duplicateCheckTimerRef.current) {
         clearTimeout(duplicateCheckTimerRef.current);
+      }
+      if (wooCommerceLookupTimerRef.current) {
+        clearTimeout(wooCommerceLookupTimerRef.current);
       }
     };
   }, []);
@@ -267,12 +456,15 @@ export function CreateOrderDialog({
       return;
     }
 
-    // Final duplicate check before creating
-    const finalCheck = await checkOrderNumberDuplicate(orderNumber.trim());
-    if (finalCheck) {
+    // Final duplicate check before creating (with woo_order_id if available)
+    const finalCheck = await checkOrderNumberDuplicate(
+      orderNumber.trim(), 
+      wooOrderData?.id
+    );
+    if (finalCheck.isDuplicate) {
       toast({
-        title: "Duplicate Order Number",
-        description: "Order number already exists. Please use a different order number.",
+        title: "Duplicate Order",
+        description: finalCheck.message || "This order already exists in Order Flow.",
         variant: "destructive",
       });
       return;
@@ -291,6 +483,28 @@ export function CreateOrderDialog({
       
       const userName = profileData?.full_name || user.email || 'Unknown';
       
+      // Determine source and set WooCommerce fields if applicable
+      const isWooCommerceSource = isWooCommerceOrder && wooOrderData;
+      const orderSource = isWooCommerceSource ? 'woocommerce' : 'manual';
+      const wooOrderId = isWooCommerceSource ? Number(wooOrderData.id) : null;
+      
+      // Use shipping data from WooCommerce if available, otherwise use billing
+      const shippingName = isWooCommerceSource && wooOrderData.shipping_name
+        ? wooOrderData.shipping_name
+        : customerData.name;
+      const shippingAddress = isWooCommerceSource && wooOrderData.shipping_address
+        ? wooOrderData.shipping_address
+        : customerData.address;
+      const shippingCity = isWooCommerceSource && wooOrderData.shipping_city
+        ? wooOrderData.shipping_city
+        : customerData.city;
+      const shippingState = isWooCommerceSource && wooOrderData.shipping_state
+        ? wooOrderData.shipping_state
+        : customerData.state;
+      const shippingPincode = isWooCommerceSource && wooOrderData.shipping_pincode
+        ? wooOrderData.shipping_pincode
+        : customerData.pincode;
+
       // Create order
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
@@ -303,15 +517,19 @@ export function CreateOrderDialog({
           billing_city: customerData.city || null,
           billing_state: customerData.state || null,
           billing_pincode: customerData.pincode || null,
-          shipping_name: customerData.name,
+          shipping_name: shippingName,
           shipping_phone: customerData.phone || null,
-          shipping_address: customerData.address || null,
-          shipping_city: customerData.city || null,
-          shipping_state: customerData.state || null,
-          shipping_pincode: customerData.pincode || null,
+          shipping_address: shippingAddress || null,
+          shipping_city: shippingCity || null,
+          shipping_state: shippingState || null,
+          shipping_pincode: shippingPincode || null,
           delivery_date: deliveryDate?.toISOString() || null,
           priority: priority,
-          source: 'manual',
+          source: orderSource,
+          woo_order_id: wooOrderId,
+          order_total: isWooCommerceSource ? wooOrderData.order_total : null,
+          payment_status: isWooCommerceSource ? wooOrderData.payment_status : null,
+          order_status: isWooCommerceSource ? wooOrderData.payment_status : null,
           global_notes: globalNotes || null,
           created_by: user.id,
           is_completed: false,
@@ -324,7 +542,7 @@ export function CreateOrderDialog({
 
       // Create order items for each product
       // Ensure all data types are correct and required fields are present
-      const orderItems = products.map(product => {
+      const orderItems = products.map((product, index) => {
         // Validate product data
         if (!product.name || product.name.trim() === '') {
           throw new Error('Product name is required');
@@ -332,6 +550,11 @@ export function CreateOrderDialog({
         if (!product.quantity || product.quantity < 1) {
           throw new Error('Product quantity must be at least 1');
         }
+
+        // Get WooCommerce line item data if available
+        const wooLineItem = isWooCommerceSource && wooOrderData.line_items 
+          ? wooOrderData.line_items[index] 
+          : null;
 
         return {
           order_id: orderData.id,
@@ -341,6 +564,8 @@ export function CreateOrderDialog({
           specifications: product.specifications && typeof product.specifications === 'object' 
             ? product.specifications 
             : {},
+          // Store WooCommerce meta data if available
+          woo_meta: wooLineItem?.meta_data || null,
           priority: priority || 'blue', // Default priority
           current_stage: 'sales',
           assigned_department: 'sales',
@@ -353,9 +578,26 @@ export function CreateOrderDialog({
 
       console.log('Inserting order items:', JSON.stringify(orderItems, null, 2));
 
+      // Ensure all fields are properly formatted and no undefined values
+      const cleanedOrderItems = orderItems.map(item => ({
+        order_id: item.order_id,
+        product_name: item.product_name,
+        quantity: Number(item.quantity) || 1,
+        specifications: item.specifications || {},
+        priority: item.priority || 'blue',
+        current_stage: item.current_stage || 'sales',
+        assigned_department: item.assigned_department || 'sales',
+        delivery_date: item.delivery_date || null,
+        need_design: item.need_design !== undefined ? item.need_design : false,
+        is_ready_for_production: item.is_ready_for_production !== undefined ? item.is_ready_for_production : false,
+        is_dispatched: item.is_dispatched !== undefined ? item.is_dispatched : false,
+        // Don't include item_id - let it be NULL (it's optional and UNIQUE)
+        // item_id will be set later if needed
+      }));
+
       const { error: itemsError, data: insertedItems } = await supabase
         .from('order_items')
-        .insert(orderItems)
+        .insert(cleanedOrderItems)
         .select();
 
       if (itemsError) {
@@ -365,14 +607,23 @@ export function CreateOrderDialog({
           message: itemsError.message,
           details: itemsError.details,
           hint: itemsError.hint,
+          status: itemsError.status,
+          statusCode: itemsError.statusCode,
         });
-        console.error('Items being inserted:', JSON.stringify(orderItems, null, 2));
-        throw new Error(`Failed to create order items: ${itemsError.message || JSON.stringify(itemsError)}`);
+        console.error('Items being inserted:', JSON.stringify(cleanedOrderItems, null, 2));
+        
+        // Provide more specific error message
+        const errorMessage = itemsError.message || itemsError.details || JSON.stringify(itemsError);
+        throw new Error(`Failed to create order items: ${errorMessage}. Please check that all required fields are provided and you have permission to create items.`);
       }
 
       console.log('Successfully inserted order items:', insertedItems);
 
       // Create timeline entry
+      const timelineNotes = isWooCommerceSource
+        ? `Order imported from WooCommerce (Order #${wooOrderData.order_number}) with ${products.length} product(s)`
+        : `Order created manually with ${products.length} product(s)`;
+      
       const { error: timelineError } = await supabase
         .from('timeline')
         .insert({
@@ -381,7 +632,7 @@ export function CreateOrderDialog({
           action: 'created',
           performed_by: user.id,
           performed_by_name: userName,
-          notes: `Order created manually with ${products.length} product(s)`,
+          notes: timelineNotes,
           is_public: true,
         });
 
@@ -393,6 +644,10 @@ export function CreateOrderDialog({
       // Auto-log work action for order creation
       const startTime = new Date();
       const endTime = new Date();
+      const workSummary = isWooCommerceSource
+        ? `Imported order from WooCommerce (Order #${wooOrderData.order_number}) with ${products.length} product(s)`
+        : `Created manual order with ${products.length} product(s)`;
+      
       await autoLogWorkAction(
         user.id,
         userName,
@@ -402,7 +657,7 @@ export function CreateOrderDialog({
         null,
         'sales',
         'order_created',
-        `Created manual order with ${products.length} product(s)`,
+        workSummary,
         1, // Minimum 1 minute
         products.map(p => p.name).join(', '),
         startTime,
@@ -411,7 +666,9 @@ export function CreateOrderDialog({
 
       toast({
         title: "Order Created",
-        description: `Order ${orderNumber.trim()} has been created with ${products.length} product(s)`,
+        description: isWooCommerceSource
+          ? `Order ${orderNumber.trim()} imported from WooCommerce with ${products.length} product(s)`
+          : `Order ${orderNumber.trim()} has been created with ${products.length} product(s)`,
       });
 
       resetForm();
@@ -461,19 +718,33 @@ export function CreateOrderDialog({
                     <Input
                       id="order_number"
                       name="order_number"
-                      placeholder="e.g., WC-12345 or MAN-001"
+                      placeholder="e.g., 53509 or WC-12345 or MAN-001"
                       value={orderNumber}
                       onChange={(e) => handleOrderNumberChange(e.target.value)}
+                      onBlur={handleOrderNumberBlur}
+                      onKeyDown={handleOrderNumberKeyDown}
                       className={orderNumberError ? "border-destructive" : ""}
                       autoFocus
+                      disabled={isWooCommerceOrder}
                     />
-                    {isCheckingDuplicate && (
-                      <p className="text-xs text-muted-foreground">Checking availability...</p>
+                    {(isCheckingDuplicate || isFetchingWooCommerce) && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        {isFetchingWooCommerce && <Loader2 className="h-3 w-3 animate-spin" />}
+                        {isFetchingWooCommerce ? 'Checking WooCommerce...' : 'Checking availability...'}
+                      </p>
+                    )}
+                    {isWooCommerceOrder && !isFetchingWooCommerce && (
+                      <p className="text-xs text-green-600 flex items-center gap-1">
+                        ✓ Order details auto-filled from WooCommerce
+                      </p>
+                    )}
+                    {!isWooCommerceOrder && !isFetchingWooCommerce && orderNumber.trim() && !orderNumberError && !isCheckingDuplicate && (
+                      <p className="text-xs text-muted-foreground">No WooCommerce order found. Creating manual order.</p>
                     )}
                     {orderNumberError && (
                       <p className="text-xs text-destructive">{orderNumberError}</p>
                     )}
-                    {!orderNumberError && orderNumber.trim() && !isCheckingDuplicate && (
+                    {!orderNumberError && orderNumber.trim() && !isCheckingDuplicate && !isFetchingWooCommerce && !isWooCommerceOrder && (
                       <p className="text-xs text-green-600">✓ Order number available</p>
                     )}
                   </div>

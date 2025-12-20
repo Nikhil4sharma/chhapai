@@ -377,6 +377,113 @@ serve(async (req) => {
       });
     }
 
+    if (action === 'order-by-number') {
+      // Fetch a single WooCommerce order by order number for autofill
+      const { orderNumber } = body;
+      
+      if (!orderNumber) {
+        return new Response(JSON.stringify({ 
+          found: false,
+          error: 'Order number is required' 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log('[WooCommerce] Fetching order by number:', orderNumber);
+      
+      // Fetch order from WooCommerce by number
+      const searchParams = new URLSearchParams();
+      searchParams.append('number', orderNumber.toString());
+      searchParams.append('per_page', '1');
+      
+      const apiUrl = `${storeUrl}/wp-json/wc/v3/orders?${searchParams.toString()}`;
+      const auth = btoa(`${consumerKey}:${consumerSecret}`);
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[WooCommerce] Order fetch failed:', response.status, errorText);
+        return new Response(JSON.stringify({ 
+          found: false,
+          error: `Failed to fetch order: ${response.status}` 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const wooOrders = await response.json();
+      
+      if (!wooOrders || wooOrders.length === 0) {
+        console.log('[WooCommerce] Order not found:', orderNumber);
+        return new Response(JSON.stringify({ 
+          found: false 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const wooOrder = wooOrders[0];
+      
+      // Parse product meta for specifications
+      const parseProductSpecs = (lineItem: any) => {
+        const { specifications } = parseProductMeta(lineItem.meta_data || []);
+        return specifications;
+      };
+
+      // Format order for frontend autofill
+      const formattedOrder = {
+        found: true,
+        order: {
+          id: wooOrder.id,
+          order_number: wooOrder.number || wooOrder.id,
+          customer_name: `${wooOrder.billing?.first_name || ''} ${wooOrder.billing?.last_name || ''}`.trim() || 'Unknown',
+          customer_email: wooOrder.billing?.email || '',
+          customer_phone: wooOrder.billing?.phone || '',
+          billing_address: buildFullAddress(wooOrder.billing),
+          billing_city: wooOrder.billing?.city || '',
+          billing_state: wooOrder.billing?.state || '',
+          billing_pincode: wooOrder.billing?.postcode || '',
+          shipping_name: wooOrder.shipping?.first_name 
+            ? `${wooOrder.shipping.first_name} ${wooOrder.shipping.last_name || ''}`.trim() 
+            : `${wooOrder.billing?.first_name || ''} ${wooOrder.billing?.last_name || ''}`.trim(),
+          shipping_address: buildFullAddress(wooOrder.shipping) || buildFullAddress(wooOrder.billing),
+          shipping_city: wooOrder.shipping?.city || wooOrder.billing?.city || '',
+          shipping_state: wooOrder.shipping?.state || wooOrder.billing?.state || '',
+          shipping_pincode: wooOrder.shipping?.postcode || wooOrder.billing?.postcode || '',
+          order_total: parseFloat(wooOrder.total) || 0,
+          tax_total: parseFloat(wooOrder.total_tax) || 0,
+          payment_status: wooOrder.status || 'pending',
+          currency: wooOrder.currency || 'INR',
+          line_items: (wooOrder.line_items || []).map((item: any) => ({
+            id: item.id,
+            name: item.name,
+            quantity: parseInt(item.quantity) || 1,
+            price: parseFloat(item.price) || 0,
+            total: parseFloat(item.total) || 0,
+            specifications: parseProductSpecs(item),
+            meta_data: item.meta_data || [],
+          })),
+          date_created: wooOrder.date_created || wooOrder.date_created_gmt,
+          date_modified: wooOrder.date_modified || wooOrder.date_modified_gmt,
+        }
+      };
+
+      console.log('[WooCommerce] Order found:', formattedOrder.order.order_number);
+      
+      return new Response(JSON.stringify(formattedOrder), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     if (action === 'import-orders') {
       // Import selected WooCommerce orders into Supabase
       const { order_ids } = body; // Array of WooCommerce order IDs to import
