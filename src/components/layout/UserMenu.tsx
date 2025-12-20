@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { User, Settings, LogOut, Shield } from 'lucide-react';
+import { User, Settings, LogOut, Shield, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 
 export function UserMenu() {
-  const { user, profile, role, isAdmin, signOut } = useAuth();
+  const { user, profile, role, isAdmin, signOut, isLoading } = useAuth();
 
   const getInitials = (name: string | null) => {
     if (!name) return 'U';
@@ -30,12 +30,29 @@ export function UserMenu() {
     await signOut();
   };
 
+  // Show loading state if auth is still loading
+  if (isLoading) {
+    return (
+      <Button variant="ghost" className="relative h-9 w-9 rounded-full" disabled>
+        <Avatar className="h-9 w-9">
+          <AvatarFallback className="bg-primary/10 text-primary">
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </AvatarFallback>
+        </Avatar>
+      </Button>
+    );
+  }
+
+  // Get display name - use profile name if available, otherwise email, otherwise "User"
+  const displayName = profile?.full_name || user?.email?.split('@')[0] || 'User';
+  const displayEmail = user?.email || '';
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-9 w-9 rounded-full">
           <Avatar className="h-9 w-9">
-            <AvatarImage src={profile?.avatar_url || undefined} alt={profile?.full_name || 'User'} />
+            <AvatarImage src={profile?.avatar_url || undefined} alt={displayName} />
             <AvatarFallback className="bg-primary/10 text-primary">
               {getInitials(profile?.full_name)}
             </AvatarFallback>
@@ -45,13 +62,17 @@ export function UserMenu() {
       <DropdownMenuContent className="w-56" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">{profile?.full_name || 'User'}</p>
-            <p className="text-xs leading-none text-muted-foreground">
-              {user?.email}
-            </p>
-            <Badge variant="outline" className="w-fit mt-1 text-xs">
-              {role?.toUpperCase()}
-            </Badge>
+            <p className="text-sm font-medium leading-none">{displayName}</p>
+            {displayEmail && (
+              <p className="text-xs leading-none text-muted-foreground">
+                {displayEmail}
+              </p>
+            )}
+            {role && (
+              <Badge variant="outline" className="w-fit mt-1 text-xs">
+                {role.toUpperCase()}
+              </Badge>
+            )}
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />

@@ -469,6 +469,7 @@ export async function addTimelineEntry(entry: Omit<TimelineEntry, 'timeline_id' 
       .insert({
         order_id: orderUuid,
         item_id: itemUuid,
+        product_name: entry.product_name || null,
         stage: entry.stage,
         substage: entry.substage || null,
         action: entry.action,

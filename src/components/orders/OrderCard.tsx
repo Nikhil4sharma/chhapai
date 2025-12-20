@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { ChevronRight, Calendar, Image as ImageIcon, Eye, Download, Trash2, ExternalLink, ShoppingCart } from 'lucide-react';
 import { Order, OrderFile } from '@/types/order';
@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useOrders } from '@/contexts/OrderContext';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { getSupabaseSignedUrl } from '@/services/supabaseStorage';
 import {
   Dialog,
   DialogContent,
@@ -47,11 +48,97 @@ export function OrderCard({ order, className }: OrderCardProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<OrderFile | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [fileUrlCache, setFileUrlCache] = useState<Map<string, string>>(new Map());
   const { user, isAdmin, role, profile } = useAuth();
   const { refreshOrders, addTimelineEntry } = useOrders();
 
+  // Helper to get file URL - use public URL directly since bucket is public
+  const getFileUrl = async (file: OrderFile): Promise<string> => {
+    let url = file.url || '';
+    
+    // If URL is a Supabase storage URL, decode it properly
+    if (url && url.includes('supabase.co/storage')) {
+      try {
+        // Extract bucket and path from URL
+        const urlObj = new URL(url);
+        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+        
+        if (pathMatch) {
+          const bucket = pathMatch[1];
+          let filePath = decodeURIComponent(pathMatch[2]); // Decode path
+          
+          // Check cache first
+          if (fileUrlCache.has(filePath)) {
+            return fileUrlCache.get(filePath)!;
+          }
+          
+          // For public buckets, use public URL directly (no signed URL needed)
+          // Only get signed URL if the URL contains 'sign' (indicating private bucket)
+          if (urlObj.pathname.includes('/sign/')) {
+            // Private bucket - get signed URL
+            const signedUrl = await getSupabaseSignedUrl(filePath, bucket);
+            setFileUrlCache(prev => new Map(prev).set(filePath, signedUrl));
+            return signedUrl;
+          } else {
+            // Public bucket - use public URL directly (ensure it's properly encoded)
+            const publicUrl = urlObj.origin + '/storage/v1/object/public/' + bucket + '/' + encodeURI(filePath).replace(/%2F/g, '/');
+            setFileUrlCache(prev => new Map(prev).set(filePath, publicUrl));
+            return publicUrl;
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to process URL, using original:', url, e);
+      }
+    }
+    
+    return url;
+  };
+
+  // Synchronous version for immediate use (returns cached URL or original)
+  const getFileUrlSync = (file: OrderFile): string => {
+    let url = file.url || '';
+    
+    // If URL is a Supabase storage URL, check cache
+    if (url && url.includes('supabase.co/storage')) {
+      try {
+        const urlObj = new URL(url);
+        const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
+        
+        if (pathMatch) {
+          const filePath = decodeURIComponent(pathMatch[2]); // Decode path for cache lookup
+          if (fileUrlCache.has(filePath)) {
+            return fileUrlCache.get(filePath)!;
+          }
+        }
+      } catch (e) {
+        // Ignore errors
+      }
+    }
+    
+    return url;
+  };
+
+  // Preload file URLs for thumbnails (only for Supabase storage URLs)
+  useEffect(() => {
+    if (mainItem?.files && mainItem.files.length > 0) {
+      const filesToLoad = mainItem.files.slice(0, 3);
+      filesToLoad.forEach(async (file) => {
+        if (file.url?.includes('supabase.co/storage') && isImageFile(file)) {
+          const cachedUrl = getFileUrlSync(file);
+          // If URL is same as original, it's not cached yet, load it
+          if (cachedUrl === file.url) {
+            await getFileUrl(file);
+          }
+        }
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainItem?.files?.length]);
+
   const isImageFile = (file: OrderFile) => {
-    return file.type === 'image' || file.url?.match(/\.(jpg|jpeg|png|gif|webp)$/i);
+    if (file.type === 'image') return true;
+    const url = file.url || '';
+    return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(url);
   };
 
   const handleImageClick = (file: OrderFile, e: React.MouseEvent) => {
@@ -63,14 +150,27 @@ export function OrderCard({ order, className }: OrderCardProps) {
     }
   };
 
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+
+  // Load preview URL when file is selected
+  useEffect(() => {
+    if (selectedFile && previewOpen) {
+      getFileUrl(selectedFile).then(setPreviewImageUrl).catch(() => {
+        setPreviewImageUrl(selectedFile.url || null);
+      });
+    } else {
+      setPreviewImageUrl(null);
+    }
+  }, [selectedFile, previewOpen]);
+
   const handleImagePreview = () => {
-    if (!selectedFile) return null;
+    if (!selectedFile || !previewImageUrl) return null;
     const fileName = selectedFile.file_name || selectedFile.url.split('/').pop() || 'Image';
     
     return (
       <div className="flex items-center justify-center w-full h-[calc(95vh-180px)] min-h-[400px] overflow-auto bg-muted/30 rounded-lg p-4">
         <img
-          src={selectedFile.url}
+          src={previewImageUrl}
           alt={fileName}
           className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
           style={{ maxWidth: '100%', maxHeight: '100%' }}
@@ -98,6 +198,34 @@ export function OrderCard({ order, className }: OrderCardProps) {
   const ImageThumbnail = ({ file }: { file: OrderFile }) => {
     const isImage = isImageFile(file);
     const fileName = file.file_name || file.url.split('/').pop() || 'File';
+    const [thumbnailUrl, setThumbnailUrl] = useState<string>(getFileUrlSync(file));
+    const [hoverUrl, setHoverUrl] = useState<string | null>(null);
+
+    // Load thumbnail URL if not cached (only once per file URL)
+    useEffect(() => {
+      if (isImage && file.url?.includes('supabase.co/storage')) {
+        const cachedUrl = getFileUrlSync(file);
+        // If not cached yet (URL same as original), load it
+        if (cachedUrl === file.url) {
+          getFileUrl(file).then(setThumbnailUrl).catch(() => {
+            setThumbnailUrl(file.url || '');
+          });
+        } else {
+          // Already cached, use cached URL
+          setThumbnailUrl(cachedUrl);
+        }
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [file.url, isImage]);
+
+    // Load hover preview URL when hovering
+    const handleHover = () => {
+      if (isImage && !hoverUrl) {
+        getFileUrl(file).then(setHoverUrl).catch(() => {
+          setHoverUrl(file.url || null);
+        });
+      }
+    };
 
     const thumbnailContent = (
       <div
@@ -106,18 +234,23 @@ export function OrderCard({ order, className }: OrderCardProps) {
           isImage && "hover:shadow-md"
         )}
         onClick={(e) => handleImageClick(file, e)}
+        onMouseEnter={handleHover}
       >
         {isImage ? (
           <>
             <img
-              src={file.url}
+              src={thumbnailUrl}
               alt={fileName}
               className="h-full w-full object-cover transition-transform group-hover:scale-110"
+              loading="lazy"
               onError={(e) => {
                 e.currentTarget.style.display = 'none';
                 const parent = e.currentTarget.parentElement;
-                if (parent) {
-                  parent.innerHTML = '<div class="h-full w-full flex items-center justify-center"><svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg></div>';
+                if (parent && !parent.querySelector('.thumbnail-fallback')) {
+                  const fallback = document.createElement('div');
+                  fallback.className = 'thumbnail-fallback h-full w-full flex items-center justify-center';
+                  fallback.innerHTML = '<svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
+                  parent.appendChild(fallback);
                 }
               }}
             />
@@ -142,10 +275,11 @@ export function OrderCard({ order, className }: OrderCardProps) {
           <HoverCardContent className="w-auto max-w-lg p-2 z-[100] overflow-visible" side="top" sideOffset={8}>
             <div className="max-w-lg max-h-[500px] overflow-auto">
               <img
-                src={file.url}
+                src={hoverUrl || thumbnailUrl}
                 alt={fileName}
                 className="w-full h-auto max-h-[500px] object-contain rounded-md"
                 style={{ maxWidth: '100%', objectFit: 'contain' }}
+                loading="lazy"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                 }}
@@ -257,8 +391,9 @@ export function OrderCard({ order, className }: OrderCardProps) {
                     if (!selectedFile) return;
                     try {
                       const fileName = selectedFile.file_name || selectedFile.url.split('/').pop() || 'image';
+                      const url = previewImageUrl || await getFileUrl(selectedFile);
                       const link = document.createElement('a');
-                      link.href = selectedFile.url;
+                      link.href = url;
                       link.download = fileName;
                       link.target = '_blank';
                       link.rel = 'noopener noreferrer';
@@ -286,7 +421,11 @@ export function OrderCard({ order, className }: OrderCardProps) {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => window.open(selectedFile?.url, '_blank')}
+                  onClick={async () => {
+                    if (!selectedFile) return;
+                    const url = previewImageUrl || await getFileUrl(selectedFile);
+                    window.open(url, '_blank');
+                  }}
                 >
                   <ExternalLink className="h-4 w-4 sm:mr-2" />
                   <span className="hidden sm:inline">Open</span>

@@ -327,6 +327,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         timeline_id: entry.id,
         order_id: entry.order_id,
         item_id: entry.item_id || undefined,
+        product_name: entry.product_name || undefined,
         stage: entry.stage as Stage,
         substage: entry.substage as SubStage,
         action: entry.action as any,

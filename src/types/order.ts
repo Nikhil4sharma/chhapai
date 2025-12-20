@@ -129,6 +129,7 @@ export interface TimelineEntry {
   timeline_id: string;
   order_id: string;
   item_id?: string;
+  product_name?: string;
   stage: Stage;
   substage?: SubStage;
   action: 'created' | 'assigned' | 'uploaded_proof' | 'customer_approved' | 'final_proof_uploaded' | 'sent_to_production' | 'substage_started' | 'substage_completed' | 'packed' | 'dispatched' | 'note_added';

@@ -25,7 +25,7 @@ interface AppHeaderProps {
 export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) {
   const { refreshOrders } = useOrders();
   const { refreshWorkLogs } = useWorkLogs();
-  const { isAdmin, role } = useAuth();
+  const { isAdmin, role, isLoading } = useAuth();
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -114,8 +114,8 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
             
             <NotificationsDropdown />
 
-            {/* New Order button - Only visible to Sales and Admin */}
-            {(isAdmin || role === 'sales') && (
+            {/* New Order button - Only visible to Sales and Admin - Wait for role to load */}
+            {!isLoading && (isAdmin || role === 'sales') && (
               <>
                 <Tooltip>
                   <TooltipTrigger asChild>

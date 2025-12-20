@@ -153,6 +153,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .single(),
       ]);
 
+      let profileLoaded = false;
+      let roleLoaded = false;
+
       // Handle profile result
       if (profileResult.status === 'fulfilled') {
         const { data: profileData, error: profileError } = profileResult.value;
@@ -172,9 +175,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             production_stage: profileData.production_stage || null,
           });
           console.log('[Auth] Profile loaded:', profileData.full_name);
+          profileLoaded = true;
+        } else {
+          // Profile not found - set null but mark as loaded
+          setProfile(null);
+          console.warn('[Auth] Profile not found for user:', userId);
+          profileLoaded = true;
         }
       } else {
         console.error('Error fetching profile (settled):', profileResult.reason);
+        // Even on error, mark as attempted
+        profileLoaded = true;
       }
 
       // Handle role result
@@ -188,19 +199,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (roleData) {
           setRole(roleData.role as AppRole);
           console.log('[Auth] Role loaded:', roleData.role);
+          roleLoaded = true;
         } else {
-          // If no role found, set a default or keep null
+          // If no role found, set null but mark as loaded
+          setRole(null);
           console.warn('[Auth] No role found for user:', userId);
+          roleLoaded = true;
         }
       } else {
         console.error('Error fetching role (settled):', roleResult.reason);
+        // Even on error, mark as attempted
+        roleLoaded = true;
       }
 
       clearTimeout(fetchTimeout);
-      // CRITICAL: Always set loading to false, even if some data is missing
-      // This prevents infinite loading on reload
-      setIsLoading(false);
-      console.log('[Auth] User data fetch complete');
+      
+      // CRITICAL: Only set loading to false when BOTH profile and role fetch attempts are complete
+      // This ensures data is loaded before UI renders, preventing "User" placeholder issue
+      if (profileLoaded && roleLoaded) {
+        setIsLoading(false);
+        console.log('[Auth] User data fetch complete - profile and role loaded');
+      } else {
+        // If somehow we reach here without both being loaded, set loading to false anyway
+        // This prevents infinite loading, but log a warning
+        console.warn('[Auth] User data fetch incomplete - setting loading to false anyway', { profileLoaded, roleLoaded });
+        setIsLoading(false);
+      }
     } catch (error) {
       console.error('Error fetching user data:', error);
       // CRITICAL: Always set loading to false on error to prevent blank screen

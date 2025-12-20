@@ -231,25 +231,22 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   ];
 
   // Filter nav items based on role
-  // CRITICAL: Show all items if:
-  // 1. Auth is loading
-  // 2. User exists but role is not yet loaded (reload scenario)
-  // This prevents sidebar from disappearing on page reload
+  // CRITICAL: Only show items when role is properly loaded to prevent flickering
   const visibleNavItems = navItems.filter(item => {
     // Public items (no roles restriction) - always visible
     if (!item.roles) return true;
     
     // If auth is still loading, show all items (optimistic rendering)
+    // This prevents sidebar from disappearing on page reload
     if (authLoading) return true;
-    
-    // CRITICAL FIX: If user exists but role is null/undefined, show all items
-    // This handles page reload where session exists but role fetch is pending
-    if (user && !role) {
-      return true; // Show all items until role is loaded
-    }
     
     // If no user at all, hide role-based items
     if (!user) return false;
+    
+    // CRITICAL: Wait for role to load before filtering
+    // If role is null/undefined but auth is not loading, user might not have a role
+    // In this case, hide role-based items to prevent incorrect visibility
+    if (!role) return false;
     
     // Admin sees everything
     if (isAdmin) return true;
@@ -355,8 +352,8 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
             </div>
           )}
 
-          {/* Admin section - only visible to admins */}
-          {isAdmin && isOpen && (
+          {/* Admin section - only visible to admins - Wait for role to load */}
+          {!authLoading && isAdmin && isOpen && (
             <div className="pt-4 mt-4 border-t border-sidebar-border">
               <p className="px-3 text-xs font-medium text-sidebar-foreground/50 uppercase tracking-wider mb-2">
                 Admin
@@ -369,8 +366,8 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
             </div>
           )}
 
-          {/* Performance Reports - visible to non-admin users only */}
-          {!isAdmin && isOpen && (
+          {/* Performance Reports - visible to non-admin users only - Wait for role to load */}
+          {!authLoading && !isAdmin && role && isOpen && (
             <div className="pt-4 mt-4 border-t border-sidebar-border">
               <NavItemComponent item={{ label: 'Performance', path: '/performance', icon: TrendingUp }} />
             </div>
