@@ -49,12 +49,22 @@ export function WooCommerceCredentialsDialog({
     try {
       const { data: credsData, error: credsError } = await supabase
         .from('woocommerce_credentials')
-        .select('store_url, consumer_key, consumer_secret')
+        .select('*')
         .eq('setting_key', 'config')
-        .single();
+        .maybeSingle();
 
-      if (credsError && credsError.code !== 'PGRST116') {
+      if (credsError) {
+        // Handle 406 or other errors gracefully
+        if (credsError.code === 'PGRST116' || credsError.status === 406) {
+          console.warn('[WooCommerce] Credentials table structure issue or not found:', credsError);
+          // Pre-fill store URL if provided
+          if (currentStoreUrl) {
+            setCredentials(prev => ({ ...prev, store_url: currentStoreUrl }));
+          }
+          return;
+        }
         console.error('Error loading credentials:', credsError);
+        return;
       }
 
       if (credsData) {
@@ -71,6 +81,10 @@ export function WooCommerceCredentialsDialog({
       }
     } catch (error) {
       console.error('Error loading credentials:', error);
+      // Pre-fill store URL if provided even on error
+      if (currentStoreUrl) {
+        setCredentials(prev => ({ ...prev, store_url: currentStoreUrl }));
+      }
     }
   };
 
@@ -123,9 +137,9 @@ export function WooCommerceCredentialsDialog({
       // Check if masked values are being used (user didn't change them)
       const { data: existingCreds } = await supabase
         .from('woocommerce_credentials')
-        .select('consumer_key, consumer_secret')
+        .select('*')
         .eq('setting_key', 'config')
-        .single();
+        .maybeSingle();
 
       const finalKey = credentials.consumer_key.includes('••••') && existingCreds?.consumer_key
         ? existingCreds.consumer_key
@@ -135,6 +149,7 @@ export function WooCommerceCredentialsDialog({
         ? existingCreds.consumer_secret
         : credentials.consumer_secret;
 
+      // Use upsert with proper conflict resolution
       const { error: saveError } = await supabase
         .from('woocommerce_credentials')
         .upsert({
@@ -143,10 +158,21 @@ export function WooCommerceCredentialsDialog({
           consumer_key: finalKey,
           consumer_secret: finalSecret,
         }, {
-          onConflict: 'setting_key'
+          onConflict: 'setting_key',
+          ignoreDuplicates: false
         });
 
-      if (saveError) throw saveError;
+      if (saveError) {
+        console.error('[WooCommerce] Save error:', saveError);
+        // Provide more specific error message
+        if (saveError.code === 'PGRST116' || saveError.status === 406) {
+          throw new Error('Table structure issue. Please ensure woocommerce_credentials table exists and RLS policies are set.');
+        }
+        if (saveError.code === '42501' || saveError.message?.includes('permission denied')) {
+          throw new Error('Permission denied. Only admins can update WooCommerce credentials.');
+        }
+        throw saveError;
+      }
 
       toast({
         title: "Credentials Updated",
