@@ -85,25 +85,39 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     try {
       const fileName = getFileName(selectedFile);
       
-      // Delete the file from Firestore
-      await deleteDoc(doc(db, 'order_files', deleteFileId));
+      // Delete the file from Supabase
+      const { error: deleteError } = await supabase
+        .from('order_files')
+        .delete()
+        .eq('id', deleteFileId);
+      
+      if (deleteError) throw deleteError;
 
       // Add timeline entry for file deletion (history preservation)
       if (orderId && user && profile) {
-        const { collection, setDoc, Timestamp } = await import('firebase/firestore');
-        await setDoc(doc(collection(db, 'timeline')), {
-          order_id: orderId,
-          item_id: itemId || null,
-          product_name: productName || null,
-          stage: 'sales', // Default stage for file deletion
-          action: 'note_added',
-          performed_by: user.uid,
-          performed_by_name: profile.full_name || 'Unknown',
-          notes: `File deleted: ${fileName}`,
-          attachments: [{ url: selectedFile.url, type: selectedFile.type }], // Keep file URL in history
-          is_public: true,
-          created_at: Timestamp.now(),
-        });
+        // Find order to get order.id
+        const { data: orderData } = await supabase
+          .from('orders')
+          .select('id')
+          .eq('order_id', orderId)
+          .single();
+        
+        if (orderData) {
+          await supabase
+            .from('timeline')
+            .insert({
+              order_id: orderData.id,
+              item_id: itemId || null,
+              product_name: productName || null,
+              stage: 'sales', // Default stage for file deletion
+              action: 'note_added',
+              performed_by: user.id,
+              performed_by_name: profile.full_name || 'Unknown',
+              notes: `File deleted: ${fileName}`,
+              attachments: [{ url: selectedFile.url, type: selectedFile.type }], // Keep file URL in history
+              is_public: true,
+            });
+        }
       }
 
       toast({
