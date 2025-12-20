@@ -31,6 +31,7 @@ export function UserMenu() {
   };
 
   // Show loading state if auth is still loading
+  // CRITICAL: Wait for profile to load before showing dropdown to prevent email fallback
   if (isLoading) {
     return (
       <Button variant="ghost" className="relative h-9 w-9 rounded-full" disabled>
@@ -43,7 +44,8 @@ export function UserMenu() {
     );
   }
 
-  // Get display name - use profile name if available, otherwise email, otherwise "User"
+  // Get display name - prioritize profile name over email
+  // Only show email fallback if profile exists but full_name is null/empty
   const displayName = profile?.full_name || user?.email?.split('@')[0] || 'User';
   const displayEmail = user?.email || '';
 
@@ -54,12 +56,12 @@ export function UserMenu() {
           <Avatar className="h-9 w-9">
             <AvatarImage src={profile?.avatar_url || undefined} alt={displayName} />
             <AvatarFallback className="bg-primary/10 text-primary">
-              {getInitials(profile?.full_name)}
+              {getInitials(profile?.full_name || (profile === null ? user?.email?.split('@')[0] : null))}
             </AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56" align="end" forceMount>
+      <DropdownMenuContent className="w-56" align="end">
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">{displayName}</p>

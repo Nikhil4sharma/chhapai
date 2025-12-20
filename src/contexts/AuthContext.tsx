@@ -124,12 +124,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (profileResult.status === 'fulfilled') {
         const { data: profileData, error: profileError } = profileResult.value;
         
-        if (profileError && profileError.code !== 'PGRST116') { // PGRST116 = no rows returned
-          console.error('Error fetching profile:', profileError);
-        }
-
-        if (profileData) {
-          setProfile({
+        if (profileError) {
+          if (profileError.code === 'PGRST116') {
+            // No rows returned - profile doesn't exist
+            console.warn('[Auth] Profile not found for user:', userId);
+            setProfile(null);
+          } else {
+            // Other error - log it but don't fail completely
+            console.error('[Auth] Error fetching profile:', profileError);
+            // Keep existing profile state if error, don't set to null
+          }
+          profileLoaded = true;
+        } else if (profileData) {
+          // Profile found - set it
+          const profileObj = {
             id: profileData.id,
             user_id: userId,
             full_name: profileData.full_name || null,
@@ -137,18 +145,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             phone: profileData.phone || null,
             avatar_url: profileData.avatar_url || null,
             production_stage: profileData.production_stage || null,
+          };
+          setProfile(profileObj);
+          console.log('[Auth] Profile loaded successfully:', {
+            userId,
+            full_name: profileData.full_name,
+            department: profileData.department,
           });
-          console.log('[Auth] Profile loaded:', profileData.full_name);
           profileLoaded = true;
         } else {
-          // Profile not found - set null but mark as loaded
+          // No data and no error - shouldn't happen, but handle it
+          console.warn('[Auth] Profile query returned no data and no error for user:', userId);
           setProfile(null);
-          console.warn('[Auth] Profile not found for user:', userId);
           profileLoaded = true;
         }
       } else {
-        console.error('Error fetching profile (settled):', profileResult.reason);
-        // Even on error, mark as attempted
+        // Promise rejected
+        console.error('[Auth] Profile fetch promise rejected:', profileResult.reason);
+        // Don't clear profile on error - keep existing state
         profileLoaded = true;
       }
 
