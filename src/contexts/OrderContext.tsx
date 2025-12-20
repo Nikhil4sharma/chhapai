@@ -219,7 +219,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const { user, profile, role, isAdmin } = useAuth();
+  const { user, profile, role, isAdmin, profileReady, authReady } = useAuth();
+  
+  // In-memory cache to prevent duplicate queries
+  const ordersCacheRef = useRef<{ orders: Order[]; timestamp: number } | null>(null);
+  const CACHE_DURATION = 30000; // 30 seconds cache
   
   // CRITICAL: Use refs to store stable function references
   // This prevents useEffect from re-running when these functions change
@@ -230,10 +234,36 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const canViewFinancials = isAdmin || role === 'sales';
 
   // Fetch orders from Supabase - RLS automatically filters based on user role/department
-  const fetchOrders = useCallback(async (showLoading = false) => {
+  const fetchOrders = useCallback(async (showLoading = false, forceRefresh = false) => {
+    // CRITICAL: Don't fetch if profile is not ready
+    // Orders require role and department to filter correctly
+    if (!profileReady || !authReady) {
+      console.log('[fetchOrders] Profile not ready, skipping fetch', { profileReady, authReady });
+      return;
+    }
+    
     if (!user) {
       console.warn('[fetchOrders] No user, skipping fetch');
       return; // Don't fetch if no user
+    }
+    
+    // CRITICAL: Guard - Don't fetch if role or department is missing (unless admin)
+    // Admin can fetch without department, but other roles need department
+    if (!isAdmin && (!role || !profile?.department)) {
+      console.warn('[fetchOrders] Role or department missing, skipping fetch', { role, department: profile?.department });
+      setIsLoading(false);
+      return;
+    }
+    
+    // Check cache first (unless force refresh)
+    if (!forceRefresh && ordersCacheRef.current) {
+      const cacheAge = Date.now() - ordersCacheRef.current.timestamp;
+      if (cacheAge < CACHE_DURATION) {
+        console.log('[fetchOrders] Using cached orders, age:', cacheAge, 'ms');
+        setOrders(ordersCacheRef.current.orders);
+        if (showLoading) setIsLoading(false);
+        return;
+      }
     }
     
     console.log('[fetchOrders] Starting fetch from Supabase, showLoading:', showLoading, 'user:', user.id);
@@ -262,6 +292,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       console.log('[fetchOrders] Setting orders:', mappedOrders.length, 'orders');
       setOrders(mappedOrders);
       
+      // Update cache
+      ordersCacheRef.current = {
+        orders: mappedOrders,
+        timestamp: Date.now(),
+      };
+      
       // If no orders found, log warning
       if (mappedOrders.length === 0) {
         console.warn('[fetchOrders] ⚠️ NO ORDERS FOUND! Database might be empty. Run WooCommerce sync to import orders.');
@@ -285,7 +321,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         });
       }
     }
-  }, [canViewFinancials, user]);
+  }, [canViewFinancials, user, profileReady, authReady, role, profile, isAdmin]);
 
   const fetchTimeline = useCallback(async () => {
     try {
@@ -359,13 +395,32 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   }, [fetchTimeline]);
 
   // Real-time subscription for orders, items, timeline, and files - optimized
-  // CRITICAL FIX: Use refs to prevent re-subscription loops
-  // Dependency array should ONLY have [user] - NOT fetchOrders/fetchTimeline
+  // CRITICAL: Wait for profileReady before fetching orders
+  // This ensures role and department are available for proper filtering
   useEffect(() => {
+    // CRITICAL: Don't fetch if auth or profile is not ready
+    if (!authReady || !profileReady) {
+      console.log('[OrderContext] Waiting for auth/profile ready', { authReady, profileReady });
+      return;
+    }
+    
     if (!user) {
       // Clear data when user logs out
       setOrders([]);
       setTimeline([]);
+      setIsLoading(false);
+      // Clear cache
+      ordersCacheRef.current = null;
+      return;
+    }
+
+    // CRITICAL: Guard - Don't fetch if role or department is missing (unless admin)
+    if (!isAdmin && (!role || !profile?.department)) {
+      console.warn('[OrderContext] Role or department missing, skipping fetch', { 
+        role, 
+        department: profile?.department,
+        isAdmin 
+      });
       setIsLoading(false);
       return;
     }
@@ -376,25 +431,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     let initialFetchComplete = false;
     let isMounted = true; // Track if component is still mounted
     
-    // CRITICAL FIX: Wait for user to be fully authenticated before fetching
-    // Use a retry mechanism to ensure user is available
-    const fetchWhenReady = async (retries = 0) => {
+    // CRITICAL: Fetch orders immediately when profile is ready
+    const fetchWhenReady = async () => {
       if (!isMounted) return;
       
-      // Check if user is available (max 10 retries = 2 seconds)
-      if (!user && retries < 10) {
-        setTimeout(() => fetchWhenReady(retries + 1), 200);
-        return;
-      }
-      
-      // If user still not available after retries, skip fetch
-      if (!user) {
-        console.warn('[OrderContext] User not available after retries, skipping initial fetch');
-        return;
-      }
-      
-      // User is available, proceed with fetch
-      console.log('[OrderContext] Starting initial fetch for user:', user.id);
+      console.log('[OrderContext] Starting initial fetch for user:', user.id, 'role:', role);
       if (fetchOrdersRef.current) {
         await fetchOrdersRef.current(true);
       }
@@ -408,7 +449,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       console.log('[OrderContext] Initial fetch complete, real-time listeners active');
     };
     
-    // Start fetch when ready (with retry mechanism)
+    // Start fetch immediately (profile is ready)
     fetchWhenReady();
 
     // Use debounce to prevent too many rapid updates
@@ -472,11 +513,14 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       unsubscribeItems();
       supabase.removeChannel(timelineChannel);
       // CRITICAL: DO NOT call setOrders([]) here - it causes orders to disappear
+      // Clear cache on unmount
+      ordersCacheRef.current = null;
     };
-  }, [user]); // CRITICAL: Only depend on user, NOT on fetchOrders/fetchTimeline
+  }, [user, profileReady, authReady, role, profile, isAdmin]); // CRITICAL: Depend on profileReady and role
 
   const refreshOrders = useCallback(async () => {
-    await Promise.all([fetchOrders(false), fetchTimeline()]);
+    // Force refresh by bypassing cache
+    await Promise.all([fetchOrders(false, true), fetchTimeline()]);
   }, [fetchOrders, fetchTimeline]);
 
   const getOrderById = useCallback((orderId: string) => {

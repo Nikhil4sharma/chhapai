@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 
@@ -20,6 +20,8 @@ interface AuthContextType {
   profile: Profile | null;
   role: AppRole | null;
   isLoading: boolean;
+  authReady: boolean; // Session initialized (from getSession or onAuthStateChange)
+  profileReady: boolean; // Profile and role loaded
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, fullName: string, role: AppRole) => Promise<{ error: Error | null }>;
@@ -36,77 +38,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [authReady, setAuthReady] = useState(false); // Session initialized
+  const [profileReady, setProfileReady] = useState(false); // Profile + role loaded
 
-  const isAdmin = role === 'admin';
+  const isAdmin = useMemo(() => role === 'admin', [role]);
 
-  useEffect(() => {
-    let mounted = true;
-    let loadingTimeout: NodeJS.Timeout;
-    let subscription: { unsubscribe: () => void } | null = null;
-
-    // Set a timeout to prevent infinite loading
-    loadingTimeout = setTimeout(() => {
-      if (mounted) {
-        console.warn('Auth loading timeout - setting isLoading to false');
-        setIsLoading(false);
-      }
-    }, 10000); // 10 second timeout (increased for Vercel)
-
-    // CRITICAL: Use onAuthStateChange as the SINGLE source of truth for auth state
-    // This fires INITIAL_SESSION event on mount which gives us the current session
-    // This prevents race conditions and ensures consistent user state on page reload
-    const {
-      data: { subscription: authSubscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return;
-      
-      clearTimeout(loadingTimeout);
-      
-      console.log('[Auth] Auth state changed:', event, session?.user?.email);
-      
-      // Always update session and user state from the event (this is the source of truth)
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        // CRITICAL: Always fetch user data when session exists
-        // This ensures profile and role are loaded before UI renders
-        await fetchUserData(session.user.id);
-      } else {
-        // CRITICAL: Clear all data when session is null
-        setProfile(null);
-        setRole(null);
-        setIsLoading(false);
-      }
-    });
-
-    subscription = authSubscription;
-
-    return () => {
-      mounted = false;
-      clearTimeout(loadingTimeout);
-      if (subscription) {
-        subscription.unsubscribe();
-      }
-    };
-  }, []);
-
-  const fetchUserData = async (userId: string) => {
+  // Memoized fetchUserData to prevent unnecessary re-renders
+  const fetchUserData = useCallback(async (userId: string) => {
     try {
       console.log('[Auth] Fetching user data for:', userId);
       
-      // Set timeout for fetch operations
-      const fetchTimeout = setTimeout(() => {
-        console.warn('fetchUserData timeout - setting isLoading to false');
-        setIsLoading(false);
-      }, 15000); // 15 second timeout (increased for Vercel)
-
       // Fetch profile and role in parallel for better performance
       const [profileResult, roleResult] = await Promise.allSettled([
         supabase
           .from('profiles')
-          .select('*')
+          .select('id, user_id, full_name, department, phone, avatar_url, production_stage')
           .eq('user_id', userId)
           .single(),
         supabase
@@ -117,26 +63,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .single(),
       ]);
 
-      let profileLoaded = false;
-      let roleLoaded = false;
-
       // Handle profile result
       if (profileResult.status === 'fulfilled') {
         const { data: profileData, error: profileError } = profileResult.value;
         
         if (profileError) {
           if (profileError.code === 'PGRST116') {
-            // No rows returned - profile doesn't exist
             console.warn('[Auth] Profile not found for user:', userId);
             setProfile(null);
           } else {
-            // Other error - log it but don't fail completely
             console.error('[Auth] Error fetching profile:', profileError);
-            // Keep existing profile state if error, don't set to null
           }
-          profileLoaded = true;
         } else if (profileData) {
-          // Profile found - set it
           const profileObj = {
             id: profileData.id,
             user_id: userId,
@@ -147,23 +85,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             production_stage: profileData.production_stage || null,
           };
           setProfile(profileObj);
-          console.log('[Auth] Profile loaded successfully:', {
+          console.log('[Auth] Profile loaded:', {
             userId,
             full_name: profileData.full_name,
             department: profileData.department,
           });
-          profileLoaded = true;
         } else {
-          // No data and no error - shouldn't happen, but handle it
-          console.warn('[Auth] Profile query returned no data and no error for user:', userId);
+          console.warn('[Auth] Profile query returned no data for user:', userId);
           setProfile(null);
-          profileLoaded = true;
         }
       } else {
-        // Promise rejected
         console.error('[Auth] Profile fetch promise rejected:', profileResult.reason);
-        // Don't clear profile on error - keep existing state
-        profileLoaded = true;
       }
 
       // Handle role result
@@ -171,44 +103,116 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const { data: roleData, error: roleError } = roleResult.value;
         
         if (roleError && roleError.code !== 'PGRST116') {
-          console.error('Error fetching role:', roleError);
+          console.error('[Auth] Error fetching role:', roleError);
         }
 
         if (roleData) {
           setRole(roleData.role as AppRole);
           console.log('[Auth] Role loaded:', roleData.role);
-          roleLoaded = true;
         } else {
-          // If no role found, set null but mark as loaded
           setRole(null);
           console.warn('[Auth] No role found for user:', userId);
-          roleLoaded = true;
         }
       } else {
-        console.error('Error fetching role (settled):', roleResult.reason);
-        // Even on error, mark as attempted
-        roleLoaded = true;
+        console.error('[Auth] Error fetching role (settled):', roleResult.reason);
       }
 
-      clearTimeout(fetchTimeout);
-      
-      // CRITICAL: Only set loading to false when BOTH profile and role fetch attempts are complete
-      // This ensures data is loaded before UI renders, preventing "User" placeholder issue
-      if (profileLoaded && roleLoaded) {
-        setIsLoading(false);
-        console.log('[Auth] User data fetch complete - profile and role loaded');
-      } else {
-        // If somehow we reach here without both being loaded, set loading to false anyway
-        // This prevents infinite loading, but log a warning
-        console.warn('[Auth] User data fetch incomplete - setting loading to false anyway', { profileLoaded, roleLoaded });
-        setIsLoading(false);
-      }
+      // Mark profile as ready after both attempts complete
+      setProfileReady(true);
+      console.log('[Auth] User data fetch complete');
     } catch (error) {
-      console.error('Error fetching user data:', error);
-      // CRITICAL: Always set loading to false on error to prevent blank screen
-      setIsLoading(false);
+      console.error('[Auth] Error fetching user data:', error);
+      setProfileReady(true); // Still mark as ready to prevent infinite loading
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    let subscription: { unsubscribe: () => void } | null = null;
+
+    // CRITICAL: Use getSession() FIRST for initial session check
+    // This prevents auth flicker on hard reload
+    const initializeAuth = async () => {
+      try {
+        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        
+        if (!mounted) return;
+        
+        if (error) {
+          console.error('[Auth] Error getting initial session:', error);
+          setAuthReady(true);
+          setProfileReady(true); // Mark profile ready even on error
+          return;
+        }
+
+        console.log('[Auth] Initial session check:', initialSession?.user?.email || 'No session');
+        
+        // Set initial session state
+        setSession(initialSession);
+        setUser(initialSession?.user ?? null);
+        setAuthReady(true);
+
+        // If session exists, fetch user data immediately
+        if (initialSession?.user) {
+          await fetchUserData(initialSession.user.id);
+        } else {
+          // No session - mark profile as ready (no profile to load)
+          setProfileReady(true);
+        }
+      } catch (error) {
+        console.error('[Auth] Error initializing auth:', error);
+        if (mounted) {
+          setAuthReady(true);
+          setProfileReady(true);
+        }
+      }
+    };
+
+    // Initialize auth immediately
+    initializeAuth();
+
+    // CRITICAL: Use onAuthStateChange ONLY for updates after initial load
+    // This prevents duplicate fetches and race conditions
+    const {
+      data: { subscription: authSubscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted) return;
+      
+      console.log('[Auth] Auth state changed:', event, session?.user?.email);
+      
+      // Update session and user state
+      setSession(session);
+      setUser(session?.user ?? null);
+      
+      // Mark auth as ready if not already
+      if (!authReady) {
+        setAuthReady(true);
+      }
+
+      if (session?.user) {
+        // Only fetch if profile is not already loaded for this user
+        // This prevents unnecessary refetches during auth state changes
+        if (!profile || profile.user_id !== session.user.id) {
+          setProfileReady(false); // Reset profile ready state
+          await fetchUserData(session.user.id);
+        }
+      } else {
+        // Session cleared - reset all state
+        setProfile(null);
+        setRole(null);
+        setProfileReady(true); // Mark as ready (no profile to load)
+      }
+    });
+
+    subscription = authSubscription;
+
+    return () => {
+      mounted = false;
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
+  }, [authReady, fetchUserData, profile]);
 
   const signIn = async (email: string, password: string) => {
     try {
@@ -295,7 +299,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     try {
       console.log('[Auth] Signing out...');
       
@@ -304,6 +308,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(null);
       setProfile(null);
       setRole(null);
+      setProfileReady(true); // Mark profile ready (no profile to load)
       
       // Then sign out from Supabase
       const { error } = await supabase.auth.signOut({
@@ -311,12 +316,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       
       if (error) {
-        console.error('Error signing out:', error);
+        console.error('[Auth] Error signing out:', error);
         // Even if error, clear local state
         setUser(null);
         setSession(null);
         setProfile(null);
         setRole(null);
+        setProfileReady(true);
         throw error;
       }
       
@@ -333,15 +339,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
       }
     } catch (error) {
-      console.error('Error signing out:', error);
+      console.error('[Auth] Error signing out:', error);
       // Ensure state is cleared even on error
       setUser(null);
       setSession(null);
       setProfile(null);
       setRole(null);
+      setProfileReady(true);
       throw error;
     }
-  };
+  }, []);
 
   const updatePassword = async (newPassword: string) => {
     try {
@@ -355,7 +362,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const updateProfile = async (updates: Partial<Profile>) => {
+  const updateProfile = useCallback(async (updates: Partial<Profile>) => {
     if (!user) {
       return { error: new Error('No user logged in') };
     }
@@ -376,13 +383,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) throw error;
 
       // Refresh profile data
+      setProfileReady(false);
       await fetchUserData(user.id);
 
       return { error: null };
     } catch (error: any) {
       return { error: error as Error };
     }
-  };
+  }, [user, fetchUserData]);
 
   const updateEmail = async (newEmail: string) => {
     try {
@@ -396,6 +404,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Compute isLoading based on authReady and profileReady
+  // isLoading should be false only when:
+  // 1. Auth is initialized (authReady = true)
+  // 2. If session exists, profile must be ready; if no session, profileReady should be true
+  const computedIsLoading = useMemo(() => {
+    if (!authReady) return true;
+    if (session && !profileReady) return true;
+    if (!session && !profileReady) return true; // Wait for profileReady even if no session
+    return false;
+  }, [authReady, profileReady, session]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -403,7 +422,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         profile,
         role,
-        isLoading,
+        isLoading: computedIsLoading,
+        authReady,
+        profileReady,
         isAdmin,
         signIn,
         signUp,

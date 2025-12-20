@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuth, AppRole } from '@/contexts/AuthContext';
@@ -9,26 +8,12 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { user, role, isLoading, isAdmin, session } = useAuth();
+  const { user, role, isLoading, isAdmin, session, authReady, profileReady } = useAuth();
   const location = useLocation();
-  const [waitingForRole, setWaitingForRole] = useState(false);
 
-  // If user exists but role is not loaded yet, wait a bit more
-  useEffect(() => {
-    if (user && !role && isLoading === false) {
-      setWaitingForRole(true);
-      const timer = setTimeout(() => {
-        setWaitingForRole(false);
-      }, 2000); // Wait max 2 seconds for role
-      
-      return () => clearTimeout(timer);
-    } else {
-      setWaitingForRole(false);
-    }
-  }, [user, role, isLoading]);
-
-  // Show loading while checking session
-  if (isLoading) {
+  // CRITICAL: Wait until auth is initialized AND profile is ready
+  // This prevents auth flicker and premature redirects
+  if (!authReady || !profileReady || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -36,16 +21,17 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     );
   }
 
-  // CRITICAL: Check both user and session for better reliability
-  // Sometimes user might be null but session exists (during reload)
-  // Wait a bit more if session exists but user is not loaded yet (reload scenario)
-  if (!user && !session && !isLoading) {
-    console.log('[ProtectedRoute] No user or session, redirecting to auth');
+  // CRITICAL: Only redirect if auth is ready AND profile is ready AND no session exists
+  // Never logout user just because profile is temporarily null during initial load
+  if (!session && authReady && profileReady) {
+    console.log('[ProtectedRoute] No session after auth ready, redirecting to auth');
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 
-  // If session exists but user is not loaded yet (reload scenario), wait
-  if (session && !user && isLoading) {
+  // CRITICAL: If session exists but no user/profile yet, wait (shouldn't happen if profileReady is true)
+  // This is a defensive check
+  if (session && !user && profileReady) {
+    // Session exists but user is null - this shouldn't happen, but wait a bit
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -53,20 +39,15 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     );
   }
 
-  // If user exists but role is not loaded yet, wait a bit more
-  // But don't wait forever - allow access if user exists (role might be loading)
-  if (user && !role && waitingForRole) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  // Check role-based access
-  if (allowedRoles && !isAdmin && role && !allowedRoles.includes(role)) {
-    console.log('[ProtectedRoute] Role check failed:', { role, allowedRoles, isAdmin });
-    return <Navigate to="/dashboard" replace />;
+  // CRITICAL: Check role-based access ONLY after profile is ready
+  // Never deny access during initial hydration phase
+  if (allowedRoles && profileReady) {
+    // If role is still null after profileReady, it means user has no role
+    // Allow access for now (defensive) - role checks should be done at page level
+    if (role && !isAdmin && !allowedRoles.includes(role)) {
+      console.log('[ProtectedRoute] Role check failed:', { role, allowedRoles, isAdmin });
+      return <Navigate to="/dashboard" replace />;
+    }
   }
 
   return <>{children}</>;
