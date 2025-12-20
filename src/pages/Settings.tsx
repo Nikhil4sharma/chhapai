@@ -710,11 +710,20 @@ export default function Settings() {
     try {
       const { data: credsData, error: credsError } = await supabase
         .from('woocommerce_credentials')
-        .select('store_url, consumer_key, consumer_secret')
+        .select('*')
         .eq('setting_key', 'config')
-        .single();
+        .maybeSingle();
       
-      if (credsError || !credsData) {
+      if (credsError) {
+        // Handle 406 or other errors gracefully
+        if (credsError.code === 'PGRST116' || credsError.status === 406) {
+          console.warn('[Settings] WooCommerce credentials table structure issue:', credsError);
+          throw new Error('WooCommerce credentials not configured');
+        }
+        throw credsError;
+      }
+      
+      if (!credsData) {
         throw new Error('WooCommerce credentials not configured');
       }
       
@@ -773,9 +782,18 @@ export default function Settings() {
       // Get WooCommerce credentials from Supabase
       const { data: credsData, error: credsError } = await supabase
         .from('woocommerce_credentials')
-        .select('store_url, consumer_key, consumer_secret')
+        .select('*')
         .eq('setting_key', 'config')
-        .single();
+        .maybeSingle();
+      
+      if (credsError) {
+        // Handle 406 or other errors gracefully
+        if (credsError.code === 'PGRST116' || credsError.status === 406) {
+          console.warn('[Settings] WooCommerce credentials table structure issue:', credsError);
+          throw new Error('WooCommerce credentials not configured');
+        }
+        throw credsError;
+      }
       
       if (credsError || !credsData) {
         throw new Error('WooCommerce credentials not configured');

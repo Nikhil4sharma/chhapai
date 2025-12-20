@@ -290,7 +290,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const fetchTimeline = useCallback(async () => {
     try {
       if (!user) {
-        console.warn('[fetchTimeline] No user, skipping fetch');
+        // Don't log warning - this is normal during initial load
         setTimeline([]);
         return;
       }

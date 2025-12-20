@@ -83,11 +83,12 @@ export function FetchOrdersPanel({
         .not('woo_order_id', 'is', null);
 
       if (existingOrders) {
-        const existingIds = new Set(
+        const existingIds = new Set<number>(
           existingOrders
             .map(o => o.woo_order_id)
-            .filter(id => id !== null)
-            .map(id => parseInt(id as string, 10))
+            .filter((id): id is string => id !== null && id !== undefined)
+            .map(id => parseInt(id, 10))
+            .filter(id => !isNaN(id))
         );
         setExistingOrderIds(existingIds);
       }
