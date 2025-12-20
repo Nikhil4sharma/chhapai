@@ -375,11 +375,25 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     let initialFetchComplete = false;
     let isMounted = true; // Track if component is still mounted
     
-    // Initial fetch with loading indicator - delay to allow auth to complete
-    // CRITICAL: Use refs to call functions, not direct references
-    const initTimer = setTimeout(async () => {
+    // CRITICAL FIX: Wait for user to be fully authenticated before fetching
+    // Use a retry mechanism to ensure user is available
+    const fetchWhenReady = async (retries = 0) => {
       if (!isMounted) return;
-      console.log('[OrderContext] Starting initial fetch');
+      
+      // Check if user is available (max 10 retries = 2 seconds)
+      if (!user && retries < 10) {
+        setTimeout(() => fetchWhenReady(retries + 1), 200);
+        return;
+      }
+      
+      // If user still not available after retries, skip fetch
+      if (!user) {
+        console.warn('[OrderContext] User not available after retries, skipping initial fetch');
+        return;
+      }
+      
+      // User is available, proceed with fetch
+      console.log('[OrderContext] Starting initial fetch for user:', user.id);
       if (fetchOrdersRef.current) {
         await fetchOrdersRef.current(true);
       }
@@ -391,7 +405,10 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       // Mark initial fetch as complete so real-time listeners can start updating
       initialFetchComplete = true;
       console.log('[OrderContext] Initial fetch complete, real-time listeners active');
-    }, 200); // Increased delay to ensure user state is ready
+    };
+    
+    // Start fetch when ready (with retry mechanism)
+    fetchWhenReady();
 
     // Use debounce to prevent too many rapid updates
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -449,7 +466,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       isMounted = false; // Mark as unmounted
-      clearTimeout(initTimer);
       if (debounceTimer) clearTimeout(debounceTimer);
       unsubscribeOrders();
       unsubscribeItems();
