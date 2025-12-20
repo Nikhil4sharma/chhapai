@@ -16,7 +16,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE',
   'Access-Control-Max-Age': '86400',
-  'Access-Control-Allow-Credentials': 'true',
 };
 
 // In-memory credential cache (for runtime updates within same instance)
@@ -82,10 +81,9 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') {
     console.log('[CORS] Handling OPTIONS preflight request');
     return new Response(null, { 
-      status: 200,
+      status: 204, // No Content - standard for OPTIONS
       headers: {
         ...corsHeaders,
-        'Content-Length': '0',
       }
     });
   }
@@ -118,7 +116,24 @@ serve(async (req) => {
       });
     }
 
-    const body = await req.json();
+    // Safely parse request body - handle cases where body might be empty
+    let body: any = {};
+    try {
+      const contentType = req.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const bodyText = await req.text();
+        if (bodyText && bodyText.trim()) {
+          body = JSON.parse(bodyText);
+        }
+      }
+    } catch (parseError) {
+      console.error('Error parsing request body:', parseError);
+      return new Response(JSON.stringify({ error: 'Invalid request body' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const { action } = body;
     console.log('WooCommerce action requested:', action);
 
@@ -1103,9 +1118,16 @@ serve(async (req) => {
   } catch (error: unknown) {
     console.error('[Edge Function] Unhandled error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-    return new Response(JSON.stringify({ error: errorMessage, details: error?.toString() || 'No details' }), {
+    const errorDetails = error instanceof Error ? error.stack : String(error);
+    return new Response(JSON.stringify({ 
+      error: errorMessage, 
+      details: errorDetails || 'No details' 
+    }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { 
+        ...corsHeaders, 
+        'Content-Type': 'application/json',
+      },
     });
   }
 });
