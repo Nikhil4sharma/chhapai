@@ -60,6 +60,7 @@ export function AssignUserDialog({
         'design': 'design',
         'prepress': 'prepress',
         'production': 'production',
+        'outsource': 'production', // Outsource users might be in production role
       };
       
       const matchingRole = roleMap[deptLower];
@@ -75,42 +76,63 @@ export function AssignUserDialog({
           .eq('role', matchingRole);
         
         if (rolesError) {
-          console.error('Error fetching user_roles:', rolesError);
+          console.error('[AssignUserDialog] Error fetching user_roles:', rolesError);
         } else if (rolesData) {
-          rolesData.forEach(r => allUserIds.add(r.user_id));
+          rolesData.forEach(r => {
+            if (r.user_id) {
+              allUserIds.add(r.user_id);
+            }
+          });
+          console.log(`[AssignUserDialog] Found ${rolesData.length} users in user_roles for role: ${matchingRole}`);
         }
       }
       
       // Strategy 2: Also fetch from profiles table with case-insensitive matching
+      // This catches users who might have department set in profiles but not in user_roles
       const { data: profiles, error: profilesError } = await supabase
-              .from('profiles')
-        .select('user_id, full_name, department');
+        .from('profiles')
+        .select('user_id, full_name, department')
+        .not('user_id', 'is', null);
       
       if (profilesError) {
-        console.error('Error fetching profiles:', profilesError);
+        console.error('[AssignUserDialog] Error fetching profiles:', profilesError);
       } else if (profiles) {
         // Filter profiles by department (case-insensitive)
-        profiles.forEach(profile => {
+        const matchingProfiles = profiles.filter(profile => {
           const profileDept = (profile.department || '').toLowerCase().trim();
-          if (profileDept === deptLower) {
+          return profileDept === deptLower;
+        });
+        
+        matchingProfiles.forEach(profile => {
+          if (profile.user_id) {
             allUserIds.add(profile.user_id);
           }
         });
+        
+        console.log(`[AssignUserDialog] Found ${matchingProfiles.length} users in profiles for department: ${department}`);
       }
 
       // Now fetch full profile data for all collected user IDs
       let allUsers: any[] = [];
       
       if (allUserIds.size > 0) {
-        const { data: userProfiles, error: userProfilesError } = await supabase
-          .from('profiles')
-          .select('user_id, full_name, department')
-          .in('user_id', Array.from(allUserIds));
+        const userIdsArray = Array.from(allUserIds);
+        console.log(`[AssignUserDialog] Fetching profiles for ${userIdsArray.length} unique user IDs`);
         
-        if (userProfilesError) {
-          console.error('Error fetching user profiles:', userProfilesError);
-        } else if (userProfiles) {
-          allUsers = userProfiles;
+        // Fetch in batches if too many users (Supabase limit is 1000 per query)
+        const batchSize = 1000;
+        for (let i = 0; i < userIdsArray.length; i += batchSize) {
+          const batch = userIdsArray.slice(i, i + batchSize);
+          const { data: userProfiles, error: userProfilesError } = await supabase
+            .from('profiles')
+            .select('user_id, full_name, department')
+            .in('user_id', batch);
+          
+          if (userProfilesError) {
+            console.error('[AssignUserDialog] Error fetching user profiles batch:', userProfilesError);
+          } else if (userProfiles) {
+            allUsers = [...allUsers, ...userProfiles];
+          }
         }
       }
 
@@ -118,20 +140,22 @@ export function AssignUserDialog({
       const uniqueUsers = Array.from(
         new Map(allUsers.map(u => [u.user_id, u])).values()
       ).sort((a, b) => {
-        const nameA = (a.full_name || '').toLowerCase();
-        const nameB = (b.full_name || '').toLowerCase();
+        const nameA = (a.full_name || 'Unknown').toLowerCase();
+        const nameB = (b.full_name || 'Unknown').toLowerCase();
         return nameA.localeCompare(nameB);
       });
 
-      setUsers(uniqueUsers.map(profile => ({
+      const mappedUsers = uniqueUsers.map(profile => ({
         user_id: profile.user_id,
         full_name: profile.full_name || 'Unknown',
         department: profile.department || department,
-      })));
+      }));
+
+      setUsers(mappedUsers);
       
-      console.log(`[AssignUserDialog] Found ${uniqueUsers.length} users for department: ${department}`);
+      console.log(`[AssignUserDialog] Final result: Found ${mappedUsers.length} users for department: ${department}`, mappedUsers);
     } catch (error) {
-      console.error('Error fetching users:', error);
+      console.error('[AssignUserDialog] Error fetching users:', error);
       setUsers([]);
     } finally {
       setIsLoading(false);

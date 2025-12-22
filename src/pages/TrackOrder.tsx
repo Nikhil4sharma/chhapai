@@ -209,14 +209,19 @@ export default function TrackOrder() {
   useEffect(() => {
     // Clean up previous subscription
     if (subscriptionRef.current) {
+      console.log('[TrackOrder] Cleaning up subscription for order:', orderIdRef.current);
       subscriptionRef.current.unsubscribe();
       subscriptionRef.current = null;
     }
 
     // Only subscribe if we have a searched order
-    if (!searchedOrder?.id) return;
+    if (!searchedOrder?.id) {
+      orderIdRef.current = null;
+      return;
+    }
 
     const orderId = searchedOrder.id;
+    console.log('[TrackOrder] Setting up subscription for new order:', orderId, 'order_id:', searchedOrder.order_id);
     orderIdRef.current = orderId;
 
     console.log('[TrackOrder] Setting up real-time subscription for order:', orderId);
@@ -385,6 +390,15 @@ export default function TrackOrder() {
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    
+    // CRITICAL: Clean up previous subscription before new search
+    if (subscriptionRef.current) {
+      console.log('[TrackOrder] Cleaning up previous subscription before new search');
+      subscriptionRef.current.unsubscribe();
+      subscriptionRef.current = null;
+      orderIdRef.current = null;
+    }
+    
     setSearchedOrder(null);
     setShowResults(false);
     
@@ -397,7 +411,12 @@ export default function TrackOrder() {
 
     try {
       // Normalize order number (accept numeric-only and auto-prepend WC-)
-      const normalizedOrderNumber = normalizeOrderNumber(orderNumber);
+      const normalizedOrderNumber = normalizeOrderNumber(orderNumber.trim());
+      
+      console.log('[TrackOrder] Searching for order:', {
+        input: orderNumber.trim(),
+        normalized: normalizedOrderNumber
+      });
       
       if (!normalizedOrderNumber) {
         setError('Invalid order number format. Please enter a valid order number (e.g., 53529, WC-53277, or MAN-1234)');
@@ -407,6 +426,8 @@ export default function TrackOrder() {
 
       // PUBLIC TRACKING: Query order by order_id (no auth required)
       // Only select safe, public fields - never expose internal data
+      // CRITICAL: Use exact match with normalized order number (case-sensitive match)
+      // Use ilike for case-insensitive search as fallback, but prefer exact match
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .select(`
@@ -419,6 +440,18 @@ export default function TrackOrder() {
         `)
         .eq('order_id', normalizedOrderNumber)
         .maybeSingle();
+      
+      console.log('[TrackOrder] Order query result:', {
+        input: orderNumber.trim(),
+        normalized: normalizedOrderNumber,
+        searchedFor: normalizedOrderNumber,
+        found: orderData ? {
+          id: orderData.id,
+          order_id: orderData.order_id,
+          customer: orderData.customer_name
+        } : null,
+        error: orderError
+      });
 
       if (orderError) {
         console.error('[TrackOrder] Error querying order:', orderError);
@@ -520,10 +553,19 @@ export default function TrackOrder() {
         })),
       };
 
+      console.log('[TrackOrder] Setting searched order:', {
+        order_id: result.order_id,
+        customer: result.customer_name,
+        items_count: result.items.length
+      });
+      
       setSearchedOrder(result);
+      setShowResults(true);
     } catch (err) {
-      console.error('Error searching order:', err);
+      console.error('[TrackOrder] Error searching order:', err);
       setError('An error occurred while searching. Please try again.');
+      setSearchedOrder(null);
+      setShowResults(false);
     } finally {
       setIsLoading(false);
     }

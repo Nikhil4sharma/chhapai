@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Calendar, Package, User, Trash2, X } from 'lucide-react';
+import { Plus, Calendar, Package, User, Trash2, X, AlertTriangle, CheckCircle2, Phone, Mail, MapPin } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -29,6 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from '@/hooks/use-toast';
@@ -36,6 +37,32 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 import { autoLogWorkAction } from '@/utils/workLogHelper';
+import { Priority } from '@/types/order';
+
+// Helper to compute priority based on days until delivery
+const computePriority = (deliveryDate: Date | null | undefined): Priority => {
+  if (!deliveryDate) return 'blue';
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const delivery = new Date(deliveryDate);
+  delivery.setHours(0, 0, 0, 0);
+  const daysUntil = Math.ceil((delivery.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (daysUntil > 5) return 'blue';
+  if (daysUntil >= 3) return 'yellow';
+  return 'red';
+};
+
+// Helper to normalize order numbers for comparison
+// Removes prefixes (WC-, MAN-) and compares just the numeric part
+const normalizeOrderNumberForComparison = (orderNum: string | number | null | undefined): string => {
+  if (!orderNum) return '';
+  const str = orderNum.toString().trim();
+  // Remove WC- or MAN- prefix if present
+  const withoutPrefix = str.replace(/^(WC|MAN)-/i, '');
+  // Return just the numeric part (in case there are other characters)
+  return withoutPrefix.replace(/\D/g, '');
+};
 
 interface ProductItem {
   id: string;
@@ -76,7 +103,15 @@ export function CreateOrderDialog({
   const [isWooCommerceOrder, setIsWooCommerceOrder] = useState(false);
   const [wooCommerceCheckStatus, setWooCommerceCheckStatus] = useState<'idle' | 'checking' | 'found' | 'not_found' | 'error'>('idle');
   const [wooCommerceError, setWooCommerceError] = useState<string | null>(null);
+  const [showPreviewCard, setShowPreviewCard] = useState(false);
+  const [wooCommerceCached, setWooCommerceCached] = useState(false);
+  const [wooCommerceImportedAt, setWooCommerceImportedAt] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined);
+  
+  // CRITICAL FIX: Track the order number that was used for the current WooCommerce fetch
+  // This prevents race conditions where a slow fetch for order A completes after user
+  // has already changed to order B, causing stale data to be imported
+  const wooCommerceFetchOrderNumberRef = useRef<string | null>(null);
   
   const [customerData, setCustomerData] = useState({
     name: '',
@@ -93,7 +128,6 @@ export function CreateOrderDialog({
   ]);
 
   const [globalNotes, setGlobalNotes] = useState('');
-  const [priority, setPriority] = useState<string>('blue');
   const [newSpecKey, setNewSpecKey] = useState('');
   const [newSpecValue, setNewSpecValue] = useState('');
   const [activeProductIndex, setActiveProductIndex] = useState<number | null>(null);
@@ -110,7 +144,6 @@ export function CreateOrderDialog({
     });
     setProducts([{ id: generateId(), name: '', quantity: 1, specifications: {} }]);
     setDeliveryDate(undefined);
-    setPriority('blue');
     setGlobalNotes('');
     setNewSpecKey('');
     setNewSpecValue('');
@@ -121,6 +154,9 @@ export function CreateOrderDialog({
     setIsWooCommerceOrder(false);
     setWooCommerceCheckStatus('idle');
     setWooCommerceError(null);
+    setShowPreviewCard(false);
+    setWooCommerceCached(false);
+    setWooCommerceImportedAt(null);
   };
 
   // Check if order number already exists - enhanced to check both order_id and woo_order_id
@@ -202,11 +238,15 @@ export function CreateOrderDialog({
       setWooCommerceCheckStatus('checking');
       setWooCommerceError(null);
       
+      // CRITICAL FIX: Track which order number we're fetching for
+      // This prevents stale responses from overwriting data for a different order
+      wooCommerceFetchOrderNumberRef.current = trimmedOrderNumber;
+      
       // CRITICAL: Clear any previous WooCommerce data before fetching new one
       setWooOrderData(null);
       setIsWooCommerceOrder(false);
       
-      console.log('[CreateOrderDialog] Manually checking WooCommerce order:', trimmedOrderNumber);
+      console.log('[CreateOrderDialog] Manually checking WooCommerce order:', trimmedOrderNumber, 'tracked ref:', wooCommerceFetchOrderNumberRef.current);
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       if (!supabaseUrl) {
@@ -231,9 +271,11 @@ export function CreateOrderDialog({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
+        const errorCode = errorData.error;
+        const errorMessage = errorData.message || 'An error occurred';
         
-        // Handle specific error codes
-        if (response.status === 403) {
+        // Handle standardized error codes
+        if (errorCode === 'UNAUTHORIZED' || response.status === 401 || response.status === 403) {
           setWooCommerceError('You are not authorized to check WooCommerce orders');
           setWooCommerceCheckStatus('error');
           toast({
@@ -242,39 +284,104 @@ export function CreateOrderDialog({
             variant: "destructive",
           });
           return;
-        } else if (response.status === 500) {
-          setWooCommerceError('WooCommerce service unavailable');
+        } else if (errorCode === 'ORDER_NOT_FOUND') {
+          setWooCommerceCheckStatus('not_found');
+          setWooCommerceError(null);
+          return;
+        } else if (errorCode === 'ORDER_NUMBER_MISMATCH') {
+          setWooCommerceError(errorMessage);
+          setWooCommerceCheckStatus('error');
+          toast({
+            title: "Order Mismatch",
+            description: errorMessage,
+            variant: "destructive",
+          });
+          return;
+        } else if (errorCode === 'WOOCOMMERCE_ERROR' || response.status === 500) {
+          setWooCommerceError(errorMessage || 'WooCommerce service unavailable');
           setWooCommerceCheckStatus('error');
           toast({
             title: "Service Unavailable",
-            description: "WooCommerce service unavailable",
+            description: errorMessage || "WooCommerce service unavailable",
             variant: "destructive",
           });
           return;
         } else {
-          // Order not found (404 or similar)
-          setWooCommerceCheckStatus('not_found');
-          setWooCommerceError(null);
+          // Generic error
+          setWooCommerceError(errorMessage);
+          setWooCommerceCheckStatus('error');
+          toast({
+            title: "Error",
+            description: errorMessage,
+            variant: "destructive",
+          });
           return;
         }
       }
 
       const data = await response.json();
       
+      // CRITICAL FIX: Verify this response is still valid for the current order number
+      // If user changed order number while fetch was in progress, discard this stale response
+      const currentOrderNumber = orderNumber.trim();
+      if (wooCommerceFetchOrderNumberRef.current !== currentOrderNumber) {
+        console.warn('[CreateOrderDialog] STALE RESPONSE IGNORED: Fetch was for', wooCommerceFetchOrderNumberRef.current, 'but current order is', currentOrderNumber);
+        return; // Discard stale response
+      }
+      
       if (data.found && data.order) {
         console.log('[CreateOrderDialog] WooCommerce order found for order_number:', trimmedOrderNumber);
         console.log('[CreateOrderDialog] Received order data - order_number:', data.order.order_number);
         
-        // Verify the order number matches what we requested
-        if (data.order.order_number && data.order.order_number.toString() !== trimmedOrderNumber) {
-          console.warn('[CreateOrderDialog] WARNING: Order number mismatch! Requested:', trimmedOrderNumber, 'Received:', data.order.order_number);
+        // CRITICAL FIX: Normalize both order numbers before comparison
+        // WooCommerce might return order number in different format (e.g., "53534" vs "WC-53534")
+        // We compare the numeric part only to handle format differences
+        const requestedNormalized = normalizeOrderNumberForComparison(trimmedOrderNumber);
+        const receivedOrderNumber = data.order.order_number?.toString().trim();
+        const receivedNormalized = normalizeOrderNumberForComparison(receivedOrderNumber);
+        
+        console.log('[CreateOrderDialog] Order number comparison:', {
+          requested: trimmedOrderNumber,
+          requestedNormalized,
+          received: receivedOrderNumber,
+          receivedNormalized,
+          match: requestedNormalized === receivedNormalized
+        });
+        
+        // CRITICAL FIX: Compare normalized order numbers (numeric part only)
+        // This handles cases where WooCommerce returns "53534" but we requested "WC-53534" or vice versa
+        if (receivedNormalized && requestedNormalized && receivedNormalized !== requestedNormalized) {
+          console.error('[CreateOrderDialog] ERROR: Order number mismatch after normalization!', {
+            requested: trimmedOrderNumber,
+            requestedNormalized,
+            received: receivedOrderNumber,
+            receivedNormalized
+          });
+          setWooCommerceError(`Order number mismatch: Expected ${trimmedOrderNumber}, but WooCommerce returned order ${receivedOrderNumber}. Please verify the order number.`);
+          setWooCommerceCheckStatus('error');
+          setWooOrderData(null);
+          return;
         }
+        
+        // If normalized numbers match, proceed (even if format differs)
+        console.log('[CreateOrderDialog] Order number verified - normalized match:', requestedNormalized);
         
         setWooCommerceCheckStatus('found');
         setWooCommerceError(null);
-        // Don't auto-fill yet - wait for user to click "Import Order"
+        // CRITICAL: Only set data if it matches the current order number
         setWooOrderData(data.order);
+        // Show preview card instead of auto-importing
+        setShowPreviewCard(true);
+        setWooCommerceCached(data.cached || false);
+        setWooCommerceImportedAt(data.imported_at || null);
       } else {
+        // CRITICAL FIX: Verify this response is still valid before updating state
+        const currentOrderNumber = orderNumber.trim();
+        if (wooCommerceFetchOrderNumberRef.current !== currentOrderNumber) {
+          console.warn('[CreateOrderDialog] STALE RESPONSE IGNORED: Fetch was for', wooCommerceFetchOrderNumberRef.current, 'but current order is', currentOrderNumber);
+          return; // Discard stale response
+        }
+        
         console.log('[CreateOrderDialog] WooCommerce order not found for order_number:', trimmedOrderNumber);
         setWooCommerceCheckStatus('not_found');
         setWooCommerceError(null);
@@ -308,10 +415,83 @@ export function CreateOrderDialog({
 
   // Import WooCommerce order data - called when user clicks "Import Order from WooCommerce"
   // This autofills the form and locks imported fields for security
+  // Handle confirmation and import WooCommerce order
+  const handleConfirmImport = useCallback(async () => {
+    if (!wooOrderData) return;
+
+    // CRITICAL FIX: Verify wooOrderData belongs to the current order number
+    const currentOrderNumber = orderNumber.trim();
+    const wooOrderNumber = wooOrderData.order_number?.toString().trim();
+    
+    // Normalize both for comparison
+    const currentNormalized = normalizeOrderNumberForComparison(currentOrderNumber);
+    const wooNormalized = normalizeOrderNumberForComparison(wooOrderNumber);
+    
+    if (wooNormalized && currentNormalized && wooNormalized !== currentNormalized) {
+      console.error('[CreateOrderDialog] IMPORT BLOCKED: Order mismatch');
+      toast({
+        title: "Order Mismatch",
+        description: `WooCommerce data is for order ${wooOrderNumber}, but you're creating order ${currentOrderNumber}. Please check the order number again.`,
+        variant: "destructive",
+      });
+      setWooOrderData(null);
+      setWooCommerceCheckStatus('idle');
+      setShowPreviewCard(false);
+      return;
+    }
+
+    console.log('[CreateOrderDialog] Confirming import for order:', currentOrderNumber);
+
+    // Cache the import in database (idempotency)
+    if (!user) {
+      toast({
+        title: "Error",
+        description: "User not authenticated",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const wooOrderId = wooOrderData.id;
+      if (wooOrderId) {
+        // Check if already cached
+        const { data: existingCache } = await supabase
+          .from('woocommerce_imports')
+          .select('id')
+          .eq('woocommerce_order_id', wooOrderId)
+          .maybeSingle();
+
+        // Only cache if not already cached
+        if (!existingCache) {
+          const { error: cacheError } = await supabase
+            .from('woocommerce_imports')
+            .insert({
+              woocommerce_order_id: wooOrderId,
+              order_number: wooOrderNumber || currentOrderNumber,
+              sanitized_payload: wooOrderData,
+              imported_by: user.id,
+            });
+
+          if (cacheError) {
+            console.error('[CreateOrderDialog] Error caching import:', cacheError);
+            // Continue with import even if cache fails
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[CreateOrderDialog] Error during cache operation:', error);
+      // Continue with import even if cache fails
+    }
+
+    // Now proceed with import
+    importWooCommerceOrder();
+  }, [wooOrderData, orderNumber, user, toast]);
+
   const importWooCommerceOrder = useCallback(() => {
     if (!wooOrderData) return;
 
-    console.log('[CreateOrderDialog] Importing WooCommerce order data');
+    console.log('[CreateOrderDialog] Importing WooCommerce order data for order:', orderNumber.trim());
 
     // Keep the order number as entered by user (don't auto-format)
     // User may have entered just the number, we keep it as is
@@ -353,11 +533,12 @@ export function CreateOrderDialog({
     setGlobalNotes(notes);
 
     setIsWooCommerceOrder(true);
+    setShowPreviewCard(false);
     toast({
       title: "Order Imported",
       description: "WooCommerce order data has been imported. Customer fields are now locked.",
     });
-  }, [wooOrderData, toast]);
+  }, [wooOrderData, orderNumber, toast]);
 
   // Debounce timer ref for duplicate check only (NO automatic WooCommerce fetch)
   const duplicateCheckTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -379,6 +560,10 @@ export function CreateOrderDialog({
     setIsWooCommerceOrder(false);
     setWooCommerceCheckStatus('idle');
     setWooCommerceError(null);
+    
+    // CRITICAL FIX: Invalidate the fetch ref when order number changes
+    // This ensures any in-flight fetches will be discarded as stale
+    wooCommerceFetchOrderNumberRef.current = null;
     
     // IMPORTANT: Clear all imported form data when order number changes
     // This prevents showing data from previous order (e.g., 53534)
@@ -554,6 +739,9 @@ export function CreateOrderDialog({
         ? wooOrderData.shipping_pincode
         : customerData.pincode;
 
+      // Calculate priority automatically based on delivery date
+      const computedPriority = computePriority(deliveryDate);
+      
       // Create order
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
@@ -573,7 +761,7 @@ export function CreateOrderDialog({
           shipping_state: shippingState || null,
           shipping_pincode: shippingPincode || null,
           delivery_date: deliveryDate?.toISOString() || null,
-          priority: priority,
+          priority: computedPriority, // Automatically calculated from delivery date
           source: orderSource,
           woo_order_id: wooOrderId,
           order_total: isWooCommerceSource ? wooOrderData.order_total : null,
@@ -615,7 +803,7 @@ export function CreateOrderDialog({
             : {},
           // Store WooCommerce meta data if available
           woo_meta: wooLineItem?.meta_data || null,
-          priority: priority || 'blue', // Default priority
+          priority: computedPriority, // Automatically calculated from delivery date
           current_stage: 'sales',
           assigned_department: 'sales',
           delivery_date: deliveryDate?.toISOString() || null,
@@ -633,7 +821,7 @@ export function CreateOrderDialog({
         product_name: item.product_name,
         quantity: Number(item.quantity) || 1,
         specifications: item.specifications || {},
-        priority: item.priority || 'blue',
+        priority: computedPriority, // Automatically calculated from delivery date
         current_stage: item.current_stage || 'sales',
         assigned_department: item.assigned_department || 'sales',
         delivery_date: item.delivery_date || null,
@@ -809,20 +997,150 @@ export function CreateOrderDialog({
                         Checking WooCommerce...
                       </p>
                     )}
-                    {wooCommerceCheckStatus === 'found' && wooOrderData && !isWooCommerceOrder && (
-                      <div className="space-y-2">
-                        <p className="text-xs text-green-600 flex items-center gap-1">
-                          ✓ WooCommerce order found!
-                        </p>
-                        <Button
-                          type="button"
-                          variant="default"
-                          size="sm"
-                          onClick={importWooCommerceOrder}
-                          className="w-full"
-                        >
-                          Import Order from WooCommerce
-                        </Button>
+                    {showPreviewCard && wooOrderData && (
+                      <div className="mt-4 space-y-3">
+                        <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+                          <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                          <AlertTitle className="text-yellow-800 dark:text-yellow-200">Please verify this order carefully before importing</AlertTitle>
+                          <AlertDescription className="text-yellow-700 dark:text-yellow-300">
+                            Review all details below to ensure this is the correct order.
+                          </AlertDescription>
+                        </Alert>
+                        
+                        {wooCommerceCached && wooCommerceImportedAt && (
+                          <Alert className="border-blue-500 bg-blue-50 dark:bg-blue-950">
+                            <AlertDescription className="text-blue-700 dark:text-blue-300">
+                              Previously imported on {format(new Date(wooCommerceImportedAt), 'PPpp')}
+                            </AlertDescription>
+                          </Alert>
+                        )}
+
+                        <Card className="border-2">
+                          <CardHeader className="pb-3 px-4 sm:px-6">
+                            <CardTitle className="text-base sm:text-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
+                              <span>Order Preview</span>
+                              <Badge variant="outline" className="text-green-600 border-green-600 text-xs sm:text-sm">
+                                <CheckCircle2 className="h-3 w-3 sm:h-3.5 sm:w-3.5 mr-1" />
+                                Verified
+                              </Badge>
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-3 sm:space-y-4 px-4 sm:px-6 pb-4 sm:pb-6">
+                            {/* Order Number & Date */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Order Number</p>
+                                <p className="font-semibold text-sm sm:text-base break-all">{wooOrderData.order_number}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Order Date</p>
+                                <p className="font-semibold text-sm sm:text-base flex items-center gap-1.5">
+                                  <Calendar className="h-3 w-3 sm:h-3.5 sm:w-3.5 flex-shrink-0" />
+                                  <span className="break-words">
+                                    {wooOrderData.order_date ? format(new Date(wooOrderData.order_date), 'PP') : 'N/A'}
+                                  </span>
+                                </p>
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Customer Details */}
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-2">Customer Details</p>
+                              <div className="space-y-1.5 sm:space-y-2">
+                                <p className="font-medium text-sm sm:text-base flex items-start sm:items-center gap-2 break-words">
+                                  <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 mt-0.5 sm:mt-0 flex-shrink-0" />
+                                  <span className="break-words">{wooOrderData.customer_name || 'N/A'}</span>
+                                </p>
+                                {wooOrderData.customer_phone && (
+                                  <p className="text-xs sm:text-sm flex items-center gap-2 text-muted-foreground break-all">
+                                    <Phone className="h-3 w-3 sm:h-3.5 sm:w-3.5 flex-shrink-0" />
+                                    <a href={`tel:${wooOrderData.customer_phone}`} className="hover:underline break-all">
+                                      {wooOrderData.customer_phone}
+                                    </a>
+                                  </p>
+                                )}
+                                {wooOrderData.customer_email && (
+                                  <p className="text-xs sm:text-sm flex items-center gap-2 text-muted-foreground break-all">
+                                    <Mail className="h-3 w-3 sm:h-3.5 sm:w-3.5 flex-shrink-0" />
+                                    <a href={`mailto:${wooOrderData.customer_email}`} className="hover:underline break-all">
+                                      {wooOrderData.customer_email}
+                                    </a>
+                                  </p>
+                                )}
+                                {wooOrderData.billing_address && (
+                                  <p className="text-xs sm:text-sm flex items-start gap-2 text-muted-foreground">
+                                    <MapPin className="h-3 w-3 sm:h-3.5 sm:w-3.5 mt-0.5 flex-shrink-0" />
+                                    <span className="line-clamp-3 sm:line-clamp-2 break-words">{wooOrderData.billing_address}</span>
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Products */}
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-2">Products</p>
+                              <div className="space-y-2">
+                                {wooOrderData.line_items && wooOrderData.line_items.length > 0 ? (
+                                  wooOrderData.line_items.map((item: any, idx: number) => (
+                                    <div key={idx} className="flex items-start gap-2 p-2 sm:p-2.5 bg-muted rounded-md">
+                                      <Package className="h-3.5 w-3.5 sm:h-4 sm:w-4 mt-0.5 flex-shrink-0" />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs sm:text-sm font-medium line-clamp-2 break-words">{item.name || 'Unnamed Product'}</p>
+                                        <p className="text-xs text-muted-foreground mt-0.5">Quantity: {item.quantity || 1}</p>
+                                      </div>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <p className="text-xs sm:text-sm text-muted-foreground">No products found</p>
+                                )}
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Order Total */}
+                            <div className="flex items-center justify-between pt-1">
+                              <p className="text-xs sm:text-sm text-muted-foreground font-medium">Order Total</p>
+                              <p className="font-semibold text-base sm:text-lg flex items-center gap-1">
+                                <span className="text-lg sm:text-xl">₹</span>
+                                <span>{wooOrderData.order_total?.toFixed(2) || '0.00'}</span>
+                                {wooOrderData.currency && wooOrderData.currency !== 'INR' && (
+                                  <span className="text-xs text-muted-foreground ml-1">({wooOrderData.currency})</span>
+                                )}
+                              </p>
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        {/* Confirmation Buttons */}
+                        <div className="flex flex-col sm:flex-row gap-2 sm:gap-2 pt-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => {
+                              setShowPreviewCard(false);
+                              setWooOrderData(null);
+                              setWooCommerceCheckStatus('idle');
+                            }}
+                            className="flex-1 w-full sm:w-auto"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="default"
+                            onClick={handleConfirmImport}
+                            className="flex-1 w-full sm:w-auto"
+                          >
+                            <CheckCircle2 className="h-4 w-4 mr-2" />
+                            <span className="hidden sm:inline">Confirm & Import</span>
+                            <span className="sm:hidden">Import</span>
+                          </Button>
+                        </div>
                       </div>
                     )}
                     {wooCommerceCheckStatus === 'not_found' && (
@@ -981,19 +1299,22 @@ export function CreateOrderDialog({
                   </PopoverContent>
                 </Popover>
               </div>
-              <div className="space-y-2">
-                <Label>Priority</Label>
-                <Select value={priority} onValueChange={setPriority}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="blue">Normal (Blue)</SelectItem>
-                    <SelectItem value="yellow">Medium (Yellow)</SelectItem>
-                    <SelectItem value="red">Urgent (Red)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {/* Priority is automatically calculated based on delivery date */}
+              {deliveryDate && (
+                <div className="space-y-2">
+                  <Label>Priority (Auto)</Label>
+                  <div className="flex items-center gap-2 p-2 rounded-md bg-muted/50">
+                    <span className="text-sm font-medium">
+                      {computePriority(deliveryDate) === 'blue' && 'Normal (Blue) - > 5 days'}
+                      {computePriority(deliveryDate) === 'yellow' && 'Medium (Yellow) - 3-5 days'}
+                      {computePriority(deliveryDate) === 'red' && 'Urgent (Red) - < 3 days'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Priority is automatically set based on delivery date
+                  </p>
+                </div>
+              )}
             </div>
 
             <Separator />

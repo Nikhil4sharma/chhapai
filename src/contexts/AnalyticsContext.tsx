@@ -48,6 +48,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
   // Check if delay_reasons table exists (only once, with localStorage cache)
   useEffect(() => {
     let isMounted = true;
+    let abortController: AbortController | null = null;
     
     const checkTableExists = async () => {
       // Skip query if we already know table doesn't exist from cache
@@ -64,15 +65,18 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       }
       
       // Only query if we don't have a cached value
-      // Use .maybeSingle() to avoid errors, and catch any errors silently
+      // Use AbortController to prevent errors if component unmounts
+      abortController = new AbortController();
+      
       try {
+        // Make a silent query - errors are expected if table doesn't exist
         const { error } = await supabase
           .from('delay_reasons')
           .select('id')
           .limit(1)
           .maybeSingle();
         
-        if (isMounted) {
+        if (isMounted && !abortController.signal.aborted) {
           // Check for table not found errors (404, PGRST205, etc.)
           const isTableNotFound = error && (
             error.code === 'PGRST205' || 
@@ -89,6 +93,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
             // Table doesn't exist - cache it to avoid future queries
             setDelayReasonsTableExists(false);
             localStorage.setItem('delay_reasons_table_exists', 'false');
+            // Don't log 404 errors - they're expected when table doesn't exist
           } else if (!error) {
             // No error - table exists
             setDelayReasonsTableExists(true);
@@ -101,7 +106,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error: any) {
         // Silently handle any exceptions - don't log to avoid console noise
-        if (isMounted) {
+        if (isMounted && !abortController?.signal.aborted) {
           const isTableNotFound = error?.code === 'PGRST205' || 
               error?.code === '42P01' ||
               error?.message?.includes('Could not find the table') ||
@@ -113,6 +118,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
           if (isTableNotFound) {
             setDelayReasonsTableExists(false);
             localStorage.setItem('delay_reasons_table_exists', 'false');
+            // Don't log 404 errors - they're expected
           }
           // Don't set anything on other errors - leave it null so it can be retried
         }
@@ -124,6 +130,9 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     
     return () => {
       isMounted = false;
+      if (abortController) {
+        abortController.abort();
+      }
     };
   }, []);
 
