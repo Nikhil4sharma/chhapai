@@ -5,6 +5,12 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { supabase } from '@/integrations/supabase/client';
 import { Order, STAGE_LABELS, Stage, Priority, DispatchInfo } from '@/types/order';
 import { format, differenceInDays } from 'date-fns';
@@ -576,6 +582,7 @@ export default function TrackOrder() {
     : null;
 
   return (
+    <TooltipProvider>
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header - Sticky, no height locking */}
       <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-50 shrink-0">
@@ -932,7 +939,38 @@ export default function TrackOrder() {
                                         </div>
                                         
                                         <div className="sm:col-span-2">
-                                          <p className="text-xs font-medium text-muted-foreground mb-2">Tracking Number</p>
+                                          <div className="flex items-center justify-between mb-2">
+                                            <p className="text-xs font-medium text-muted-foreground">Tracking Number</p>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon-sm"
+                                                  onClick={async () => {
+                                                    try {
+                                                      const trackingDetails = `Order: ${searchedOrder.order_id}\nProduct: ${item.product_name}\nCourier: ${dispatchInfo.courier_company}\nTracking Number: ${dispatchInfo.tracking_number}\nDispatch Date: ${format(new Date(dispatchInfo.dispatch_date), 'MMM d, yyyy')}${trackingUrl ? `\nTrack: ${trackingUrl}` : ''}`;
+                                                      await navigator.clipboard.writeText(trackingDetails);
+                                                      toast({
+                                                        title: "Copied!",
+                                                        description: "All tracking details copied to clipboard",
+                                                      });
+                                                    } catch (err) {
+                                                      console.error('Failed to copy:', err);
+                                                      toast({
+                                                        title: "Error",
+                                                        description: "Failed to copy tracking details",
+                                                        variant: "destructive",
+                                                      });
+                                                    }
+                                                  }}
+                                                  className="h-7 w-7"
+                                                >
+                                                  <Copy className="h-3.5 w-3.5" />
+                                                </Button>
+                                              </TooltipTrigger>
+                                              <TooltipContent>Copy all tracking details</TooltipContent>
+                                            </Tooltip>
+                                          </div>
                                           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                                             <code className="flex-1 px-3 py-2 bg-background border border-border rounded-md text-xs sm:text-sm font-mono font-semibold break-all">
                                               {dispatchInfo.tracking_number}
@@ -954,7 +992,7 @@ export default function TrackOrder() {
                                               className="shrink-0 w-full sm:w-auto"
                                             >
                                               <Copy className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-2" />
-                                              Copy
+                                              Copy Number
                                             </Button>
                                           </div>
                                         </div>
@@ -1065,5 +1103,6 @@ export default function TrackOrder() {
         <AppFooter />
       </div>
     </div>
+    </TooltipProvider>
   );
 }

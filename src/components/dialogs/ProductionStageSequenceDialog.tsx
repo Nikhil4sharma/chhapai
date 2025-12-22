@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { GripVertical, Check, X, ArrowRight, Settings } from 'lucide-react';
 import {
   Dialog,
@@ -14,6 +14,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { PRODUCTION_STEPS } from '@/types/order';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface ProductionStageSequenceDialogProps {
   open: boolean;
@@ -32,10 +33,46 @@ export function ProductionStageSequenceDialog({
   currentSequence,
   onConfirm,
 }: ProductionStageSequenceDialogProps) {
+  const [availableStages, setAvailableStages] = useState<Array<{ key: string; label: string; order: number }>>(PRODUCTION_STEPS);
   const [selectedStages, setSelectedStages] = useState<string[]>(
     currentSequence || PRODUCTION_STEPS.map(s => s.key)
   );
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
+
+  // Load production stages from Settings (app_settings)
+  useEffect(() => {
+    const loadProductionStages = async () => {
+      try {
+        const { data: settingsData, error: settingsError } = await supabase
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'production_stages')
+          .maybeSingle();
+
+        if (settingsError && settingsError.code !== 'PGRST116') {
+          console.error('Error loading production stages:', settingsError);
+          return;
+        }
+
+        if (settingsData?.setting_value) {
+          const stages = settingsData.setting_value as Array<{ key: string; label: string; order: number }>;
+          if (Array.isArray(stages) && stages.length > 0) {
+            setAvailableStages(stages);
+            // If no current sequence, use all available stages
+            if (!currentSequence) {
+              setSelectedStages(stages.map(s => s.key));
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error loading production stages:', error);
+      }
+    };
+
+    if (open) {
+      loadProductionStages();
+    }
+  }, [open, currentSequence]);
 
   const handleToggleStage = (stageKey: string) => {
     setSelectedStages(prev => {
@@ -83,7 +120,7 @@ export function ProductionStageSequenceDialog({
   };
 
   const getStageLabel = (key: string) => {
-    return PRODUCTION_STEPS.find(s => s.key === key)?.label || key;
+    return availableStages.find(s => s.key === key)?.label || PRODUCTION_STEPS.find(s => s.key === key)?.label || key;
   };
 
   return (
@@ -108,7 +145,7 @@ export function ProductionStageSequenceDialog({
           <div className="space-y-2 mb-4">
             <Label className="text-xs font-medium text-muted-foreground">Available Stages:</Label>
             <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 border border-border rounded-lg">
-              {PRODUCTION_STEPS.map(stage => (
+              {availableStages.map(stage => (
                 <div key={stage.key} className="flex items-center gap-2">
                   <Checkbox
                     id={`stage-${stage.key}`}

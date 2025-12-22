@@ -283,6 +283,29 @@ export default function Production() {
     return PRODUCTION_STEPS;
   };
 
+  // Get all unique stages from all items' production_stage_sequence
+  const getAllUsedStages = () => {
+    const stageSet = new Set<string>();
+    productionItems.forEach(({ item }) => {
+      if (item.production_stage_sequence && item.production_stage_sequence.length > 0) {
+        item.production_stage_sequence.forEach((key: string) => stageSet.add(key));
+      } else {
+        // If no sequence, add all default stages
+        PRODUCTION_STEPS.forEach(s => stageSet.add(s.key));
+      }
+    });
+    // Convert to array and map to stage objects with labels
+    return Array.from(stageSet).map(key => {
+      const defaultStep = PRODUCTION_STEPS.find(s => s.key === key);
+      return { key, label: defaultStep?.label || key };
+    }).sort((a, b) => {
+      // Sort by order in PRODUCTION_STEPS to maintain sequence
+      const aOrder = PRODUCTION_STEPS.findIndex(s => s.key === a.key);
+      const bOrder = PRODUCTION_STEPS.findIndex(s => s.key === b.key);
+      return aOrder - bOrder;
+    });
+  };
+
   const getCurrentSubstageIndex = (item: any) => {
     const stages = getItemStages(item);
     if (!item.current_substage) return -1;
@@ -385,7 +408,7 @@ export default function Production() {
                   All
                   <Badge variant="secondary" className="ml-2">{productionItems.length}</Badge>
                 </TabsTrigger>
-                {PRODUCTION_STEPS.map((step) => {
+                {getAllUsedStages().map((step) => {
                   const count = getItemsBySubstage(step.key).length;
                   return (
                     <TabsTrigger key={step.key} value={step.key} className="px-4">
@@ -399,7 +422,7 @@ export default function Production() {
               </TabsList>
             </div>
 
-            {['all', ...PRODUCTION_STEPS.map(s => s.key)].map((tabValue) => (
+            {['all', ...getAllUsedStages().map(s => s.key)].map((tabValue) => (
               <TabsContent key={tabValue} value={tabValue} className="flex-1 mt-4 overflow-hidden">
                 <div className="h-full overflow-y-auto custom-scrollbar pr-2 space-y-4">
                 {getItemsBySubstage(tabValue === 'all' ? 'all' : tabValue).length === 0 ? (
