@@ -93,6 +93,45 @@ export default function Settings() {
   const faviconInputRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
+  // Load appearance settings from Supabase
+  useEffect(() => {
+    if (!isAdmin) return;
+    
+    const loadAppearanceSettings = async () => {
+      try {
+        const { data: settingsData, error: settingsError } = await supabase
+          .from('app_settings')
+          .select('setting_value')
+          .eq('setting_key', 'appearance')
+          .maybeSingle();
+
+        if (settingsError && settingsError.code !== 'PGRST116') {
+          console.error('Error loading appearance settings:', settingsError);
+          return;
+        }
+
+        if (settingsData?.setting_value) {
+          const appearance = settingsData.setting_value as {
+            favicon_url?: string;
+            logo_url?: string;
+          };
+          
+          if (appearance.favicon_url) {
+            setFaviconUrl(appearance.favicon_url);
+          }
+          
+          if (appearance.logo_url) {
+            setLogoUrl(appearance.logo_url);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading appearance settings:', error);
+      }
+    };
+
+    loadAppearanceSettings();
+  }, [isAdmin]);
+
   // Vendor management states
   const [vendors, setVendors] = useState<Array<{
     id: string;
@@ -1942,18 +1981,32 @@ export default function Settings() {
                               'app-settings'
                             );
                             
-                            // Save to Supabase app_settings table
-                            await supabase
+                            // Load existing appearance settings first to merge
+                            const { data: existingSettings } = await supabase
+                              .from('app_settings')
+                              .select('setting_value')
+                              .eq('setting_key', 'appearance')
+                              .maybeSingle();
+
+                            const existingAppearance = (existingSettings?.setting_value as any) || {};
+                            
+                            // Save to Supabase app_settings table with merged values
+                            const { error: saveError } = await supabase
                               .from('app_settings')
                               .upsert({
                                 setting_key: 'appearance',
                                 setting_value: {
+                                  ...existingAppearance,
                                   favicon_url: downloadURL,
                                 },
                                 updated_at: new Date().toISOString(),
                               }, {
                                 onConflict: 'setting_key'
                               });
+
+                            if (saveError) {
+                              throw new Error(`Failed to save favicon: ${saveError.message}`);
+                            }
 
                             setFaviconUrl(downloadURL);
                             
@@ -2063,18 +2116,32 @@ export default function Settings() {
                               'app-settings'
                             );
                             
-                            // Save to Supabase app_settings table
-                            await supabase
+                            // Load existing appearance settings first to merge
+                            const { data: existingSettings } = await supabase
+                              .from('app_settings')
+                              .select('setting_value')
+                              .eq('setting_key', 'appearance')
+                              .maybeSingle();
+
+                            const existingAppearance = (existingSettings?.setting_value as any) || {};
+                            
+                            // Save to Supabase app_settings table with merged values
+                            const { error: saveError } = await supabase
                               .from('app_settings')
                               .upsert({
                                 setting_key: 'appearance',
                                 setting_value: {
+                                  ...existingAppearance,
                                   logo_url: downloadURL,
                                 },
                                 updated_at: new Date().toISOString(),
                               }, {
                                 onConflict: 'setting_key'
                               });
+
+                            if (saveError) {
+                              throw new Error(`Failed to save logo: ${saveError.message}`);
+                            }
 
                             setLogoUrl(downloadURL);
 

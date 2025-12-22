@@ -1,15 +1,23 @@
-import { useState } from 'react';
-import { Search, Package, Calendar, CheckCircle, Clock, Truck, Loader2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Search, Package, Calendar, CheckCircle, Clock, Truck, Loader2, Mail, Sparkles, Moon, Sun, Copy, ExternalLink, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { supabase } from '@/integrations/supabase/client';
-import { Order, STAGE_LABELS, Stage, Priority } from '@/types/order';
-import { format } from 'date-fns';
+import { Order, STAGE_LABELS, Stage, Priority, DispatchInfo } from '@/types/order';
+import { format, differenceInDays } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { AppFooter } from '@/components/layout/AppFooter';
+import { useTheme } from '@/contexts/ThemeContext';
+import { toast } from '@/hooks/use-toast';
 
-const stageOrder: Stage[] = ['sales', 'design', 'prepress', 'production', 'dispatch', 'completed'];
+// Full stage order including outsource (for calculations)
+const fullStageOrder: Stage[] = ['sales', 'design', 'prepress', 'production', 'outsource', 'dispatch', 'completed'];
+
+// Display stage order (for customer-facing UI, outsource is shown as part of production)
+const displayStageOrder: Stage[] = ['sales', 'design', 'prepress', 'production', 'dispatch', 'completed'];
 
 // Helper to compute priority based on days until delivery
 const computePriority = (deliveryDate: Date | null): Priority => {
@@ -25,50 +33,126 @@ const computePriority = (deliveryDate: Date | null): Priority => {
   return 'red';
 };
 
+// Helper to get the most advanced stage from all items
+// CRITICAL: This uses current_stage from order_items as the single source of truth
+const getMostAdvancedStage = (items: { current_stage: Stage }[]): Stage => {
+  if (!items || items.length === 0) {
+    console.log('[TrackOrder] getMostAdvancedStage: No items, returning sales');
+    return 'sales';
+  }
+  
+  let mostAdvancedIndex = -1;
+  let mostAdvancedStage: Stage = 'sales';
+  
+  items.forEach(item => {
+    const stageIndex = fullStageOrder.indexOf(item.current_stage);
+    console.log(`[TrackOrder] getMostAdvancedStage: Item stage=${item.current_stage}, index=${stageIndex}, currentMaxIndex=${mostAdvancedIndex}`);
+    
+    if (stageIndex > mostAdvancedIndex) {
+      mostAdvancedIndex = stageIndex;
+      mostAdvancedStage = item.current_stage;
+    }
+  });
+  
+  console.log(`[TrackOrder] getMostAdvancedStage: Final stage=${mostAdvancedStage}, index=${mostAdvancedIndex}`);
+  return mostAdvancedStage;
+};
+
+// Helper to convert stage for display (outsource -> production for customer view)
+const getDisplayStage = (stage: Stage): Stage => {
+  return stage === 'outsource' ? 'production' : stage;
+};
+
+// Helper to normalize order number input (accept numeric-only and auto-prepend WC-)
+const normalizeOrderNumber = (input: string): string | null => {
+  const trimmed = input.trim().toUpperCase();
+  
+  // If it already has a prefix (WC- or MAN-), validate and return as is
+  const prefixedPattern = /^(WC|MAN)-\d+$/;
+  if (prefixedPattern.test(trimmed)) {
+    return trimmed;
+  }
+  
+  // If it's just numbers, prepend WC- prefix
+  const numericPattern = /^\d+$/;
+  if (numericPattern.test(trimmed)) {
+    return `WC-${trimmed}`;
+  }
+  
+  // Invalid format
+  return null;
+};
+
+// Helper to format order number for display (remove WC- prefix)
+const formatOrderNumberForDisplay = (orderId: string): string => {
+  // Remove WC- or MAN- prefix if present
+  return orderId.replace(/^(WC|MAN)-/i, '');
+};
+
 function StageIndicator({ currentStage }: { currentStage: Stage }) {
-  const currentIndex = stageOrder.indexOf(currentStage);
+  // Convert stage for display (outsource -> production)
+  const displayStage = getDisplayStage(currentStage);
+  let currentIndex = displayStageOrder.indexOf(displayStage);
+  // Fallback to first stage if stage not found
+  if (currentIndex === -1) currentIndex = 0;
   
   return (
-    <div className="flex items-center justify-between w-full max-w-lg mx-auto my-8">
-      {stageOrder.slice(0, -1).map((stage, index) => {
-        const isCompleted = index < currentIndex;
-        const isCurrent = index === currentIndex;
-        
-        return (
-          <div key={stage} className="flex items-center">
-            <div className="flex flex-col items-center">
-              <div 
-                className={cn(
-                  "h-10 w-10 rounded-full flex items-center justify-center text-sm font-medium transition-all",
-                  isCompleted && "bg-success text-success-foreground",
-                  isCurrent && "bg-primary text-primary-foreground ring-4 ring-primary/20",
-                  !isCompleted && !isCurrent && "bg-muted text-muted-foreground"
-                )}
-              >
-                {isCompleted ? (
-                  <CheckCircle className="h-5 w-5" />
-                ) : (
-                  index + 1
-                )}
+    <div className="w-full overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0">
+      <div className="flex items-center justify-between w-full min-w-[320px] sm:min-w-[500px] max-w-2xl mx-auto gap-2 sm:gap-4">
+        {displayStageOrder.slice(0, -1).map((stage, index) => {
+          const isCompleted = index < currentIndex;
+          const isCurrent = index === currentIndex;
+          const animationDelay = index * 100;
+          
+          return (
+            <div key={stage} className="flex items-center flex-1 min-w-0">
+              <div className="flex flex-col items-center flex-1 relative w-full">
+                {/* Circle with proper spacing to prevent clipping */}
+                <div className="relative mb-3 pt-1">
+                  <div 
+                    className={cn(
+                      "h-10 w-10 xs:h-12 xs:w-12 sm:h-14 sm:w-14 rounded-full flex items-center justify-center text-xs xs:text-sm sm:text-base font-semibold transition-all duration-500 relative z-10",
+                      isCompleted && "bg-success text-success-foreground shadow-lg shadow-success/50 scale-110",
+                      isCurrent && "bg-primary text-primary-foreground ring-4 ring-primary/30 shadow-lg shadow-primary/50 scale-110 animate-pulse-soft",
+                      !isCompleted && !isCurrent && "bg-muted text-muted-foreground"
+                    )}
+                    style={{ animationDelay: `${animationDelay}ms` }}
+                  >
+                    {isCompleted ? (
+                      <CheckCircle className="h-5 w-5 xs:h-6 xs:w-6 sm:h-7 sm:w-7 animate-in fade-in zoom-in duration-300" />
+                    ) : (
+                      <span>{index + 1}</span>
+                    )}
+                  </div>
+                </div>
+                {/* Stage label with responsive text sizing */}
+                <span className={cn(
+                  "text-[10px] xs:text-xs sm:text-sm mt-0 text-center font-medium transition-colors duration-300 px-1 break-words line-clamp-2",
+                  (isCompleted || isCurrent) ? "text-foreground" : "text-muted-foreground"
+                )}>
+                  {STAGE_LABELS[stage]}
+                </span>
               </div>
-              <span className={cn(
-                "text-xs mt-2 text-center",
-                (isCompleted || isCurrent) ? "text-foreground font-medium" : "text-muted-foreground"
-              )}>
-                {STAGE_LABELS[stage]}
-              </span>
+              {index < displayStageOrder.length - 2 && (
+                <div className="flex-1 mx-1 xs:mx-2 sm:mx-4 relative min-w-[20px]">
+                  <div className="h-1 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className={cn(
+                        "h-full transition-all duration-1000 ease-out rounded-full",
+                        isCompleted ? "bg-success" : "bg-transparent"
+                      )}
+                      style={{ 
+                        width: isCompleted ? '100%' : '0%',
+                        transitionDelay: `${animationDelay}ms`
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
-            {index < stageOrder.length - 2 && (
-              <div 
-                className={cn(
-                  "h-1 w-8 sm:w-12 mx-1",
-                  isCompleted ? "bg-success" : "bg-muted"
-                )}
-              />
-            )}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -84,9 +168,11 @@ interface SearchedOrder {
     item_id: string;
     product_name: string;
     quantity: number;
-    current_stage: Stage;
+    current_stage: Stage; // CRITICAL: This is the source of truth from order_items.current_stage
     delivery_date: string | null;
     priority_computed: Priority;
+    dispatch_info?: DispatchInfo | null; // Dispatch tracking details
+    is_dispatched?: boolean;
   }[];
   timeline: {
     id: string;
@@ -98,15 +184,209 @@ interface SearchedOrder {
 
 export default function TrackOrder() {
   const [orderNumber, setOrderNumber] = useState('');
-  const [phone, setPhone] = useState('');
   const [searchedOrder, setSearchedOrder] = useState<SearchedOrder | null>(null);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const { theme, toggleTheme } = useTheme();
+  const subscriptionRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const orderIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (searchedOrder) {
+      setShowResults(true);
+      // Small delay to ensure DOM is updated, then scroll to results
+      setTimeout(() => {
+        const resultsElement = document.querySelector('[data-order-results]');
+        if (resultsElement) {
+          resultsElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 200);
+    }
+  }, [searchedOrder]);
+
+  // CRITICAL: Real-time subscription for live order updates
+  useEffect(() => {
+    // Clean up previous subscription
+    if (subscriptionRef.current) {
+      subscriptionRef.current.unsubscribe();
+      subscriptionRef.current = null;
+    }
+
+    // Only subscribe if we have a searched order
+    if (!searchedOrder?.id) return;
+
+    const orderId = searchedOrder.id;
+    orderIdRef.current = orderId;
+
+    console.log('[TrackOrder] Setting up real-time subscription for order:', orderId);
+
+    // Subscribe to order_items changes for this specific order
+    const channel = supabase
+      .channel(`track-order-${orderId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'order_items',
+          filter: `order_id=eq.${orderId}`,
+        },
+        async (payload) => {
+          console.log('[TrackOrder] Order items change received:', payload.eventType);
+          
+          // Refresh order data to get latest current_stage and dispatch_info
+          if (orderIdRef.current === orderId) {
+            await refreshOrderData(orderId);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          filter: `id=eq.${orderId}`,
+        },
+        async (payload) => {
+          console.log('[TrackOrder] Order change received:', payload.eventType);
+          
+          if (orderIdRef.current === orderId) {
+            await refreshOrderData(orderId);
+          }
+        }
+      )
+      .subscribe();
+
+    subscriptionRef.current = channel;
+
+    return () => {
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe();
+        subscriptionRef.current = null;
+      }
+    };
+  }, [searchedOrder?.id]);
+
+  // Helper function to refresh order data from database (PUBLIC - no auth required)
+  const refreshOrderData = async (orderId: string) => {
+    try {
+      // PUBLIC TRACKING: Fetch latest order data - only safe fields
+      const { data: orderData, error: orderError } = await supabase
+        .from('orders')
+        .select(`
+          id,
+          order_id,
+          customer_name,
+          delivery_date,
+          is_completed,
+          created_at
+        `)
+        .eq('id', orderId)
+        .maybeSingle();
+
+      if (orderError || !orderData) {
+        console.error('[TrackOrder] Error refreshing order:', orderError);
+        return;
+      }
+
+      // PUBLIC TRACKING: Fetch latest order items - only safe fields
+      const { data: itemsData, error: itemsError } = await supabase
+        .from('order_items')
+        .select(`
+          id,
+          product_name,
+          quantity,
+          current_stage,
+          delivery_date,
+          dispatch_info,
+          is_dispatched
+        `)
+        .eq('order_id', orderData.id);
+
+      if (itemsError) {
+        console.error('[TrackOrder] Error refreshing items:', itemsError);
+        return;
+      }
+
+      // PUBLIC TRACKING: Fetch latest public timeline - only safe fields
+      const { data: timelineData, error: timelineError } = await supabase
+        .from('timeline')
+        .select(`
+          id,
+          action,
+          created_at,
+          is_public
+        `)
+        .eq('order_id', orderData.id)
+        .eq('is_public', true)
+        .order('created_at', { ascending: false });
+
+      if (timelineError) {
+        console.error('[TrackOrder] Error refreshing timeline:', timelineError);
+        return;
+      }
+
+      // DEBUG: Log refreshed items with their current_stage
+      console.log('[TrackOrder] Refreshed items from database:', itemsData?.map(item => ({
+        product_name: item.product_name,
+        current_stage: item.current_stage,
+      })));
+
+      // Update state with fresh data (CRITICAL: Uses current_stage from order_items as source of truth)
+      const updatedOrder: SearchedOrder = {
+        id: orderData.id,
+        order_id: orderData.order_id,
+        customer_name: orderData.customer_name,
+        is_completed: orderData.is_completed || false,
+        delivery_date: orderData.delivery_date || null,
+        created_at: orderData.created_at || new Date().toISOString(),
+        items: (itemsData || []).map(item => {
+          // Parse dispatch_info if it exists
+          let dispatchInfo: DispatchInfo | null = null;
+          if (item.dispatch_info && typeof item.dispatch_info === 'object') {
+            dispatchInfo = item.dispatch_info as DispatchInfo;
+          }
+          
+          // CRITICAL: Use current_stage directly from order_items table (single source of truth)
+          // Ensure we have a valid stage - cast to Stage type and validate
+          const rawStage = item.current_stage;
+          const currentStage: Stage = (rawStage && fullStageOrder.includes(rawStage as Stage)) 
+            ? (rawStage as Stage) 
+            : 'sales';
+          console.log(`[TrackOrder] Refreshed item ${item.product_name}: raw_stage=${rawStage}, validated_stage=${currentStage}`);
+          
+          return {
+            item_id: item.id,
+            product_name: item.product_name,
+            quantity: item.quantity,
+            current_stage: currentStage,
+            delivery_date: item.delivery_date || null,
+            priority_computed: computePriority(item.delivery_date ? new Date(item.delivery_date) : null),
+            dispatch_info: dispatchInfo,
+            is_dispatched: item.is_dispatched || false,
+          };
+        }),
+        timeline: (timelineData || []).map(entry => ({
+          id: entry.id,
+          action: entry.action,
+          created_at: entry.created_at || new Date().toISOString(),
+          is_public: entry.is_public !== false,
+        })),
+      };
+
+      setSearchedOrder(updatedOrder);
+    } catch (err) {
+      console.error('[TrackOrder] Error refreshing order data:', err);
+    }
+  };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSearchedOrder(null);
+    setShowResults(false);
     
     if (!orderNumber.trim()) {
       setError('Please enter an order number');
@@ -116,50 +396,86 @@ export default function TrackOrder() {
     setIsLoading(true);
 
     try {
-      // Validate order number format (must be MAN-xxx or WC-xxx)
-      const trimmedOrderNumber = orderNumber.trim().toUpperCase();
-      const orderIdPattern = /^(MAN|WC)-\d+$/;
+      // Normalize order number (accept numeric-only and auto-prepend WC-)
+      const normalizedOrderNumber = normalizeOrderNumber(orderNumber);
       
-      if (!orderIdPattern.test(trimmedOrderNumber)) {
-        setError('Invalid order number format. Please enter a valid order number (e.g., WC-53277 or MAN-1234)');
+      if (!normalizedOrderNumber) {
+        setError('Invalid order number format. Please enter a valid order number (e.g., 53529, WC-53277, or MAN-1234)');
         setIsLoading(false);
         return;
       }
 
-      // Search for order by exact order_id match using Supabase
+      // PUBLIC TRACKING: Query order by order_id (no auth required)
+      // Only select safe, public fields - never expose internal data
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
-        .select('*')
-        .eq('order_id', trimmedOrderNumber)
+        .select(`
+          id,
+          order_id,
+          customer_name,
+          delivery_date,
+          is_completed,
+          created_at
+        `)
+        .eq('order_id', normalizedOrderNumber)
         .maybeSingle();
 
-      if (orderError || !orderData) {
+      if (orderError) {
+        console.error('[TrackOrder] Error querying order:', orderError);
+        setError('An error occurred while searching. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+
+      if (!orderData) {
         setError('Order not found. Please check the order number and try again.');
         setIsLoading(false);
         return;
       }
 
-      // Fetch order items
+      // PUBLIC TRACKING: Fetch order items - only safe fields
+      // current_stage is the source of truth for tracking status
       const { data: itemsData, error: itemsError } = await supabase
         .from('order_items')
-        .select('*')
+        .select(`
+          id,
+          product_name,
+          quantity,
+          current_stage,
+          delivery_date,
+          dispatch_info,
+          is_dispatched
+        `)
         .eq('order_id', orderData.id);
 
       if (itemsError) {
+        console.error('[TrackOrder] Error querying items:', itemsError);
         throw itemsError;
       }
 
-      // Fetch public timeline entries
+      // PUBLIC TRACKING: Fetch only public timeline entries
       const { data: timelineData, error: timelineError } = await supabase
         .from('timeline')
-        .select('*')
+        .select(`
+          id,
+          action,
+          created_at,
+          is_public
+        `)
         .eq('order_id', orderData.id)
         .eq('is_public', true)
         .order('created_at', { ascending: false });
 
       if (timelineError) {
+        console.error('[TrackOrder] Error querying timeline:', timelineError);
         throw timelineError;
       }
+
+      // DEBUG: Log items with their current_stage to verify correct data
+      console.log('[TrackOrder] Items from database:', itemsData?.map(item => ({
+        product_name: item.product_name,
+        current_stage: item.current_stage,
+      })));
 
       const result: SearchedOrder = {
         id: orderData.id,
@@ -168,14 +484,34 @@ export default function TrackOrder() {
         is_completed: orderData.is_completed || false,
         delivery_date: orderData.delivery_date || null,
         created_at: orderData.created_at || new Date().toISOString(),
-        items: (itemsData || []).map(item => ({
-          item_id: item.id,
-          product_name: item.product_name,
-          quantity: item.quantity,
-          current_stage: item.current_stage as Stage,
-          delivery_date: item.delivery_date || null,
-          priority_computed: computePriority(item.delivery_date ? new Date(item.delivery_date) : null),
-        })),
+        items: (itemsData || []).map(item => {
+          // Parse dispatch_info if it exists (stored as JSONB)
+          let dispatchInfo: DispatchInfo | null = null;
+          if (item.dispatch_info && typeof item.dispatch_info === 'object') {
+            dispatchInfo = item.dispatch_info as DispatchInfo;
+          }
+          
+          // CRITICAL: Use current_stage directly from order_items table (single source of truth)
+          // This field is updated when order moves between departments/stages
+          // Validate stage exists in fullStageOrder, default to 'sales' if invalid
+          const rawStage = item.current_stage;
+          const currentStage: Stage = (rawStage && fullStageOrder.includes(rawStage as Stage)) 
+            ? (rawStage as Stage) 
+            : 'sales';
+          
+          console.log(`[TrackOrder] Item ${item.product_name}: raw_stage=${rawStage}, validated_stage=${currentStage}`);
+          
+          return {
+            item_id: item.id,
+            product_name: item.product_name,
+            quantity: item.quantity,
+            current_stage: currentStage,
+            delivery_date: item.delivery_date || null,
+            priority_computed: computePriority(item.delivery_date ? new Date(item.delivery_date) : null),
+            dispatch_info: dispatchInfo,
+            is_dispatched: item.is_dispatched || false,
+          };
+        }),
         timeline: (timelineData || []).map(entry => ({
           id: entry.id,
           action: entry.action,
@@ -193,185 +529,499 @@ export default function TrackOrder() {
     }
   };
 
+  const deliveryDaysRemaining = searchedOrder?.delivery_date 
+    ? differenceInDays(new Date(searchedOrder.delivery_date), new Date())
+    : null;
+
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="bg-card border-b border-border">
-        <div className="container py-6">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-lg bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-lg">C</span>
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Header - Sticky, no height locking */}
+      <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-50 shrink-0">
+        <div className="container py-4 sm:py-5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 sm:h-12 sm:w-12 flex items-center justify-center flex-shrink-0">
+                <img 
+                  src="/chhapai-logo.png" 
+                  alt="Chhapai Logo" 
+                  className="h-full w-full object-contain logo-dark-mode"
+                />
+              </div>
+              <div>
+                <h1 className="font-display font-bold text-xl sm:text-2xl text-foreground tracking-tight">
+                  Chhapai
+                </h1>
+                <p className="text-xs sm:text-sm text-muted-foreground">Order Tracking System</p>
+              </div>
             </div>
-            <div>
-              <h1 className="font-display font-bold text-xl">Chhapai</h1>
-              <p className="text-sm text-muted-foreground">Order Tracking</p>
-            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="relative"
+              aria-label="Toggle theme"
+            >
+              <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+              <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+            </Button>
           </div>
         </div>
       </header>
 
-      <main className="container py-8">
-        {/* Search Section */}
-        <div className="max-w-xl mx-auto text-center mb-8">
-          <h2 className="text-3xl font-display font-bold mb-2">Track Your Order</h2>
-          <p className="text-muted-foreground mb-6">
-            Enter your order number to check the current status
-          </p>
-
-          <form onSubmit={handleSearch} className="space-y-4">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                <Input
-                  type="text"
-                  placeholder="Enter order number (e.g., WC-53277)"
-                  value={orderNumber}
-                  onChange={(e) => setOrderNumber(e.target.value)}
-                  className="pl-10 h-12 text-base"
-                />
+      {/* Main Content - Flex-1 with overflow-y-auto for proper scrolling */}
+      <main 
+        className="flex-1 w-full overflow-y-auto overflow-x-hidden smooth-scroll" 
+        style={{ WebkitOverflowScrolling: 'touch' }}
+        data-scroll-container
+      >
+        <div className="container py-6 sm:py-8 lg:py-10 pb-24">
+          {/* Search Section */}
+          <div className="max-w-2xl mx-auto mb-8 sm:mb-12 px-4">
+            <div className="text-center mb-8 animate-fade-in">
+              <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-primary/10 mb-4">
+                <Search className="h-8 w-8 sm:h-10 sm:w-10 text-primary" />
               </div>
-              <Button type="submit" size="lg" className="px-8" disabled={isLoading}>
-                {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Track'}
-              </Button>
+              <h2 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold mb-3 bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text text-transparent">
+                Track Your Order
+              </h2>
+              <p className="text-sm sm:text-base text-muted-foreground max-w-md mx-auto">
+                Enter your order number to check the current status and delivery timeline
+              </p>
             </div>
-            
-            <Input
-              type="tel"
-              placeholder="Phone number (optional)"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="h-12"
-            />
-          </form>
 
-          {error && (
-            <p className="mt-4 text-destructive text-sm">{error}</p>
-          )}
-        </div>
-
-        {/* Results */}
-        {searchedOrder && (
-          <div className="max-w-3xl mx-auto animate-fade-in space-y-6">
-            {/* Order Summary */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <CardTitle className="text-xl font-display">{searchedOrder.order_id}</CardTitle>
-                    <p className="text-muted-foreground mt-1">
-                      Ordered on {format(new Date(searchedOrder.created_at), 'MMMM d, yyyy')}
-                    </p>
-                  </div>
-                  <Badge 
-                    variant={searchedOrder.is_completed ? 'success' : 'default'}
-                    className="text-sm"
-                  >
-                    {searchedOrder.is_completed ? 'Completed' : 'In Progress'}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {/* Progress indicator */}
-                {searchedOrder.items[0] && (
-                  <StageIndicator currentStage={searchedOrder.items[0].current_stage} />
-                )}
-
-                {/* Expected delivery */}
-                {searchedOrder.delivery_date && (
-                  <div className="flex items-center justify-center gap-3 p-4 bg-secondary/50 rounded-lg">
-                    <Truck className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="font-medium">Expected Delivery</p>
-                      <p className="text-muted-foreground">
-                        {format(new Date(searchedOrder.delivery_date), 'EEEE, MMMM d, yyyy')}
-                      </p>
+            <Card className="border-2 shadow-xl animate-fade-in" style={{ animationDelay: '100ms' }}>
+              <CardContent className="p-4 sm:p-6">
+                <form onSubmit={handleSearch} className="space-y-4">
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        placeholder="Enter order number (e.g., 53529 or WC-53277)"
+                        value={orderNumber}
+                        onChange={(e) => setOrderNumber(e.target.value)}
+                        className="pl-12 h-12 sm:h-14 text-base border-2 focus:border-primary transition-colors"
+                        disabled={isLoading}
+                      />
                     </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Items */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg font-display flex items-center gap-2">
-                  <Package className="h-5 w-5" />
-                  Items in this Order
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {searchedOrder.items.map((item) => (
-                    <div 
-                      key={item.item_id}
-                      className="flex items-start justify-between gap-4 p-4 bg-secondary/30 rounded-lg"
+                    <Button 
+                      type="submit" 
+                      size="lg" 
+                      className="h-12 sm:h-14 px-6 sm:px-8 text-base font-semibold shadow-lg hover:shadow-xl transition-all w-full sm:w-auto"
+                      disabled={isLoading}
                     >
-                      <div>
-                        <h4 className="font-medium">{item.product_name}</h4>
-                        <p className="text-sm text-muted-foreground">Quantity: {item.quantity}</p>
-                      </div>
-                      <Badge variant={`stage-${item.current_stage}` as any}>
-                        {STAGE_LABELS[item.current_stage]}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                          Tracking...
+                        </>
+                      ) : (
+                        <>
+                          <Search className="h-5 w-5 mr-2" />
+                          Track Order
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </form>
+
+                {error && (
+                  <div className="mt-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg animate-fade-in">
+                    <p className="text-destructive text-sm font-medium">{error}</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
+          </div>
 
-            {/* Timeline */}
-            {searchedOrder.timeline.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg font-display flex items-center gap-2">
-                    <Clock className="h-5 w-5" />
-                    Order Updates
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {searchedOrder.timeline.map((entry) => (
-                      <div key={entry.id} className="flex gap-4">
-                        <div className="h-2 w-2 mt-2 rounded-full bg-primary shrink-0" />
-                        <div>
-                          <p className="font-medium">
-                            {entry.action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {format(new Date(entry.created_at), 'MMM d, yyyy \'at\' h:mm a')}
-                          </p>
-                        </div>
+          {/* Results */}
+          {searchedOrder && showResults && (
+            <div 
+              data-order-results 
+              className="max-w-4xl mx-auto px-4 space-y-6 animate-fade-in" 
+              style={{ paddingBottom: '4rem' }}
+            >
+              {/* Order Summary Card */}
+              <Card className="border-2 shadow-xl overflow-hidden">
+                <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10 border-b">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <CardTitle className="text-2xl sm:text-3xl font-display font-bold">
+                          {formatOrderNumberForDisplay(searchedOrder.order_id)}
+                        </CardTitle>
+                        <Badge 
+                          variant={searchedOrder.is_completed ? 'success' : 'default'}
+                          className="text-sm font-semibold px-3 py-1"
+                        >
+                          {searchedOrder.is_completed ? 'Completed' : 'In Progress'}
+                        </Badge>
                       </div>
-                    ))}
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                        <span className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4" />
+                          Ordered on {format(new Date(searchedOrder.created_at), 'MMMM d, yyyy')}
+                        </span>
+                      </div>
+                    </div>
                   </div>
+                </CardHeader>
+                <CardContent className="p-6 space-y-6">
+                  {/* Progress indicator - Sticky below header when scrolling, with smooth transitions */}
+                  {searchedOrder.items.length > 0 && (
+                    <div 
+                      className="sticky top-[73px] z-40 bg-card/95 backdrop-blur-sm py-4 -mx-6 px-6 -mt-6 mb-6 border-b border-border/50 transition-all duration-300 shadow-sm"
+                      style={{ WebkitBackdropFilter: 'blur(8px)' }}
+                    >
+                      <div className="mb-3 sm:mb-4 text-center">
+                        <h3 className="text-base sm:text-lg font-semibold mb-2 transition-colors duration-300">Order Progress</h3>
+                        <p className="text-xs sm:text-sm text-muted-foreground">
+                          Currently in: <span className="font-medium text-foreground">
+                            {STAGE_LABELS[getDisplayStage(getMostAdvancedStage(searchedOrder.items))]}
+                          </span>
+                        </p>
+                        {/* CRITICAL: Display shows the actual current_stage from order_items (live, real-time) */}
+                      </div>
+                      <StageIndicator currentStage={getMostAdvancedStage(searchedOrder.items)} />
+                    </div>
+                  )}
+
+                  {/* Delivery & Customer Info Grid - Collapsible */}
+                  <Collapsible defaultOpen={true} className="space-y-4">
+                    <CollapsibleTrigger className="flex items-center justify-between w-full text-left group">
+                      <h4 className="text-base sm:text-lg font-semibold">Order Details</h4>
+                      <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="space-y-4">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Expected delivery */}
+                        {searchedOrder.delivery_date && (
+                          <div className="relative p-4 sm:p-5 bg-gradient-to-br from-primary/10 to-primary/5 rounded-xl border-2 border-primary/20 hover:border-primary/40 transition-all group">
+                            <div className="flex items-start gap-3 sm:gap-4">
+                              <div className="p-2 sm:p-3 bg-primary/20 rounded-lg group-hover:bg-primary/30 transition-colors shrink-0">
+                                <Truck className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs sm:text-sm font-medium text-muted-foreground mb-1">Expected Delivery</p>
+                                <p className="text-base sm:text-lg font-bold mb-2">
+                                  {format(new Date(searchedOrder.delivery_date), 'EEEE, MMMM d, yyyy')}
+                                </p>
+                                {deliveryDaysRemaining !== null && (
+                                  <p className={cn(
+                                    "text-xs sm:text-sm font-medium",
+                                    deliveryDaysRemaining < 0 ? "text-destructive" :
+                                    deliveryDaysRemaining <= 3 ? "text-yellow-500" :
+                                    "text-success"
+                                  )}>
+                                    {deliveryDaysRemaining < 0 
+                                      ? `${Math.abs(deliveryDaysRemaining)} days overdue`
+                                      : deliveryDaysRemaining === 0
+                                      ? "Due today"
+                                      : `${deliveryDaysRemaining} days remaining`
+                                    }
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Customer Info */}
+                        {searchedOrder.customer_name && (
+                          <div className="p-4 sm:p-5 bg-secondary/30 rounded-xl border-2 border-border hover:border-primary/40 transition-all">
+                            <div className="flex items-start gap-3 sm:gap-4">
+                              <div className="p-2 sm:p-3 bg-secondary rounded-lg shrink-0">
+                                <Mail className="h-5 w-5 sm:h-6 sm:w-6 text-muted-foreground" />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs sm:text-sm font-medium text-muted-foreground mb-1">Customer</p>
+                                <p className="text-base sm:text-lg font-bold break-words">{searchedOrder.customer_name}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
                 </CardContent>
               </Card>
-            )}
-          </div>
-        )}
 
-        {/* Help hint */}
-        {!searchedOrder && !isLoading && (
-          <div className="max-w-xl mx-auto mt-8 text-center">
-            <p className="text-sm text-muted-foreground">
-              Enter your order number to track its progress through our production process.
-            </p>
-          </div>
-        )}
+              {/* Items Card - Collapsible */}
+              <Card className="border-2 shadow-xl animate-fade-in" style={{ animationDelay: '200ms' }}>
+                <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10 border-b">
+                  <Collapsible defaultOpen={true} className="w-full">
+                    <CollapsibleTrigger className="flex items-center justify-between w-full group">
+                      <CardTitle className="text-lg sm:text-xl font-display flex items-center gap-3">
+                        <div className="p-2 bg-primary/20 rounded-lg">
+                          <Package className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                        </div>
+                        Items in this Order
+                      </CardTitle>
+                      <div className="flex items-center gap-3">
+                        <Badge variant="outline" className="text-xs sm:text-sm">
+                          {searchedOrder.items.length} {searchedOrder.items.length === 1 ? 'item' : 'items'}
+                        </Badge>
+                        <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                      </div>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="pt-4">
+                        <div className="space-y-4">
+                          {searchedOrder.items.map((item, index) => (
+                            <div 
+                              key={item.item_id}
+                              className="group relative p-4 sm:p-5 bg-secondary/30 rounded-xl border-2 border-border hover:border-primary/40 hover:bg-secondary/50 transition-all duration-300 animate-fade-in"
+                              style={{ animationDelay: `${300 + index * 50}ms` }}
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+                                <div className="flex-1 min-w-0">
+                                  <h4 className="font-semibold text-sm sm:text-base lg:text-lg mb-2 break-words">
+                                    {item.product_name}
+                                  </h4>
+                                  <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs sm:text-sm text-muted-foreground">
+                                    <span className="flex items-center gap-2">
+                                      <Package className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                                      Quantity: <span className="font-semibold text-foreground">{item.quantity}</span>
+                                    </span>
+                                    {item.delivery_date && (
+                                      <span className="flex items-center gap-2">
+                                        <Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                                        Delivery: <span className="font-semibold text-foreground">
+                                          {format(new Date(item.delivery_date), 'MMM d, yyyy')}
+                                        </span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <Badge 
+                                  variant={`stage-${item.current_stage}` as any} 
+                                  className="shrink-0 text-xs sm:text-sm font-semibold px-3 sm:px-4 py-1.5 sm:py-2"
+                                >
+                                  {STAGE_LABELS[item.current_stage]}
+                                </Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </CardHeader>
+                <CardContent className="hidden">
+                  {/* Content moved to CollapsibleContent in header */}
+                </CardContent>
+              </Card>
+
+              {/* Dispatch Tracking Card - Only shown when order is in Dispatch or Dispatched stage */}
+              {(() => {
+                // Find items that are dispatched or in dispatch stage
+                const dispatchedItems = searchedOrder.items.filter(item => 
+                  (item.current_stage === 'dispatch' || item.current_stage === 'completed') && 
+                  item.dispatch_info && 
+                  item.is_dispatched
+                );
+                
+                if (dispatchedItems.length === 0) return null;
+
+                return (
+                  <Card className="border-2 shadow-xl animate-fade-in border-primary/20" style={{ animationDelay: '350ms' }}>
+                    <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10 border-b">
+                      <Collapsible defaultOpen={true} className="w-full">
+                        <CollapsibleTrigger className="flex items-center justify-between w-full group">
+                          <CardTitle className="text-lg sm:text-xl font-display flex items-center gap-3">
+                            <div className="p-2 bg-primary/20 rounded-lg">
+                              <Truck className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                            </div>
+                            Shipment Tracking Details
+                          </CardTitle>
+                          <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="pt-4 pb-2">
+                            <div className="space-y-4">
+                              {dispatchedItems.map((item) => {
+                                const dispatchInfo = item.dispatch_info!;
+                                
+                                // Generate tracking URL (common courier tracking patterns)
+                                const getTrackingUrl = (courier: string, trackingNumber: string): string | null => {
+                                  const courierLower = courier.toLowerCase();
+                                  const tracking = trackingNumber.trim();
+                                  
+                                  // Common Indian courier tracking URLs
+                                  if (courierLower.includes('delhivery') || courierLower.includes('delhivery')) {
+                                    return `https://www.delhivery.com/track/package/${tracking}`;
+                                  } else if (courierLower.includes('blue dart') || courierLower.includes('bluedart')) {
+                                    return `https://www.bluedart.com/track/${tracking}`;
+                                  } else if (courierLower.includes('dtdc') || courierLower.includes('dtdc')) {
+                                    return `https://www.dtdc.in/tracking/tracking_results.asp?Ttype=awb_no&strCnno=${tracking}`;
+                                  } else if (courierLower.includes('fedex') || courierLower.includes('fedex')) {
+                                    return `https://www.fedex.com/fedextrack/?trknbr=${tracking}`;
+                                  } else if (courierLower.includes('dtc') || courierLower.includes('dtc')) {
+                                    return `https://www.dtcexpress.in/track/${tracking}`;
+                                  }
+                                  
+                                  // Generic Google search fallback
+                                  return `https://www.google.com/search?q=${encodeURIComponent(`${courier} tracking ${tracking}`)}`;
+                                };
+                                
+                                const trackingUrl = getTrackingUrl(dispatchInfo.courier_company, dispatchInfo.tracking_number);
+                                
+                                return (
+                                  <div 
+                                    key={item.item_id}
+                                    className="p-4 sm:p-5 bg-gradient-to-br from-primary/10 to-primary/5 rounded-xl border-2 border-primary/20 hover:border-primary/40 transition-all"
+                                  >
+                                    <div className="space-y-3 sm:space-y-4">
+                                      <div>
+                                        <h4 className="font-semibold text-sm sm:text-base mb-2 sm:mb-3 break-words">{item.product_name}</h4>
+                                      </div>
+                                      
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                                        <div>
+                                          <p className="text-xs font-medium text-muted-foreground mb-1">Courier Company</p>
+                                          <p className="text-sm sm:text-base font-semibold break-words">{dispatchInfo.courier_company}</p>
+                                        </div>
+                                        
+                                        <div>
+                                          <p className="text-xs font-medium text-muted-foreground mb-1">Dispatch Date</p>
+                                          <p className="text-sm sm:text-base font-semibold">
+                                            {format(new Date(dispatchInfo.dispatch_date), 'MMM d, yyyy')}
+                                          </p>
+                                        </div>
+                                        
+                                        <div className="sm:col-span-2">
+                                          <p className="text-xs font-medium text-muted-foreground mb-2">Tracking Number</p>
+                                          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                            <code className="flex-1 px-3 py-2 bg-background border border-border rounded-md text-xs sm:text-sm font-mono font-semibold break-all">
+                                              {dispatchInfo.tracking_number}
+                                            </code>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={async () => {
+                                                try {
+                                                  await navigator.clipboard.writeText(dispatchInfo.tracking_number);
+                                                  toast({
+                                                    title: "Copied!",
+                                                    description: "Tracking number copied to clipboard",
+                                                  });
+                                                } catch (err) {
+                                                  console.error('Failed to copy:', err);
+                                                }
+                                              }}
+                                              className="shrink-0 w-full sm:w-auto"
+                                            >
+                                              <Copy className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-2" />
+                                              Copy
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      
+                                      {trackingUrl && (
+                                        <div className="pt-1 sm:pt-2">
+                                          <Button
+                                            variant="default"
+                                            className="w-full sm:w-auto text-sm"
+                                            onClick={() => window.open(trackingUrl, '_blank', 'noopener,noreferrer')}
+                                          >
+                                            <ExternalLink className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-2" />
+                                            Track Shipment
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </CardHeader>
+                    <CardContent className="hidden">
+                      {/* Content moved to CollapsibleContent in header */}
+                    </CardContent>
+                  </Card>
+                );
+              })()}
+
+              {/* Timeline Card - Collapsible */}
+              {searchedOrder.timeline.length > 0 && (
+                <Card className="border-2 shadow-xl animate-fade-in" style={{ animationDelay: '400ms' }}>
+                  <CardHeader className="bg-gradient-to-r from-primary/5 to-primary/10 border-b">
+                    <Collapsible defaultOpen={true} className="w-full">
+                      <CollapsibleTrigger className="flex items-center justify-between w-full group">
+                        <CardTitle className="text-lg sm:text-xl font-display flex items-center gap-3">
+                          <div className="p-2 bg-primary/20 rounded-lg">
+                            <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-primary" />
+                          </div>
+                          Order Updates & Timeline
+                        </CardTitle>
+                        <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="pt-4 pb-2 px-1">
+                          <div className="relative">
+                            {/* Timeline Line */}
+                            <div className="absolute left-[13px] xs:left-[15px] top-0 bottom-0 w-0.5 bg-border" />
+                            
+                            <div className="space-y-4 sm:space-y-6">
+                              {searchedOrder.timeline.map((entry, index) => (
+                                <div 
+                                  key={`timeline-${entry.id}-${index}`}
+                                  className="relative pl-10 xs:pl-12 animate-fade-in"
+                                  style={{ animationDelay: `${500 + index * 100}ms` }}
+                                >
+                                  {/* Timeline Dot */}
+                                  <div className="absolute left-0 top-1.5 h-6 w-6 xs:h-8 xs:w-8 rounded-full bg-primary border-3 xs:border-4 border-background shadow-lg flex items-center justify-center">
+                                    <div className="h-1.5 w-1.5 xs:h-2 xs:w-2 rounded-full bg-primary-foreground" />
+                                  </div>
+                                  
+                                  {/* Timeline Content */}
+                                  <div className="pb-2">
+                                    <p className="font-semibold text-sm sm:text-base mb-1 break-words">
+                                      {entry.action.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                    </p>
+                                    <p className="text-xs sm:text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
+                                      <Clock className="h-3 w-3 xs:h-3.5 xs:w-3.5 shrink-0" />
+                                      {format(new Date(entry.created_at), 'MMMM d, yyyy \'at\' h:mm a')}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </CardHeader>
+                  <CardContent className="hidden">
+                    {/* Content moved to CollapsibleContent in header */}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* Help hint */}
+          {!searchedOrder && !isLoading && (
+            <div className="max-w-2xl mx-auto mt-12 text-center px-4 animate-fade-in">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted mb-4">
+                <Sparkles className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <p className="text-base text-muted-foreground max-w-md mx-auto">
+                Enter your order number above to track its progress through our production process in real-time.
+              </p>
+            </div>
+          )}
+        </div>
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-border mt-auto">
-        <div className="container py-6 text-center text-sm text-muted-foreground">
-          <p>© 2024 Chhapai. All rights reserved.</p>
-          <p className="mt-1">
-            Need help? Contact us at{' '}
-            <a href="tel:+919876543210" className="text-primary hover:underline">
-              +91 98765 43210
-            </a>
-          </p>
-        </div>
-      </footer>
+      {/* Footer - Normal flow, always at bottom */}
+      <div className="shrink-0 mt-auto">
+        <AppFooter />
+      </div>
     </div>
   );
 }

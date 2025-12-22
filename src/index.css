@@ -120,8 +120,25 @@
     @apply border-border;
   }
 
-  html, body, #root {
-    @apply h-full w-full overflow-hidden;
+  /* CRITICAL: Allow natural document scrolling */
+  html {
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  }
+
+  body {
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+  }
+
+  #root {
+    min-height: 100%;
+    width: 100%;
+    /* Do NOT use overflow-hidden here - let pages handle their own scroll */
   }
 
   body {
@@ -247,10 +264,25 @@
     box-shadow: inset 0 -1px 0 0 hsl(var(--border));
   }
 
-  /* Smooth scroll behavior */
+  /* Smooth scroll behavior with mobile momentum scrolling */
   .smooth-scroll {
     scroll-behavior: smooth;
     -webkit-overflow-scrolling: touch;
+  }
+
+  /* Mobile scroll physics optimization - enable momentum scrolling */
+  @supports (-webkit-overflow-scrolling: touch) {
+    /* iOS Safari momentum scrolling */
+    * {
+      -webkit-overflow-scrolling: touch;
+    }
+  }
+
+  /* Ensure smooth scrolling on all scrollable elements */
+  [data-scroll-container] {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain; /* Prevent scroll chaining */
   }
 
   /* Hover card portal - ensure it's above all other content */

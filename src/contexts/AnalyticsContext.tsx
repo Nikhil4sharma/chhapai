@@ -63,12 +63,14 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       
+      // Only query if we don't have a cached value
+      // Use .maybeSingle() to avoid errors, and catch any errors silently
       try {
-        // Try a simple query to check if table exists
-        const { error, data } = await supabase
+        const { error } = await supabase
           .from('delay_reasons')
           .select('id')
-          .limit(1);
+          .limit(1)
+          .maybeSingle();
         
         if (isMounted) {
           // Check for table not found errors (404, PGRST205, etc.)
@@ -87,18 +89,18 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
             // Table doesn't exist - cache it to avoid future queries
             setDelayReasonsTableExists(false);
             localStorage.setItem('delay_reasons_table_exists', 'false');
-          } else if (error) {
-            // Other errors - assume table exists to avoid blocking functionality
-            setDelayReasonsTableExists(true);
-            localStorage.setItem('delay_reasons_table_exists', 'true');
-          } else {
+          } else if (!error) {
             // No error - table exists
             setDelayReasonsTableExists(true);
             localStorage.setItem('delay_reasons_table_exists', 'true');
+          } else {
+            // Other errors - assume table exists to avoid blocking functionality
+            // Don't cache on unknown errors
+            setDelayReasonsTableExists(true);
           }
         }
       } catch (error: any) {
-        // On any error, check if it's a 404/table not found error
+        // Silently handle any exceptions - don't log to avoid console noise
         if (isMounted) {
           const isTableNotFound = error?.code === 'PGRST205' || 
               error?.code === '42P01' ||
@@ -111,19 +113,14 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
           if (isTableNotFound) {
             setDelayReasonsTableExists(false);
             localStorage.setItem('delay_reasons_table_exists', 'false');
-          } else {
-            // Other errors - assume table exists to avoid blocking
-            setDelayReasonsTableExists(true);
-            localStorage.setItem('delay_reasons_table_exists', 'true');
           }
+          // Don't set anything on other errors - leave it null so it can be retried
         }
       }
     };
     
     // Check table existence once on mount (only if not cached)
-    if (delayReasonsTableExists === null) {
-      checkTableExists();
-    }
+    checkTableExists();
     
     return () => {
       isMounted = false;
