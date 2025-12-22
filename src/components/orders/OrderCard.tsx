@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import { ChevronRight, Calendar, Image as ImageIcon, Eye, Download, Trash2, ExternalLink, ShoppingCart } from 'lucide-react';
 import { Order, OrderFile } from '@/types/order';
@@ -15,17 +15,6 @@ import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getSupabaseSignedUrl } from '@/services/supabaseStorage';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from '@/components/ui/hover-card';
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -35,6 +24,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { HoverPreview } from '@/components/ui/hover-preview';
+import { PreviewModal } from '@/components/ui/preview-modal';
+import { useHoverCapability } from '@/hooks/useHoverCapability';
+import { useHoverPreviewPosition } from '@/hooks/useHoverPreviewPosition';
 
 interface OrderCardProps {
   order: Order;
@@ -238,8 +231,14 @@ export function OrderCard({ order, className }: OrderCardProps) {
     const isImage = isImageFile(file);
     const fileName = file.file_name || file.url.split('/').pop() || 'File';
     const [thumbnailUrl, setThumbnailUrl] = useState<string>(getFileUrlSync(file));
-    const [hoverUrl, setHoverUrl] = useState<string | null>(null);
     const [imageError, setImageError] = useState(false);
+    const thumbnailRef = useRef<HTMLDivElement>(null);
+    const canHover = useHoverCapability();
+    const hoverPosition = useHoverPreviewPosition(thumbnailRef, {
+      enabled: canHover && isImage && !imageError && !!thumbnailUrl,
+      previewWidth: 240,
+      previewHeight: 320,
+    });
 
     // Load thumbnail URL if not cached (only once per file URL)
     useEffect(() => {
@@ -265,22 +264,23 @@ export function OrderCard({ order, className }: OrderCardProps) {
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [file.url, file.file_id, isImage]);
 
-    // Load hover preview URL when hovering - use thumbnail URL since it's already loaded
-    const handleHover = () => {
-      if (isImage && !hoverUrl && thumbnailUrl && !imageError) {
-        // Use thumbnail URL for hover (it's already loaded and cached)
-        setHoverUrl(thumbnailUrl);
-      }
-    };
-
     const thumbnailContent = (
       <div
+        ref={thumbnailRef}
         className={cn(
           "relative h-12 w-12 rounded-md overflow-hidden border border-border bg-muted/50 flex-shrink-0 cursor-pointer group transition-all hover:scale-105 hover:border-primary/50",
           isImage && "hover:shadow-md"
         )}
         onClick={(e) => handleImageClick(file, e)}
-        onMouseEnter={handleHover}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleImageClick(file, e as any);
+          }
+        }}
+        role="button"
+        tabIndex={0}
+        aria-label={`Preview ${fileName}`}
       >
         {isImage ? (
           <>
@@ -313,32 +313,30 @@ export function OrderCard({ order, className }: OrderCardProps) {
       </div>
     );
 
-    if (isImage) {
-      return (
-        <HoverCard openDelay={300} closeDelay={100}>
-          <HoverCardTrigger asChild>
-            {thumbnailContent}
-          </HoverCardTrigger>
-          <HoverCardContent className="w-auto max-w-lg p-2 z-[9999] overflow-visible pointer-events-auto" side="top" sideOffset={8}>
-            <div className="max-w-lg max-h-[500px] overflow-auto">
+    return (
+      <>
+        {thumbnailContent}
+        {/* Hover Preview - Desktop Only */}
+        {isImage && canHover && hoverPosition && !imageError && thumbnailUrl && (
+          <HoverPreview position={hoverPosition} maxWidth={240} maxHeight={320}>
+            <div className="p-2">
               <img
-                src={hoverUrl || thumbnailUrl}
+                src={thumbnailUrl}
                 alt={fileName}
-                className="w-full h-auto max-h-[500px] object-contain rounded-md"
-                style={{ maxWidth: '100%', objectFit: 'contain' }}
+                className="w-full h-auto max-h-[300px] object-contain rounded-md"
                 loading="lazy"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                 }}
               />
+              <p className="text-xs text-muted-foreground text-center mt-2 truncate px-1">
+                {fileName}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground text-center mt-2 truncate">{fileName}</p>
-          </HoverCardContent>
-        </HoverCard>
-      );
-    }
-
-    return thumbnailContent;
+          </HoverPreview>
+        )}
+      </>
+    );
   };
 
   return (
@@ -422,83 +420,52 @@ export function OrderCard({ order, className }: OrderCardProps) {
         </CardContent>
       </Card>
 
-      {/* Image Preview Dialog */}
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-6xl max-h-[95vh] w-[95vw] p-0 gap-0 overflow-hidden">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0">
-            <DialogTitle className="flex items-center justify-between gap-2">
-              <span className="truncate text-sm sm:text-base font-semibold">
-                {selectedFile?.file_name || selectedFile?.url.split('/').pop() || 'Image Preview'}
-              </span>
-              <div className="flex gap-2 shrink-0">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    if (!selectedFile) return;
-                    try {
-                      const fileName = selectedFile.file_name || selectedFile.url.split('/').pop() || 'image';
-                      const url = previewImageUrl || await getFileUrl(selectedFile);
-                      const link = document.createElement('a');
-                      link.href = url;
-                      link.download = fileName;
-                      link.target = '_blank';
-                      link.rel = 'noopener noreferrer';
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
-                      
-                      toast({
-                        title: "Download Started",
-                        description: `Downloading ${fileName}...`,
-                      });
-                    } catch (error) {
-                      console.error('Download error:', error);
-                      toast({
-                        title: "Download Failed",
-                        description: "Failed to download file. Please try opening in a new tab.",
-                        variant: "destructive",
-                      });
-                    }
-                  }}
-                >
-                  <Download className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Download</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    if (!selectedFile) return;
-                    const url = previewImageUrl || await getFileUrl(selectedFile);
-                    window.open(url, '_blank');
-                  }}
-                >
-                  <ExternalLink className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Open</span>
-                </Button>
-                {/* Show delete button only if user is uploader, admin, or sales */}
-                {selectedFile && (
-                  (selectedFile.uploaded_by === user?.uid || isAdmin || role === 'sales') && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => setDeleteDialogOpen(true)}
-                    >
-                      <Trash2 className="h-4 w-4 sm:mr-2" />
-                      <span className="hidden sm:inline">Delete</span>
-                    </Button>
-                  )
-                )}
-              </div>
-            </DialogTitle>
-          </DialogHeader>
-          <div className="flex-1 overflow-auto p-6 min-h-0">
-            {handleImagePreview()}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Image Preview Modal */}
+      <PreviewModal
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        title={selectedFile?.file_name || selectedFile?.url.split('/').pop() || 'Image Preview'}
+        onDownload={async () => {
+          if (!selectedFile) return;
+          try {
+            const fileName = selectedFile.file_name || selectedFile.url.split('/').pop() || 'image';
+            const url = previewImageUrl || await getFileUrl(selectedFile);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            toast({
+              title: "Download Started",
+              description: `Downloading ${fileName}...`,
+            });
+          } catch (error) {
+            console.error('Download error:', error);
+            toast({
+              title: "Download Failed",
+              description: "Failed to download file. Please try opening in a new tab.",
+              variant: "destructive",
+            });
+          }
+        }}
+        onOpen={async () => {
+          if (!selectedFile) return;
+          const url = previewImageUrl || await getFileUrl(selectedFile);
+          window.open(url, '_blank');
+        }}
+        onDelete={() => setDeleteDialogOpen(true)}
+        showDelete={
+          selectedFile
+            ? selectedFile.uploaded_by === user?.uid || isAdmin || role === 'sales'
+            : false
+        }
+      >
+        {handleImagePreview()}
+      </PreviewModal>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

@@ -3,7 +3,7 @@ import { Priority } from '@/types/order';
 import { cn } from '@/lib/utils';
 
 interface PriorityBadgeProps {
-  priority: Priority;
+  priority?: Priority | null;
   showLabel?: boolean;
   className?: string;
 }
@@ -14,27 +14,32 @@ const priorityConfig: Record<Priority, { label: string; variant: 'priority-blue'
   red: { label: 'Urgent', variant: 'priority-red' },
 };
 
+// Default priority when none is provided
+const defaultPriority: Priority = 'blue';
+
 export function PriorityBadge({ priority, showLabel = false, className }: PriorityBadgeProps) {
-  const config = priorityConfig[priority];
+  // Handle undefined, null, or invalid priority values
+  const safePriority: Priority = (priority && priority in priorityConfig) ? priority : defaultPriority;
+  const config = priorityConfig[safePriority];
   
   if (!showLabel) {
     return (
       <span 
         className={cn(
           "inline-block h-3 w-3 rounded-full",
-          priority === 'blue' && "bg-priority-blue",
-          priority === 'yellow' && "bg-priority-yellow",
-          priority === 'red' && "bg-priority-red animate-pulse-soft",
+          safePriority === 'blue' && "bg-priority-blue",
+          safePriority === 'yellow' && "bg-priority-yellow",
+          safePriority === 'red' && "bg-priority-red animate-pulse-soft",
           className
         )}
-        title={config.label}
+        title={config?.label || 'Priority'}
       />
     );
   }
   
   return (
-    <Badge variant={config.variant} className={className}>
-      {config.label}
+    <Badge variant={config?.variant || 'priority-blue'} className={className}>
+      {config?.label || '> 5 days'}
     </Badge>
   );
 }

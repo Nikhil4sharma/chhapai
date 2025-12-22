@@ -195,16 +195,29 @@ export function CreateOrderDialog({
       return;
     }
 
+    const trimmedOrderNumber = orderNumber.trim();
+    
     try {
       setIsFetchingWooCommerce(true);
       setWooCommerceCheckStatus('checking');
       setWooCommerceError(null);
-      console.log('[CreateOrderDialog] Manually checking WooCommerce order:', orderNumber);
+      
+      // CRITICAL: Clear any previous WooCommerce data before fetching new one
+      setWooOrderData(null);
+      setIsWooCommerceOrder(false);
+      
+      console.log('[CreateOrderDialog] Manually checking WooCommerce order:', trimmedOrderNumber);
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       if (!supabaseUrl) {
         throw new Error('Supabase URL not configured');
       }
+
+      const requestBody = {
+        order_number: trimmedOrderNumber,
+      };
+      
+      console.log('[CreateOrderDialog] Sending request with order_number:', requestBody.order_number);
 
       const response = await fetch(`${supabaseUrl}/functions/v1/woocommerce-fetch`, {
         method: 'POST',
@@ -213,9 +226,7 @@ export function CreateOrderDialog({
           'Authorization': `Bearer ${session.access_token}`,
           'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || '',
         },
-        body: JSON.stringify({
-          order_number: orderNumber.trim(),
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -251,14 +262,24 @@ export function CreateOrderDialog({
       const data = await response.json();
       
       if (data.found && data.order) {
-        console.log('[CreateOrderDialog] WooCommerce order found:', data.order.order_number);
+        console.log('[CreateOrderDialog] WooCommerce order found for order_number:', trimmedOrderNumber);
+        console.log('[CreateOrderDialog] Received order data - order_number:', data.order.order_number);
+        
+        // Verify the order number matches what we requested
+        if (data.order.order_number && data.order.order_number.toString() !== trimmedOrderNumber) {
+          console.warn('[CreateOrderDialog] WARNING: Order number mismatch! Requested:', trimmedOrderNumber, 'Received:', data.order.order_number);
+        }
+        
         setWooCommerceCheckStatus('found');
         setWooCommerceError(null);
         // Don't auto-fill yet - wait for user to click "Import Order"
         setWooOrderData(data.order);
       } else {
+        console.log('[CreateOrderDialog] WooCommerce order not found for order_number:', trimmedOrderNumber);
         setWooCommerceCheckStatus('not_found');
         setWooCommerceError(null);
+        // Clear any stale data
+        setWooOrderData(null);
       }
     } catch (error: any) {
       console.error('[CreateOrderDialog] Error checking WooCommerce order:', error);
@@ -358,6 +379,21 @@ export function CreateOrderDialog({
     setIsWooCommerceOrder(false);
     setWooCommerceCheckStatus('idle');
     setWooCommerceError(null);
+    
+    // IMPORTANT: Clear all imported form data when order number changes
+    // This prevents showing data from previous order (e.g., 53534)
+    setCustomerData({
+      name: '',
+      phone: '',
+      email: '',
+      address: '',
+      city: '',
+      state: '',
+      pincode: '',
+    });
+    setProducts([{ id: generateId(), name: '', quantity: 1, specifications: {} }]);
+    setDeliveryDate(undefined);
+    setGlobalNotes('');
     
     if (!value.trim()) {
       setOrderNumberError('Order number is required');

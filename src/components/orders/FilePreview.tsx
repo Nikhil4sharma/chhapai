@@ -1,23 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { FileText, Eye, ExternalLink, FileImage, Trash2, Download, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from '@/components/ui/hover-card';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +23,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import { getSupabaseSignedUrl } from '@/services/supabaseStorage';
 import { PreviewContent } from './PreviewContent';
+import { HoverPreview } from '@/components/ui/hover-preview';
+import { PreviewModal } from '@/components/ui/preview-modal';
+import { useHoverCapability } from '@/hooks/useHoverCapability';
+import { useHoverPreviewPosition } from '@/hooks/useHoverPreviewPosition';
 
 interface FilePreviewProps {
   files: OrderFile[];
@@ -325,6 +318,13 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     const fileIsPdf = isPdf(fileName, fileUrl, file.type);
     const [imageSrc, setImageSrc] = useState<string>('');
     const [imageError, setImageError] = useState(false);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const canHover = useHoverCapability();
+    const hoverPosition = useHoverPreviewPosition(buttonRef, {
+      enabled: canHover && fileIsImage && !imageError && !!imageSrc,
+      previewWidth: 240,
+      previewHeight: 320,
+    });
     
     // For images, check if we have a signed URL before setting src
     useEffect(() => {
@@ -369,10 +369,18 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
 
     const buttonContent = (
       <Button
+        ref={buttonRef}
         variant="ghost"
         size="sm"
         className="h-auto p-1.5 hover:bg-accent/50 transition-colors"
         onClick={() => handlePreview(file)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handlePreview(file);
+          }
+        }}
+        aria-label={`Preview ${fileName}`}
       >
         {fileIsImage || fileIsPdf ? (
           <div className="relative h-16 w-20 rounded-md overflow-hidden border border-border group flex-shrink-0 bg-muted/50">
@@ -434,168 +442,91 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
       </Button>
     );
 
-    if (fileIsImage || fileIsPdf) {
-      return (
-        <HoverCard openDelay={200} closeDelay={100}>
-          <HoverCardTrigger asChild className="z-10">
+    return (
+      <>
+        {fileIsImage || fileIsPdf ? (
+          <>
             {buttonContent}
-          </HoverCardTrigger>
-          <HoverCardContent className="w-auto max-w-lg p-2 z-[100] overflow-visible" side="top" sideOffset={8}>
-            {fileIsPdf ? (
-              // PDF hover preview - show Google Docs viewer
-              <div className="w-full h-64">
-                <iframe
-                  src={`https://docs.google.com/viewer?url=${encodeURIComponent(fileUrl)}&embedded=true`}
-                  className="w-full h-full rounded-md border border-border"
-                  title={fileName}
-                />
-              </div>
-            ) : (
-              // Image hover preview - full image visible, no cut
-              <div className="max-w-lg max-h-[500px] overflow-auto">
-                {imageError || !imageSrc ? (
-                  <div className="h-64 flex items-center justify-center bg-muted rounded-md">
-                    {imageError ? (
-                      <FileImage className="h-12 w-12 text-muted-foreground" />
-                    ) : (
-                      <Loader2 className="h-6 w-6 text-muted-foreground animate-spin" />
-                    )}
-                  </div>
-                ) : (
+            {/* Hover Preview - Desktop Only (Images) */}
+            {fileIsImage && canHover && hoverPosition && !imageError && imageSrc && (
+              <HoverPreview position={hoverPosition} maxWidth={240} maxHeight={320}>
+                <div className="p-2">
                   <img
                     src={imageSrc || fileUrl}
                     alt={fileName}
-                    className="w-full h-auto max-h-[500px] object-contain rounded-md"
-                    style={{ maxWidth: '100%', objectFit: 'contain' }}
+                    className="w-full h-auto max-h-[300px] object-contain rounded-md"
                     loading="lazy"
                     crossOrigin="anonymous"
                     onError={(e) => {
-                      // Try to fetch signed URL if error occurs
-                      if (file.url && file.url.includes('supabase.co/storage') && !imageError) {
-                        getFileUrl(file).then(url => {
-                          if (url && url !== fileUrl) {
-                            setImageSrc(url);
-                          } else {
-                            setImageError(true);
-                          }
-                        }).catch(() => {
-                          setImageError(true);
-                        });
-                      } else {
-                        setImageError(true);
-                      }
+                      e.currentTarget.style.display = 'none';
                     }}
                   />
-                )}
-              </div>
+                  <p className="text-xs text-muted-foreground text-center mt-2 truncate px-1">
+                    {fileName}
+                  </p>
+                </div>
+              </HoverPreview>
             )}
-            <p className="text-xs text-muted-foreground text-center mt-2 truncate">{fileName}</p>
-          </HoverCardContent>
-        </HoverCard>
-      );
-    }
-
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>{buttonContent}</TooltipTrigger>
-        <TooltipContent>{fileName}</TooltipContent>
-      </Tooltip>
+          </>
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>{buttonContent}</TooltipTrigger>
+            <TooltipContent>{fileName}</TooltipContent>
+          </Tooltip>
+        )}
+      </>
     );
   };
 
   const PreviewDialog = () => (
     <>
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-6xl max-h-[95vh] w-[95vw] p-0 gap-0 overflow-hidden flex flex-col [&>button.absolute]:hidden">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0 bg-background">
-            <div className="flex items-center justify-between gap-4">
-              <DialogTitle className="flex items-center gap-2 flex-1 min-w-0">
-                <FileImage className="h-5 w-5 text-primary flex-shrink-0" />
-                <span className="truncate text-sm sm:text-base font-semibold">{selectedFile && getFileName(selectedFile)}</span>
-              </DialogTitle>
-              <div className="flex gap-2 shrink-0">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    if (!selectedFile) return;
-                    try {
-                      const fileName = getFileName(selectedFile);
-                      const fileUrl = await getFileUrl(selectedFile);
-                      const link = document.createElement('a');
-                      link.href = fileUrl;
-                      link.download = fileName;
-                      link.target = '_blank';
-                      link.rel = 'noopener noreferrer';
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
-                      
-                      toast({
-                        title: "Download Started",
-                        description: `Downloading ${fileName}...`,
-                      });
-                    } catch (error) {
-                      console.error('Download error:', error);
-                      toast({
-                        title: "Download Failed",
-                        description: "Failed to download file. Please try opening in a new tab.",
-                        variant: "destructive",
-                      });
-                    }
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <Download className="h-4 w-4" />
-                  <span className="hidden sm:inline">Download</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    if (selectedFile) {
-                      try {
-                        const url = await getFileUrl(selectedFile);
-                        window.open(url, '_blank');
-                      } catch (error) {
-                        console.error('Error getting file URL:', error);
-                        window.open(selectedFile.url || '', '_blank');
-                      }
-                    }
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <ExternalLink className="h-4 w-4" />
-                  <span className="hidden sm:inline">Open</span>
-                </Button>
-                {selectedFile && canDeleteFile(selectedFile) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-destructive hover:text-destructive flex items-center gap-2"
-                    onClick={() => setDeleteFileId(selectedFile.file_id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    <span className="hidden sm:inline">Delete</span>
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 flex items-center justify-center"
-                  onClick={() => setPreviewOpen(false)}
-                >
-                  <X className="h-4 w-4" />
-                  <span className="sr-only">Close</span>
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
-          <div className="flex-1 overflow-auto p-4 sm:p-6 min-h-0 flex items-center justify-center bg-background">
-            {renderPreviewContent()}
-          </div>
-        </DialogContent>
-      </Dialog>
+      <PreviewModal
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        title={selectedFile ? getFileName(selectedFile) : 'File Preview'}
+        onDownload={async () => {
+          if (!selectedFile) return;
+          try {
+            const fileName = getFileName(selectedFile);
+            const fileUrl = await getFileUrl(selectedFile);
+            const link = document.createElement('a');
+            link.href = fileUrl;
+            link.download = fileName;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            toast({
+              title: "Download Started",
+              description: `Downloading ${fileName}...`,
+            });
+          } catch (error) {
+            console.error('Download error:', error);
+            toast({
+              title: "Download Failed",
+              description: "Failed to download file. Please try opening in a new tab.",
+              variant: "destructive",
+            });
+          }
+        }}
+        onOpen={async () => {
+          if (selectedFile) {
+            try {
+              const url = await getFileUrl(selectedFile);
+              window.open(url, '_blank');
+            } catch (error) {
+              console.error('Error getting file URL:', error);
+              window.open(selectedFile.url || '', '_blank');
+            }
+          }
+        }}
+        onDelete={() => selectedFile && setDeleteFileId(selectedFile.file_id)}
+        showDelete={selectedFile ? canDeleteFile(selectedFile) : false}
+      >
+        {renderPreviewContent()}
+      </PreviewModal>
 
       <AlertDialog open={!!deleteFileId} onOpenChange={() => setDeleteFileId(null)}>
         <AlertDialogContent>

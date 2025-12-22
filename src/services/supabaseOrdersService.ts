@@ -488,10 +488,37 @@ export async function assignOrderToUser(
  */
 export async function fetchTimelineEntries(orderId: string, itemId?: string): Promise<TimelineEntry[]> {
   try {
+    // Convert order_id string (e.g., "53509") to UUID if needed
+    let orderUuid: string | null = null;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    if (uuidRegex.test(orderId)) {
+      orderUuid = orderId;
+    } else {
+      // orderId is a string order number, need to fetch UUID from orders table
+      const { data: orderData } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('order_id', orderId)
+        .maybeSingle();
+      
+      if (orderData) {
+        orderUuid = orderData.id;
+      } else {
+        console.warn(`[fetchTimelineEntries] Order not found for order_id: ${orderId}`);
+        return [];
+      }
+    }
+
+    if (!orderUuid) {
+      console.warn(`[fetchTimelineEntries] Could not resolve UUID for order_id: ${orderId}`);
+      return [];
+    }
+
     let query = supabase
       .from('timeline')
       .select('*')
-      .eq('order_id', orderId)
+      .eq('order_id', orderUuid)
       .order('created_at', { ascending: false });
 
     if (itemId) {
@@ -687,10 +714,14 @@ export async function fetchActivityLogs(orderId: string): Promise<any[]> {
     }
     
     // Map to include profile name if available
-    return (data || []).map((log: any) => ({
-      ...log,
-      performed_by_name: profilesMap.get(log.created_by) || 'User',
-    }));
+    return (data || []).map((log: any) => {
+      const userName = log.created_by ? (profilesMap.get(log.created_by) || 'Unknown') : null;
+      return {
+        ...log,
+        created_by_name: userName,
+        performed_by_name: userName || 'Unknown',
+      };
+    });
   } catch (error) {
     // Don't throw - return empty array on error
     return [];

@@ -1,6 +1,6 @@
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { UpdateDeliveryDateDialog } from '@/components/dialogs/UpdateDeliveryDateDialog';
 import { 
   ArrowLeft, 
@@ -98,8 +98,11 @@ import { VendorDispatchDialog } from '@/components/dialogs/VendorDispatchDialog'
 import { ReceiveFromVendorDialog } from '@/components/dialogs/ReceiveFromVendorDialog';
 import { QualityCheckDialog } from '@/components/dialogs/QualityCheckDialog';
 import { PostQCDecisionDialog } from '@/components/dialogs/PostQCDecisionDialog';
-import { PRODUCTION_STEPS, STAGE_LABELS, Stage, SubStage, VendorDetails, OutsourceJobDetails, OUTSOURCE_STAGE_LABELS, OutsourceStage, TimelineEntry, OrderItem } from '@/types/order';
+import { PRODUCTION_STEPS, STAGE_LABELS, Stage, SubStage, VendorDetails, OutsourceJobDetails, OUTSOURCE_STAGE_LABELS, OutsourceStage, TimelineEntry, OrderItem, Order, OrderFile } from '@/types/order';
 import { shouldShowButton, getButtonDisabledReason, canPerformAction } from '@/utils/buttonVisibility';
+import { useOrderDetailRealtime } from '@/hooks/useOrderDetailRealtime';
+import { mergeOrderUpdate, mergeItemUpdate, addTimelineEntry, addFileToItem, removeFileFromItem, addItemToOrder, removeItemFromOrder } from '@/utils/orderStateMerger';
+import { fetchTimelineEntries, fetchActivityLogs } from '@/services/supabaseOrdersService';
 
 export default function OrderDetail() {
   const { orderId } = useParams();
@@ -141,10 +144,74 @@ export default function OrderDetail() {
     );
   }
   
-  const order = getOrderById(orderId || '');
-  const timelineEntries = orderId ? getTimelineForOrder(orderId) : [];
+  // Local state for real-time updates (merged with context data)
+  const [localOrder, setLocalOrder] = useState<Order | null>(null);
+  const [localTimeline, setLocalTimeline] = useState<TimelineEntry[]>([]);
+  const timelineFetchedRef = useRef(false);
+  
+  // Get order from context (fallback)
+  const contextOrder = getOrderById(orderId || '');
+  const contextTimelineEntries = orderId ? getTimelineForOrder(orderId) : [];
+  
+  // Use local state if available, otherwise use context
+  const order = localOrder || contextOrder;
+  const timelineEntries = localTimeline.length > 0 ? localTimeline : contextTimelineEntries;
+  
   const workNotes = orderId ? getWorkNotesByOrder(orderId) : [];
   const workLogsForOrder = orderId ? getWorkLogsByOrder(orderId) : [];
+  
+  // Fetch timeline immediately on mount (only once)
+  useEffect(() => {
+    if (!orderId || timelineFetchedRef.current) return;
+    
+    const fetchTimeline = async () => {
+      try {
+        timelineFetchedRef.current = true;
+        console.log('[OrderDetail] Fetching timeline immediately for order:', orderId);
+        
+        // Fetch timeline entries (already returns TimelineEntry[])
+        const timelineData = await fetchTimelineEntries(orderId);
+        const activityLogs = await fetchActivityLogs(orderId);
+        
+        // Transform activity logs to TimelineEntry format
+        const mappedActivityLogs: TimelineEntry[] = (activityLogs || []).map(log => ({
+          timeline_id: log.id,
+          order_id: log.order_id,
+          item_id: log.item_id || undefined,
+          stage: log.department as Stage,
+          action: log.action as any,
+          performed_by: log.created_by || '',
+          performed_by_name: log.performed_by_name || log.created_by_name || log.created_by || 'Unknown',
+          notes: log.message || '',
+          attachments: [],
+          is_public: true,
+          created_at: new Date(log.created_at),
+        }));
+        
+        // Combine and sort
+        const combinedTimeline: TimelineEntry[] = [
+          ...(timelineData || []),
+          ...mappedActivityLogs,
+        ].sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        
+        setLocalTimeline(combinedTimeline);
+        console.log('[OrderDetail] Timeline fetched:', combinedTimeline.length, 'entries');
+      } catch (error) {
+        console.error('[OrderDetail] Error fetching timeline:', error);
+      }
+    };
+    
+    fetchTimeline();
+  }, [orderId]);
+  
+  // Initialize local order state from context
+  useEffect(() => {
+    if (contextOrder && !localOrder) {
+      setLocalOrder(contextOrder);
+    }
+  }, [contextOrder, localOrder]);
   
   // Merge timeline entries with work logs for comprehensive timeline view
   const timeline = useMemo(() => {
@@ -171,6 +238,123 @@ export default function OrderDetail() {
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
   }, [timelineEntries, workLogsForOrder]);
+  
+  // Real-time subscriptions (use order.id UUID, not order_id string)
+  const realtime = useOrderDetailRealtime({
+    orderId: order?.id || '',
+    enabled: !!orderId && !!order && !!order.id,
+    onOrderUpdate: useCallback((updates: Partial<Order>) => {
+      console.log('[OrderDetail] Real-time order update:', updates);
+      setLocalOrder(prev => prev ? mergeOrderUpdate(prev, updates) : prev);
+      // Also trigger context refresh for consistency
+      refreshOrders();
+    }, [refreshOrders]),
+    onItemUpdate: useCallback((updates: Partial<OrderItem>) => {
+      console.log('[OrderDetail] Real-time item update:', updates);
+      if (updates.item_id) {
+        setLocalOrder(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            items: mergeItemUpdate(prev.items, updates.item_id, updates),
+          };
+        });
+        refreshOrders();
+      }
+    }, [refreshOrders]),
+    onItemInsert: useCallback((item: OrderItem) => {
+      console.log('[OrderDetail] Real-time item insert:', item);
+      setLocalOrder(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: addItemToOrder(prev.items, item),
+        };
+      });
+      refreshOrders();
+    }, [refreshOrders]),
+    onItemDelete: useCallback((itemId: string) => {
+      console.log('[OrderDetail] Real-time item delete:', itemId);
+      setLocalOrder(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: removeItemFromOrder(prev.items, itemId),
+        };
+      });
+      refreshOrders();
+    }, [refreshOrders]),
+    onTimelineEntry: useCallback((entry: TimelineEntry) => {
+      console.log('[OrderDetail] Real-time timeline entry:', entry);
+      setLocalTimeline(prev => addTimelineEntry(prev, entry));
+    }, []),
+    onFileInsert: useCallback((file: OrderFile) => {
+      console.log('[OrderDetail] Real-time file insert:', file);
+      // Find which item this file belongs to (would need item_id in file)
+      // For now, refresh orders to get updated file list
+      refreshOrders();
+    }, [refreshOrders]),
+    onFileDelete: useCallback((fileId: string) => {
+      console.log('[OrderDetail] Real-time file delete:', fileId);
+      // Update local state if we can find the file
+      setLocalOrder(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          items: prev.items.map(item => ({
+            ...item,
+            files: item.files.filter(f => f.file_id !== fileId),
+          })),
+        };
+      });
+      refreshOrders();
+    }, [refreshOrders]),
+    onOrderDelete: useCallback(() => {
+      console.log('[OrderDetail] Real-time order delete');
+      navigate('/dashboard');
+      toast({
+        title: "Order Deleted",
+        description: "This order has been deleted",
+        variant: "destructive",
+      });
+    }, [navigate]),
+    onForceRefresh: useCallback(async () => {
+      console.log('[OrderDetail] Force refresh triggered');
+      refreshOrders();
+      // Re-fetch timeline
+      if (orderId) {
+        try {
+          const timelineData = await fetchTimelineEntries(orderId);
+          const activityLogs = await fetchActivityLogs(orderId);
+          
+          const mappedActivityLogs: TimelineEntry[] = (activityLogs || []).map(log => ({
+            timeline_id: log.id,
+            order_id: log.order_id,
+            item_id: log.item_id || undefined,
+            stage: log.department as Stage,
+            action: log.action as any,
+            performed_by: log.created_by || '',
+            performed_by_name: log.created_by_name || log.created_by || 'Unknown',
+            notes: log.message || '',
+            attachments: [],
+            is_public: true,
+            created_at: new Date(log.created_at),
+          }));
+          
+          const combinedTimeline: TimelineEntry[] = [
+            ...(timelineData || []),
+            ...mappedActivityLogs,
+          ].sort((a, b) => 
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          );
+          
+          setLocalTimeline(combinedTimeline);
+        } catch (error) {
+          console.error('[OrderDetail] Error refreshing timeline:', error);
+        }
+      }
+    }, [orderId, refreshOrders]),
+  });
 
   // Dialog states
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -388,6 +572,17 @@ export default function OrderDetail() {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 sm:gap-3 mb-2 flex-wrap">
                 <h1 className="text-xl sm:text-2xl font-display font-bold truncate">Order #{order.order_id}</h1>
+                {/* Real-time connection indicator */}
+                {realtime.isConnected && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" title="Real-time connected" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Real-time updates active</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 <PriorityBadge priority={order.priority_computed} showLabel />
                 {order.source === 'wordpress' && (
                   <Badge variant="outline" className="text-xs">WooCommerce</Badge>
@@ -1173,14 +1368,29 @@ export default function OrderDetail() {
                 </CardHeader>
                 <CollapsibleContent className="flex-1 min-h-0 overflow-hidden">
                   <CardContent className="h-full max-h-[400px] sm:max-h-[500px] lg:max-h-[600px] overflow-y-auto custom-scrollbar pt-0 px-4 sm:px-6">
-                    <OrderTimeline 
-                      entries={timeline} 
-                      onEntryClick={(entryId) => {
-                        setHighlightedTimelineId(entryId);
-                        setTimelineDialogOpen(true);
-                      }}
-                      highlightedId={highlightedTimelineId}
-                    />
+                    {!timelineFetchedRef.current && timeline.length === 0 ? (
+                      // Timeline skeleton while loading
+                      <div className="space-y-4 py-4">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="flex gap-4 animate-pulse">
+                            <div className="w-10 h-10 rounded-full bg-muted flex-shrink-0" />
+                            <div className="flex-1 space-y-2">
+                              <div className="h-4 bg-muted rounded w-3/4" />
+                              <div className="h-3 bg-muted/50 rounded w-1/2" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <OrderTimeline 
+                        entries={timeline} 
+                        onEntryClick={(entryId) => {
+                          setHighlightedTimelineId(entryId);
+                          setTimelineDialogOpen(true);
+                        }}
+                        highlightedId={highlightedTimelineId}
+                      />
+                    )}
                   </CardContent>
                 </CollapsibleContent>
               </Collapsible>
