@@ -66,7 +66,7 @@ export function CreateOrderDialog({
   onOpenChange,
   onOrderCreated
 }: CreateOrderDialogProps) {
-  const { user, session } = useAuth();
+  const { user, session, role, isAdmin } = useAuth();
   const [isCreating, setIsCreating] = useState(false);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
   const [isFetchingWooCommerce, setIsFetchingWooCommerce] = useState(false);
@@ -74,6 +74,8 @@ export function CreateOrderDialog({
   const [orderNumberError, setOrderNumberError] = useState<string | null>(null);
   const [wooOrderData, setWooOrderData] = useState<any>(null);
   const [isWooCommerceOrder, setIsWooCommerceOrder] = useState(false);
+  const [wooCommerceCheckStatus, setWooCommerceCheckStatus] = useState<'idle' | 'checking' | 'found' | 'not_found' | 'error'>('idle');
+  const [wooCommerceError, setWooCommerceError] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined);
   
   const [customerData, setCustomerData] = useState({
@@ -117,6 +119,8 @@ export function CreateOrderDialog({
     setOrderNumberError(null);
     setWooOrderData(null);
     setIsWooCommerceOrder(false);
+    setWooCommerceCheckStatus('idle');
+    setWooCommerceError(null);
   };
 
   // Check if order number already exists - enhanced to check both order_id and woo_order_id
@@ -169,23 +173,40 @@ export function CreateOrderDialog({
     }
   }, []);
 
-  // Fetch WooCommerce order by number
-  const fetchWooCommerceOrder = useCallback(async (orderNum: string) => {
-    if (!orderNum.trim() || !session?.access_token) {
-      return null;
+  // Manual WooCommerce order fetch - ONLY called on button click
+  // This replaces automatic debounced fetching for better security and control
+  const checkWooCommerceOrder = useCallback(async () => {
+    if (!orderNumber.trim() || !session?.access_token) {
+      toast({
+        title: "Error",
+        description: "Please enter an order number first",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check if user has permission (admin or sales only)
+    if (!isAdmin && role !== 'sales') {
+      toast({
+        title: "Access Denied",
+        description: "Only Admin and Sales can check WooCommerce orders",
+        variant: "destructive",
+      });
+      return;
     }
 
     try {
       setIsFetchingWooCommerce(true);
-      console.log('[CreateOrderDialog] Fetching WooCommerce order:', orderNum);
+      setWooCommerceCheckStatus('checking');
+      setWooCommerceError(null);
+      console.log('[CreateOrderDialog] Manually checking WooCommerce order:', orderNumber);
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       if (!supabaseUrl) {
-        console.error('[CreateOrderDialog] Supabase URL not configured');
-        return null;
+        throw new Error('Supabase URL not configured');
       }
 
-      const response = await fetch(`${supabaseUrl}/functions/v1/woocommerce`, {
+      const response = await fetch(`${supabaseUrl}/functions/v1/woocommerce-fetch`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -193,57 +214,102 @@ export function CreateOrderDialog({
           'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || '',
         },
         body: JSON.stringify({
-          action: 'order-by-number',
-          orderNumber: orderNum.trim(),
+          order_number: orderNumber.trim(),
         }),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.log('[CreateOrderDialog] WooCommerce order not found:', errorData);
-        return null;
+        
+        // Handle specific error codes
+        if (response.status === 403) {
+          setWooCommerceError('You are not authorized to check WooCommerce orders');
+          setWooCommerceCheckStatus('error');
+          toast({
+            title: "Access Denied",
+            description: "You are not authorized",
+            variant: "destructive",
+          });
+          return;
+        } else if (response.status === 500) {
+          setWooCommerceError('WooCommerce service unavailable');
+          setWooCommerceCheckStatus('error');
+          toast({
+            title: "Service Unavailable",
+            description: "WooCommerce service unavailable",
+            variant: "destructive",
+          });
+          return;
+        } else {
+          // Order not found (404 or similar)
+          setWooCommerceCheckStatus('not_found');
+          setWooCommerceError(null);
+          return;
+        }
       }
 
       const data = await response.json();
       
       if (data.found && data.order) {
         console.log('[CreateOrderDialog] WooCommerce order found:', data.order.order_number);
-        return data.order;
+        setWooCommerceCheckStatus('found');
+        setWooCommerceError(null);
+        // Don't auto-fill yet - wait for user to click "Import Order"
+        setWooOrderData(data.order);
+      } else {
+        setWooCommerceCheckStatus('not_found');
+        setWooCommerceError(null);
       }
-
-      return null;
-    } catch (error) {
-      console.error('[CreateOrderDialog] Error fetching WooCommerce order:', error);
-      return null;
+    } catch (error: any) {
+      console.error('[CreateOrderDialog] Error checking WooCommerce order:', error);
+      setWooCommerceCheckStatus('error');
+      
+      // Network error
+      if (error.message?.includes('fetch') || error.message?.includes('network')) {
+        setWooCommerceError('Unable to connect to WooCommerce');
+        toast({
+          title: "Network Error",
+          description: "Unable to connect to WooCommerce",
+          variant: "destructive",
+        });
+      } else {
+        setWooCommerceError(error.message || 'Failed to check WooCommerce order');
+        toast({
+          title: "Error",
+          description: error.message || "Failed to check WooCommerce order",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsFetchingWooCommerce(false);
     }
-  }, [session]);
+  }, [orderNumber, session, isAdmin, role, toast]);
 
-  // Autofill form from WooCommerce order data
-  const autofillFromWooCommerce = useCallback((wooOrder: any) => {
-    if (!wooOrder) return;
+  // Import WooCommerce order data - called when user clicks "Import Order from WooCommerce"
+  // This autofills the form and locks imported fields for security
+  const importWooCommerceOrder = useCallback(() => {
+    if (!wooOrderData) return;
 
-    console.log('[CreateOrderDialog] Autofilling form from WooCommerce order');
+    console.log('[CreateOrderDialog] Importing WooCommerce order data');
 
-    // Format order number as WC-{number} for consistency with existing system
-    const formattedOrderNumber = `WC-${wooOrder.id}`;
-    setOrderNumber(formattedOrderNumber);
+    // Keep the order number as entered by user (don't auto-format)
+    // User may have entered just the number, we keep it as is
+    // Order number field becomes read-only after import
 
-    // Autofill customer data
+    // Autofill customer data (fields become read-only after import)
     setCustomerData({
-      name: wooOrder.customer_name || '',
-      phone: wooOrder.customer_phone || '',
-      email: wooOrder.customer_email || '',
-      address: wooOrder.billing_address || '',
-      city: wooOrder.billing_city || '',
-      state: wooOrder.billing_state || '',
-      pincode: wooOrder.billing_pincode || '',
+      name: wooOrderData.customer_name || '',
+      phone: wooOrderData.customer_phone || '',
+      email: wooOrderData.customer_email || '',
+      address: wooOrderData.billing_address || '',
+      city: wooOrderData.billing_city || '',
+      state: wooOrderData.billing_state || '',
+      pincode: wooOrderData.billing_pincode || '',
     });
 
     // Autofill products from line items
-    if (wooOrder.line_items && wooOrder.line_items.length > 0) {
-      const autofilledProducts = wooOrder.line_items.map((item: any) => ({
+    if (wooOrderData.line_items && wooOrderData.line_items.length > 0) {
+      const autofilledProducts = wooOrderData.line_items.map((item: any) => ({
         id: generateId(),
         name: item.name || '',
         quantity: item.quantity || 1,
@@ -252,9 +318,9 @@ export function CreateOrderDialog({
       setProducts(autofilledProducts);
     }
 
-    // Set delivery date if available (parse from date_created or use a default)
-    if (wooOrder.date_created) {
-      const orderDate = new Date(wooOrder.date_created);
+    // Set delivery date if available (parse from order_date or use a default)
+    if (wooOrderData.order_date) {
+      const orderDate = new Date(wooOrderData.order_date);
       // Set delivery date to 7 days from order date (or user can change)
       const defaultDeliveryDate = new Date(orderDate);
       defaultDeliveryDate.setDate(defaultDeliveryDate.getDate() + 7);
@@ -262,34 +328,36 @@ export function CreateOrderDialog({
     }
 
     // Set global notes with order info
-    const notes = `Order imported from WooCommerce\nOrder Number: ${wooOrder.order_number}\nTotal: ${wooOrder.currency} ${wooOrder.order_total}\nPayment Status: ${wooOrder.payment_status}`;
+    const notes = `Order imported from WooCommerce\nOrder Number: ${wooOrderData.order_number}\nTotal: ${wooOrderData.currency} ${wooOrderData.order_total}\nPayment Status: ${wooOrderData.payment_status}`;
     setGlobalNotes(notes);
 
     setIsWooCommerceOrder(true);
-    setWooOrderData(wooOrder);
-  }, []);
+    toast({
+      title: "Order Imported",
+      description: "WooCommerce order data has been imported. Customer fields are now locked.",
+    });
+  }, [wooOrderData, toast]);
 
-  // Debounce timer refs
+  // Debounce timer ref for duplicate check only (NO automatic WooCommerce fetch)
   const duplicateCheckTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const wooCommerceLookupTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Validate order number on change - immediate update, debounced duplicate check and WooCommerce lookup
+  // Validate order number on change - immediate update, debounced duplicate check ONLY
+  // NO automatic WooCommerce lookup - user must click button manually
   const handleOrderNumberChange = useCallback((value: string) => {
     // Immediately update the input value
     setOrderNumber(value);
     
-    // Clear existing timers
+    // Clear existing timer
     if (duplicateCheckTimerRef.current) {
       clearTimeout(duplicateCheckTimerRef.current);
     }
-    if (wooCommerceLookupTimerRef.current) {
-      clearTimeout(wooCommerceLookupTimerRef.current);
-    }
     
-    // Clear error and WooCommerce data immediately for better UX
+    // Clear error and WooCommerce data when order number changes
     setOrderNumberError(null);
     setWooOrderData(null);
     setIsWooCommerceOrder(false);
+    setWooCommerceCheckStatus('idle');
+    setWooCommerceError(null);
     
     if (!value.trim()) {
       setOrderNumberError('Order number is required');
@@ -303,68 +371,13 @@ export function CreateOrderDialog({
         setOrderNumberError(result.message || 'Order number already exists');
       }
     }, 500);
-    
-    // Debounce WooCommerce lookup - wait 600ms after user stops typing
-    wooCommerceLookupTimerRef.current = setTimeout(async () => {
-      const wooOrder = await fetchWooCommerceOrder(value);
-      if (wooOrder) {
-        autofillFromWooCommerce(wooOrder);
-        // Check for duplicate with woo_order_id (use number format)
-        const duplicateCheck = await checkOrderNumberDuplicate(value, Number(wooOrder.id));
-        if (duplicateCheck.isDuplicate) {
-          setOrderNumberError(duplicateCheck.message || 'This WooCommerce order already exists in Order Flow');
-        }
-      }
-    }, 600);
-  }, [checkOrderNumberDuplicate, fetchWooCommerceOrder, autofillFromWooCommerce]);
+  }, [checkOrderNumberDuplicate]);
 
-  // Handle order number field blur - trigger immediate lookup
-  const handleOrderNumberBlur = useCallback(async () => {
-    if (!orderNumber.trim()) return;
-    
-    // Clear timers
-    if (duplicateCheckTimerRef.current) {
-      clearTimeout(duplicateCheckTimerRef.current);
-    }
-    if (wooCommerceLookupTimerRef.current) {
-      clearTimeout(wooCommerceLookupTimerRef.current);
-    }
-    
-    // Immediate duplicate check
-    const duplicateResult = await checkOrderNumberDuplicate(orderNumber);
-    if (duplicateResult.isDuplicate) {
-      setOrderNumberError(duplicateResult.message || 'Order number already exists');
-      return;
-    }
-    
-    // Immediate WooCommerce lookup
-    const wooOrder = await fetchWooCommerceOrder(orderNumber);
-    if (wooOrder) {
-      autofillFromWooCommerce(wooOrder);
-      // Check for duplicate with woo_order_id (use number format)
-      const duplicateCheck = await checkOrderNumberDuplicate(orderNumber, Number(wooOrder.id));
-      if (duplicateCheck.isDuplicate) {
-        setOrderNumberError(duplicateCheck.message || 'This WooCommerce order already exists in Order Flow');
-      }
-    }
-  }, [orderNumber, checkOrderNumberDuplicate, fetchWooCommerceOrder, autofillFromWooCommerce]);
-
-  // Handle Enter key on order number field
-  const handleOrderNumberKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleOrderNumberBlur();
-    }
-  }, [handleOrderNumberBlur]);
-
-  // Cleanup timers on unmount
+  // Cleanup timer on unmount
   useEffect(() => {
     return () => {
       if (duplicateCheckTimerRef.current) {
         clearTimeout(duplicateCheckTimerRef.current);
-      }
-      if (wooCommerceLookupTimerRef.current) {
-        clearTimeout(wooCommerceLookupTimerRef.current);
       }
     };
   }, []);
@@ -715,37 +728,85 @@ export function CreateOrderDialog({
                 <div className="space-y-2">
                   <Label htmlFor="order_number">Order Number *</Label>
                   <div className="space-y-1">
-                    <Input
-                      id="order_number"
-                      name="order_number"
-                      placeholder="e.g., 53509 or WC-12345 or MAN-001"
-                      value={orderNumber}
-                      onChange={(e) => handleOrderNumberChange(e.target.value)}
-                      onBlur={handleOrderNumberBlur}
-                      onKeyDown={handleOrderNumberKeyDown}
-                      className={orderNumberError ? "border-destructive" : ""}
-                      autoFocus
-                      disabled={isWooCommerceOrder}
-                    />
-                    {(isCheckingDuplicate || isFetchingWooCommerce) && (
+                    <div className="flex gap-2">
+                      <Input
+                        id="order_number"
+                        name="order_number"
+                        placeholder="e.g., 53529"
+                        value={orderNumber}
+                        onChange={(e) => handleOrderNumberChange(e.target.value)}
+                        className={orderNumberError ? "border-destructive" : ""}
+                        autoFocus
+                        readOnly={isWooCommerceOrder}
+                      />
+                      {/* Manual WooCommerce check button - only for Admin/Sales */}
+                      {(isAdmin || role === 'sales') && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={checkWooCommerceOrder}
+                          disabled={!orderNumber.trim() || isFetchingWooCommerce || isWooCommerceOrder}
+                          className="whitespace-nowrap"
+                        >
+                          {isFetchingWooCommerce ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Checking...
+                            </>
+                          ) : (
+                            'Check WooCommerce Order'
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                    {isCheckingDuplicate && (
                       <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        {isFetchingWooCommerce && <Loader2 className="h-3 w-3 animate-spin" />}
-                        {isFetchingWooCommerce ? 'Checking WooCommerce...' : 'Checking availability...'}
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Checking availability...
                       </p>
                     )}
-                    {isWooCommerceOrder && !isFetchingWooCommerce && (
+                    {/* WooCommerce check status messages */}
+                    {wooCommerceCheckStatus === 'checking' && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Checking WooCommerce...
+                      </p>
+                    )}
+                    {wooCommerceCheckStatus === 'found' && wooOrderData && !isWooCommerceOrder && (
+                      <div className="space-y-2">
+                        <p className="text-xs text-green-600 flex items-center gap-1">
+                          ✓ WooCommerce order found!
+                        </p>
+                        <Button
+                          type="button"
+                          variant="default"
+                          size="sm"
+                          onClick={importWooCommerceOrder}
+                          className="w-full"
+                        >
+                          Import Order from WooCommerce
+                        </Button>
+                      </div>
+                    )}
+                    {wooCommerceCheckStatus === 'not_found' && (
+                      <p className="text-xs text-muted-foreground">
+                        No WooCommerce order found. You can create a manual order.
+                      </p>
+                    )}
+                    {wooCommerceCheckStatus === 'error' && wooCommerceError && (
+                      <p className="text-xs text-destructive">{wooCommerceError}</p>
+                    )}
+                    {isWooCommerceOrder && (
                       <p className="text-xs text-green-600 flex items-center gap-1">
-                        ✓ Order details auto-filled from WooCommerce
+                        ✓ Order imported from WooCommerce (fields are locked)
                       </p>
-                    )}
-                    {!isWooCommerceOrder && !isFetchingWooCommerce && orderNumber.trim() && !orderNumberError && !isCheckingDuplicate && (
-                      <p className="text-xs text-muted-foreground">No WooCommerce order found. Creating manual order.</p>
                     )}
                     {orderNumberError && (
                       <p className="text-xs text-destructive">{orderNumberError}</p>
                     )}
-                    {!orderNumberError && orderNumber.trim() && !isCheckingDuplicate && !isFetchingWooCommerce && !isWooCommerceOrder && (
-                      <p className="text-xs text-green-600">✓ Order number available</p>
+                    {!orderNumberError && orderNumber.trim() && !isCheckingDuplicate && !isFetchingWooCommerce && !isWooCommerceOrder && wooCommerceCheckStatus === 'idle' && (
+                      <p className="text-xs text-muted-foreground">Enter order number and click "Check WooCommerce Order" if needed</p>
                     )}
                   </div>
                 </div>
@@ -768,6 +829,8 @@ export function CreateOrderDialog({
                     placeholder="Enter customer name"
                     value={customerData.name}
                     onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
+                    disabled={isWooCommerceOrder}
+                    className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                   />
                 </div>
                 <div className="space-y-2">
@@ -778,6 +841,8 @@ export function CreateOrderDialog({
                     placeholder="Enter phone number"
                     value={customerData.phone}
                     onChange={(e) => setCustomerData({...customerData, phone: e.target.value})}
+                    disabled={isWooCommerceOrder}
+                    className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                   />
                 </div>
               </div>
@@ -791,6 +856,8 @@ export function CreateOrderDialog({
                   placeholder="Enter email address"
                   value={customerData.email}
                   onChange={(e) => setCustomerData({...customerData, email: e.target.value})}
+                  disabled={isWooCommerceOrder}
+                  className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                 />
               </div>
 
@@ -802,6 +869,8 @@ export function CreateOrderDialog({
                   placeholder="Enter full address"
                   value={customerData.address}
                   onChange={(e) => setCustomerData({...customerData, address: e.target.value})}
+                  disabled={isWooCommerceOrder}
+                  className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                 />
               </div>
 
@@ -814,6 +883,8 @@ export function CreateOrderDialog({
                     placeholder="City"
                     value={customerData.city}
                     onChange={(e) => setCustomerData({...customerData, city: e.target.value})}
+                    disabled={isWooCommerceOrder}
+                    className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                   />
                 </div>
                 <div className="space-y-2">
@@ -824,6 +895,8 @@ export function CreateOrderDialog({
                     placeholder="State"
                     value={customerData.state}
                     onChange={(e) => setCustomerData({...customerData, state: e.target.value})}
+                    disabled={isWooCommerceOrder}
+                    className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                   />
                 </div>
                 <div className="space-y-2">
@@ -834,6 +907,8 @@ export function CreateOrderDialog({
                     placeholder="Pincode"
                     value={customerData.pincode}
                     onChange={(e) => setCustomerData({...customerData, pincode: e.target.value})}
+                    disabled={isWooCommerceOrder}
+                    className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                   />
                 </div>
               </div>
