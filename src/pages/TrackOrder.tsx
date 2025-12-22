@@ -432,9 +432,12 @@ export default function TrackOrder() {
 
       // PUBLIC TRACKING: Query order by order_id (no auth required)
       // Only select safe, public fields - never expose internal data
-      // CRITICAL: Use exact match with normalized order number (case-sensitive match)
-      // Use ilike for case-insensitive search as fallback, but prefer exact match
-      const { data: orderData, error: orderError } = await supabase
+      // Try multiple search strategies: exact match, case-insensitive, with/without prefix
+      let orderData = null;
+      let orderError = null;
+      
+      // Strategy 1: Exact match with normalized number
+      let searchResult = await supabase
         .from('orders')
         .select(`
           id,
@@ -447,10 +450,112 @@ export default function TrackOrder() {
         .eq('order_id', normalizedOrderNumber)
         .maybeSingle();
       
+      if (searchResult.data) {
+        orderData = searchResult.data;
+      } else if (searchResult.error) {
+        orderError = searchResult.error;
+      }
+      
+      // Strategy 2: Case-insensitive search if exact match failed
+      if (!orderData) {
+        searchResult = await supabase
+          .from('orders')
+          .select(`
+            id,
+            order_id,
+            customer_name,
+            delivery_date,
+            is_completed,
+            created_at
+          `)
+          .ilike('order_id', normalizedOrderNumber)
+          .maybeSingle();
+        
+        if (searchResult.data) {
+          orderData = searchResult.data;
+        } else if (searchResult.error && !orderError) {
+          orderError = searchResult.error;
+        }
+      }
+      
+      // Strategy 3: Try without prefix if normalized has prefix
+      if (!orderData && normalizedOrderNumber.startsWith('WC-')) {
+        const withoutPrefix = normalizedOrderNumber.replace(/^WC-/i, '');
+        searchResult = await supabase
+          .from('orders')
+          .select(`
+            id,
+            order_id,
+            customer_name,
+            delivery_date,
+            is_completed,
+            created_at
+          `)
+          .eq('order_id', withoutPrefix)
+          .maybeSingle();
+        
+        if (!searchResult.data) {
+          searchResult = await supabase
+            .from('orders')
+            .select(`
+              id,
+              order_id,
+              customer_name,
+              delivery_date,
+              is_completed,
+              created_at
+            `)
+            .ilike('order_id', withoutPrefix)
+            .maybeSingle();
+        }
+        
+        if (searchResult.data) {
+          orderData = searchResult.data;
+        } else if (searchResult.error && !orderError) {
+          orderError = searchResult.error;
+        }
+      }
+      
+      // Strategy 4: Try with original input (in case it's stored differently)
+      if (!orderData && orderNumber.trim() !== normalizedOrderNumber) {
+        searchResult = await supabase
+          .from('orders')
+          .select(`
+            id,
+            order_id,
+            customer_name,
+            delivery_date,
+            is_completed,
+            created_at
+          `)
+          .eq('order_id', orderNumber.trim())
+          .maybeSingle();
+        
+        if (!searchResult.data) {
+          searchResult = await supabase
+            .from('orders')
+            .select(`
+              id,
+              order_id,
+              customer_name,
+              delivery_date,
+              is_completed,
+              created_at
+            `)
+            .ilike('order_id', orderNumber.trim())
+            .maybeSingle();
+        }
+        
+        if (searchResult.data) {
+          orderData = searchResult.data;
+        } else if (searchResult.error && !orderError) {
+          orderError = searchResult.error;
+        }
+      }
+      
       console.log('[TrackOrder] Order query result:', {
         input: orderNumber.trim(),
         normalized: normalizedOrderNumber,
-        searchedFor: normalizedOrderNumber,
         found: orderData ? {
           id: orderData.id,
           order_id: orderData.order_id,
@@ -467,7 +572,7 @@ export default function TrackOrder() {
       }
 
       if (!orderData) {
-        setError('Order not found. Please check the order number and try again.');
+        setError(`Order "${orderNumber.trim()}" not found. Please check the order number and try again.`);
         setIsLoading(false);
         return;
       }
@@ -861,13 +966,14 @@ export default function TrackOrder() {
                 </CardContent>
               </Card>
 
-              {/* Dispatch Tracking Card - Only shown when order is in Dispatch or Dispatched stage */}
+              {/* Dispatch Tracking Card - Show if any item has tracking details */}
               {(() => {
-                // Find items that are dispatched or in dispatch stage
+                // Find items that have dispatch_info (tracking details)
+                // Show tracking details if dispatch_info exists, regardless of stage or is_dispatched flag
                 const dispatchedItems = searchedOrder.items.filter(item => 
-                  (item.current_stage === 'dispatch' || item.current_stage === 'completed') && 
                   item.dispatch_info && 
-                  item.is_dispatched
+                  item.dispatch_info.tracking_number &&
+                  item.dispatch_info.courier_company
                 );
                 
                 if (dispatchedItems.length === 0) return null;
