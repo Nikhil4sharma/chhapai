@@ -52,15 +52,18 @@ export function OrderCard({ order, className }: OrderCardProps) {
   const { user, isAdmin, role, profile } = useAuth();
   const { refreshOrders, addTimelineEntry } = useOrders();
 
-  // Helper to get file URL - use public URL directly since bucket is public
+  // Helper to get file URL - properly handle Supabase storage URLs
   const getFileUrl = async (file: OrderFile): Promise<string> => {
     let url = file.url || '';
     
-    // If URL is a Supabase storage URL, decode it properly
+    // If URL is a Supabase storage URL, get proper signed/public URL
     if (url && url.includes('supabase.co/storage')) {
       try {
-        // Extract bucket and path from URL
+        // Extract bucket and path from URL - handle multiple patterns
         const urlObj = new URL(url);
+        // Match patterns like:
+        // /storage/v1/object/public/bucket/path/to/file.jpg
+        // /storage/v1/object/sign/bucket/token/path/to/file.jpg
         const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
         
         if (pathMatch) {
@@ -69,21 +72,29 @@ export function OrderCard({ order, className }: OrderCardProps) {
           
           // Check cache first
           if (fileUrlCache.has(filePath)) {
-            return fileUrlCache.get(filePath)!;
+            const cachedUrl = fileUrlCache.get(filePath)!;
+            // Verify cached URL is still valid (not expired for signed URLs)
+            if (cachedUrl && !cachedUrl.includes('expires=')) {
+              return cachedUrl;
+            }
           }
           
-          // For public buckets, use public URL directly (no signed URL needed)
-          // Only get signed URL if the URL contains 'sign' (indicating private bucket)
-          if (urlObj.pathname.includes('/sign/')) {
-            // Private bucket - get signed URL
+          // Always try to get signed URL first (works for both public and private buckets)
+          try {
             const signedUrl = await getSupabaseSignedUrl(filePath, bucket);
-            setFileUrlCache(prev => new Map(prev).set(filePath, signedUrl));
-            return signedUrl;
-          } else {
-            // Public bucket - use public URL directly (ensure it's properly encoded)
-            const publicUrl = urlObj.origin + '/storage/v1/object/public/' + bucket + '/' + encodeURI(filePath).replace(/%2F/g, '/');
-            setFileUrlCache(prev => new Map(prev).set(filePath, publicUrl));
-            return publicUrl;
+            if (signedUrl) {
+              setFileUrlCache(prev => new Map(prev).set(filePath, signedUrl));
+              return signedUrl;
+            }
+          } catch (signedError) {
+            console.warn('Failed to get signed URL, trying public URL:', signedError);
+          }
+          
+          // Fallback: Try public URL directly
+          const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+          if (publicData?.publicUrl) {
+            setFileUrlCache(prev => new Map(prev).set(filePath, publicData.publicUrl));
+            return publicData.publicUrl;
           }
         }
       } catch (e) {
@@ -155,17 +166,37 @@ export function OrderCard({ order, className }: OrderCardProps) {
   // Load preview URL when file is selected
   useEffect(() => {
     if (selectedFile && previewOpen) {
-      getFileUrl(selectedFile).then(setPreviewImageUrl).catch(() => {
-        setPreviewImageUrl(selectedFile.url || null);
-      });
+      setPreviewImageUrl(null); // Reset to show loading
+      getFileUrl(selectedFile)
+        .then((url) => {
+          setPreviewImageUrl(url);
+        })
+        .catch((err) => {
+          console.error('Failed to load preview URL:', err);
+          // Fallback to original URL
+          setPreviewImageUrl(selectedFile.url || null);
+        });
     } else {
       setPreviewImageUrl(null);
     }
-  }, [selectedFile, previewOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFile?.file_id, previewOpen]);
 
   const handleImagePreview = () => {
-    if (!selectedFile || !previewImageUrl) return null;
+    if (!selectedFile) return null;
     const fileName = selectedFile.file_name || selectedFile.url.split('/').pop() || 'Image';
+    
+    if (!previewImageUrl) {
+      // Loading state
+      return (
+        <div className="flex items-center justify-center w-full h-[calc(95vh-180px)] min-h-[400px]">
+          <div className="flex flex-col items-center justify-center">
+            <div className="h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin mb-4" />
+            <p className="text-muted-foreground">Loading image...</p>
+          </div>
+        </div>
+      );
+    }
     
     return (
       <div className="flex items-center justify-center w-full h-[calc(95vh-180px)] min-h-[400px] overflow-auto bg-muted/30 rounded-lg p-4">
@@ -175,18 +206,26 @@ export function OrderCard({ order, className }: OrderCardProps) {
           className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
           style={{ maxWidth: '100%', maxHeight: '100%' }}
           onError={(e) => {
+            console.error('Preview image failed to load:', previewImageUrl);
             const target = e.currentTarget;
             const parent = target.parentElement;
-            if (parent) {
+            if (parent && !parent.querySelector('.preview-fallback')) {
               target.style.display = 'none';
               const fallback = document.createElement('div');
-              fallback.className = 'flex flex-col items-center justify-center py-12 text-center';
+              fallback.className = 'preview-fallback flex flex-col items-center justify-center py-12 text-center';
+              const link = document.createElement('a');
+              link.href = previewImageUrl;
+              link.target = '_blank';
+              link.rel = 'noopener noreferrer';
+              link.className = 'px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 inline-block mt-4';
+              link.textContent = 'Open File in New Tab';
               fallback.innerHTML = `
                 <svg class="h-16 w-16 text-muted-foreground mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
                 </svg>
                 <p class="text-muted-foreground mb-4">Image preview not available</p>
               `;
+              fallback.appendChild(link);
               parent.appendChild(fallback);
             }
           }}
@@ -200,30 +239,37 @@ export function OrderCard({ order, className }: OrderCardProps) {
     const fileName = file.file_name || file.url.split('/').pop() || 'File';
     const [thumbnailUrl, setThumbnailUrl] = useState<string>(getFileUrlSync(file));
     const [hoverUrl, setHoverUrl] = useState<string | null>(null);
+    const [imageError, setImageError] = useState(false);
 
     // Load thumbnail URL if not cached (only once per file URL)
     useEffect(() => {
-      if (isImage && file.url?.includes('supabase.co/storage')) {
+      setImageError(false);
+      if (isImage && file.url) {
         const cachedUrl = getFileUrlSync(file);
         // If not cached yet (URL same as original), load it
-        if (cachedUrl === file.url) {
-          getFileUrl(file).then(setThumbnailUrl).catch(() => {
-            setThumbnailUrl(file.url || '');
-          });
+        if (cachedUrl === file.url || !cachedUrl) {
+          getFileUrl(file)
+            .then((url) => {
+              setThumbnailUrl(url);
+            })
+            .catch((err) => {
+              console.warn('Failed to load thumbnail URL:', err);
+              setThumbnailUrl(file.url || '');
+              setImageError(true);
+            });
         } else {
           // Already cached, use cached URL
           setThumbnailUrl(cachedUrl);
         }
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [file.url, isImage]);
+    }, [file.url, file.file_id, isImage]);
 
-    // Load hover preview URL when hovering
+    // Load hover preview URL when hovering - use thumbnail URL since it's already loaded
     const handleHover = () => {
-      if (isImage && !hoverUrl) {
-        getFileUrl(file).then(setHoverUrl).catch(() => {
-          setHoverUrl(file.url || null);
-        });
+      if (isImage && !hoverUrl && thumbnailUrl && !imageError) {
+        // Use thumbnail URL for hover (it's already loaded and cached)
+        setHoverUrl(thumbnailUrl);
       }
     };
 
@@ -238,23 +284,24 @@ export function OrderCard({ order, className }: OrderCardProps) {
       >
         {isImage ? (
           <>
-            <img
-              src={thumbnailUrl}
-              alt={fileName}
-              className="h-full w-full object-cover transition-transform group-hover:scale-110"
-              loading="lazy"
-              onError={(e) => {
-                e.currentTarget.style.display = 'none';
-                const parent = e.currentTarget.parentElement;
-                if (parent && !parent.querySelector('.thumbnail-fallback')) {
-                  const fallback = document.createElement('div');
-                  fallback.className = 'thumbnail-fallback h-full w-full flex items-center justify-center';
-                  fallback.innerHTML = '<svg class="h-5 w-5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>';
-                  parent.appendChild(fallback);
-                }
-              }}
-            />
-            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center">
+            {!imageError && thumbnailUrl ? (
+              <img
+                src={thumbnailUrl}
+                alt={fileName}
+                className="h-full w-full object-cover transition-transform group-hover:scale-110"
+                loading="lazy"
+                onError={(e) => {
+                  console.error('Thumbnail image failed to load:', thumbnailUrl);
+                  setImageError(true);
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            ) : (
+              <div className="h-full w-full flex items-center justify-center bg-muted/50">
+                <ImageIcon className="h-5 w-5 text-muted-foreground" />
+              </div>
+            )}
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center pointer-events-none">
               <Eye className="h-4 w-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           </>
@@ -272,7 +319,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
           <HoverCardTrigger asChild>
             {thumbnailContent}
           </HoverCardTrigger>
-          <HoverCardContent className="w-auto max-w-lg p-2 z-[100] overflow-visible" side="top" sideOffset={8}>
+          <HoverCardContent className="w-auto max-w-lg p-2 z-[9999] overflow-visible pointer-events-auto" side="top" sideOffset={8}>
             <div className="max-w-lg max-h-[500px] overflow-auto">
               <img
                 src={hoverUrl || thumbnailUrl}

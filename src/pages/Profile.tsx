@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { User, Mail, Phone, Building, Shield, Lock, Save, Loader2, Camera, Upload } from 'lucide-react';
+import { User, Mail, Phone, Building, Shield, Lock, Save, Loader2, Camera, Upload, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,11 +7,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
+import { useOrders } from '@/contexts/OrderContext';
 import { toast } from '@/hooks/use-toast';
 import { uploadAvatar } from '@/services/supabaseStorage';
+import { supabase } from '@/integrations/supabase/client';
 
 export default function Profile() {
-  const { user, profile, role, updatePassword, updateProfile, updateEmail } = useAuth();
+  const { user, profile, role, updatePassword, updateProfile, updateEmail, isAdmin } = useAuth();
+  const { refreshOrders } = useOrders();
   const [fullName, setFullName] = useState(profile?.full_name || '');
   const [phone, setPhone] = useState(profile?.phone || '');
   const [email, setEmail] = useState(user?.email || '');
@@ -408,6 +411,148 @@ export default function Profile() {
           </form>
         </CardContent>
       </Card>
+
+      {/* Delete All Orders - Admin Only */}
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg font-display flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Delete All Orders
+            </CardTitle>
+            <CardDescription>
+              Permanently delete all orders, items, files, and timeline entries. This cannot be undone!
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="bg-destructive/10 border border-destructive/30 rounded-lg p-4">
+                <p className="text-sm text-destructive font-medium mb-2">⚠️ Warning</p>
+                <p className="text-sm text-muted-foreground">
+                  This action will permanently delete ALL orders, order items, files, and timeline entries from the system. 
+                  This operation cannot be undone. Please use this feature with extreme caution.
+                </p>
+              </div>
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (!confirm('⚠️ WARNING: This will delete ALL orders, items, files, and timeline entries. This action CANNOT be undone!\n\nType "DELETE ALL" to confirm:')) {
+                    return;
+                  }
+                  
+                  const confirmation = prompt('Type "DELETE ALL" to confirm deletion:');
+                  if (confirmation !== 'DELETE ALL') {
+                    toast({
+                      title: "Cancelled",
+                      description: "Deletion cancelled. Orders are safe.",
+                    });
+                    return;
+                  }
+
+                  try {
+                    // Get all orders first to count them
+                    const { data: ordersData, error: fetchError } = await supabase
+                      .from('orders')
+                      .select('id');
+                    
+                    if (fetchError) {
+                      throw fetchError;
+                    }
+                    
+                    const orders = ordersData || [];
+                    
+                    if (orders.length === 0) {
+                      toast({
+                        title: "No Orders Found",
+                        description: "There are no orders to delete.",
+                      });
+                      return;
+                    }
+
+                    // Since CASCADE is set up in the database schema:
+                    // - Deleting orders will automatically delete related order_items (ON DELETE CASCADE)
+                    // - Deleting order_items will automatically delete related order_files (ON DELETE CASCADE)
+                    // - Deleting orders will automatically delete related timeline entries (ON DELETE CASCADE)
+                    // So we only need to delete orders, and everything else will be deleted automatically
+                    
+                    const orderIds = orders.map(o => o.id).filter((id): id is string => !!id);
+                    
+                    if (orderIds.length === 0) {
+                      toast({
+                        title: "Error",
+                        description: "No valid order IDs found.",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    
+                    // Delete orders in batches (Supabase has a limit on .in() queries)
+                    const BATCH_SIZE = 100;
+                    let deleted = 0;
+                    let lastError: any = null;
+                    
+                    for (let i = 0; i < orderIds.length; i += BATCH_SIZE) {
+                      const batch = orderIds.slice(i, i + BATCH_SIZE);
+                      const { error: deleteError } = await supabase
+                        .from('orders')
+                        .delete()
+                        .in('id', batch);
+                      
+                      if (deleteError) {
+                        console.error(`Error deleting batch ${i / BATCH_SIZE + 1}:`, deleteError);
+                        lastError = deleteError;
+                        // Continue with next batch even if one fails
+                      } else {
+                        deleted += batch.length;
+                      }
+                    }
+                    
+                    if (lastError && deleted === 0) {
+                      // All batches failed
+                      throw lastError;
+                    }
+                    
+                    // Verify deletion by checking if any orders remain
+                    const { data: remainingOrders } = await supabase
+                      .from('orders')
+                      .select('id')
+                      .limit(1);
+                    
+                    if (remainingOrders && remainingOrders.length > 0) {
+                      // Some orders might still exist, log warning but don't fail
+                      console.warn('Some orders may not have been deleted. Remaining count:', remainingOrders.length);
+                    }
+                    
+                    toast({
+                      title: "All Orders Deleted",
+                      description: `Successfully deleted ${deleted} orders (including all timeline entries and files).`,
+                    });
+                    
+                    // Refresh orders and timeline
+                    refreshOrders();
+                    
+                    // Force refresh timeline by reloading page after a short delay
+                    setTimeout(() => {
+                      window.location.reload();
+                    }, 1000);
+                  } catch (error: any) {
+                    console.error('Error deleting orders:', error);
+                    toast({
+                      title: "Error",
+                      description: error.message || "Failed to delete orders",
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                className="w-full sm:w-auto"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete All Orders
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

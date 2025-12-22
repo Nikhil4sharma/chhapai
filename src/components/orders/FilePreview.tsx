@@ -506,7 +506,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
   const PreviewDialog = () => (
     <>
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-6xl max-h-[95vh] w-[95vw] p-0 gap-0 overflow-hidden flex flex-col [&>button]:hidden">
+        <DialogContent className="max-w-6xl max-h-[95vh] w-[95vw] p-0 gap-0 overflow-hidden flex flex-col [&>button.absolute]:hidden">
           <DialogHeader className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0 bg-background">
             <div className="flex items-center justify-between gap-4">
               <DialogTitle className="flex items-center gap-2 flex-1 min-w-0">
@@ -521,7 +521,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
                     if (!selectedFile) return;
                     try {
                       const fileName = getFileName(selectedFile);
-                      const fileUrl = getFileUrl(selectedFile);
+                      const fileUrl = await getFileUrl(selectedFile);
                       const link = document.createElement('a');
                       link.href = fileUrl;
                       link.download = fileName;
@@ -552,9 +552,15 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => {
+                  onClick={async () => {
                     if (selectedFile) {
-                      window.open(getFileUrl(selectedFile), '_blank');
+                      try {
+                        const url = await getFileUrl(selectedFile);
+                        window.open(url, '_blank');
+                      } catch (error) {
+                        console.error('Error getting file URL:', error);
+                        window.open(selectedFile.url || '', '_blank');
+                      }
                     }
                   }}
                   className="flex items-center gap-2"

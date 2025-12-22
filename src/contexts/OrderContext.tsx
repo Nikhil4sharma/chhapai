@@ -7,12 +7,14 @@ import { supabase } from '@/integrations/supabase/client';
 import { 
   fetchAllOrders,
   fetchTimelineEntries,
+  fetchActivityLogs,
   updateOrderItemStage as supabaseUpdateOrderItemStage,
   assignOrderItemToDepartment,
   assignOrderItemToUser,
   assignOrderToDepartment as supabaseAssignOrderToDepartment,
   assignOrderToUser as supabaseAssignOrderToUser,
   addTimelineEntry as supabaseAddTimelineEntry,
+  addActivityLog,
   subscribeToOrdersChanges,
   subscribeToOrderItemsChanges,
 } from '@/services/supabaseOrdersService';
@@ -164,6 +166,32 @@ const notifyStageChange = async (
   }
 };
 
+// Helper to log activity (department-wise activity tracking)
+// This function should be used inside OrderProvider where user context is available
+const createLogActivityHelper = (userId: string) => async (
+  orderId: string,
+  itemId: string | undefined,
+  department: 'sales' | 'design' | 'prepress' | 'production' | 'dispatch',
+  action: 'created' | 'assigned' | 'started' | 'completed' | 'rejected' | 'dispatched' | 'note_added' | 'file_uploaded' | 'status_changed',
+  message: string,
+  metadata?: Record<string, any>
+) => {
+  try {
+    await addActivityLog({
+      orderId,
+      itemId,
+      department,
+      action,
+      message,
+      createdBy: userId,
+      metadata,
+    });
+  } catch (error) {
+    // Don't throw - activity logs are not critical
+    console.error('[logActivity] Error logging activity:', error);
+  }
+};
+
 // Helper to check and notify urgent/delayed orders
 const checkAndNotifyPriority = async (
   orderId: string,
@@ -217,6 +245,7 @@ const checkAndNotifyPriority = async (
 export function OrderProvider({ children }: { children: React.ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
+  const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const { user, profile, role, isAdmin, profileReady, authReady } = useAuth();
@@ -227,7 +256,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   
   // CRITICAL: Use refs to store stable function references
   // This prevents useEffect from re-running when these functions change
-  const fetchOrdersRef = useRef<((showLoading?: boolean) => Promise<void>) | null>(null);
+  const fetchOrdersRef = useRef<((showLoading?: boolean, forceRefresh?: boolean) => Promise<void>) | null>(null);
   const fetchTimelineRef = useRef<(() => Promise<void>) | null>(null);
   
   // CRITICAL: Guard to ensure fetchOrders runs only once per authenticated session
@@ -246,6 +275,32 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   
   // Check if user can view financial data
   const canViewFinancials = isAdmin || role === 'sales';
+  
+  // Create activity logging helper (needs user context)
+  const logActivity = useCallback(async (
+    orderId: string,
+    itemId: string | undefined,
+    department: 'sales' | 'design' | 'prepress' | 'production' | 'dispatch',
+    action: 'created' | 'assigned' | 'started' | 'completed' | 'rejected' | 'dispatched' | 'note_added' | 'file_uploaded' | 'status_changed',
+    message: string,
+    metadata?: Record<string, any>
+  ) => {
+    if (!user?.id) return;
+    try {
+      await addActivityLog({
+        orderId,
+        itemId,
+        department,
+        action,
+        message,
+        createdBy: user.id,
+        metadata,
+      });
+    } catch (error) {
+      // Don't throw - activity logs are not critical
+      console.error('[logActivity] Error logging activity:', error);
+    }
+  }, [user?.id]);
 
   // Fetch orders from Supabase - RLS automatically filters based on user role/department
   const fetchOrders = useCallback(async (showLoading = false, forceRefresh = false) => {
@@ -276,6 +331,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
     
     // CRITICAL: Check if we've already fetched for this user+role combination (unless force refresh)
+    // forceRefresh=true bypasses all guards (used for real-time updates)
     if (!forceRefresh && hasFetchedRef.current) {
       const { userId, role: fetchedRole } = hasFetchedRef.current;
       if (userId === user.id && fetchedRole === role) {
@@ -295,7 +351,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       }
     }
     
-    // Check cache first (unless force refresh)
+    // Check cache first (unless force refresh - real-time updates should bypass cache)
     if (!forceRefresh && ordersCacheRef.current) {
       const cacheAge = Date.now() - ordersCacheRef.current.timestamp;
       if (cacheAge < CACHE_DURATION) {
@@ -379,6 +435,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       if (!user) {
         // Don't log warning - this is normal during initial load
         setTimeline([]);
+        setActivityLogs([]);
         return;
       }
 
@@ -403,11 +460,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
             error.statusCode === 404) {
           console.warn('[fetchTimeline] Timeline access issue, using empty timeline:', error.message);
           setTimeline([]);
-          return;
+          // Still try to fetch activity logs
+        } else {
+          console.error('[fetchTimeline] Error fetching timeline:', error);
+          setTimeline([]);
         }
-        console.error('[fetchTimeline] Error fetching timeline:', error);
-        setTimeline([]);
-        return;
       }
 
       const mappedTimeline: TimelineEntry[] = (timelineData || []).map(entry => ({
@@ -429,11 +486,30 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       }));
 
       setTimeline(mappedTimeline);
+      
+      // Fetch activity logs for all orders (will be filtered per order in getTimelineForOrder)
+      // Get all unique order IDs from orders (not just timeline, to get all activities)
+      const allOrderIds = [...new Set(orders.map(o => o.order_id))];
+      
+      // Fetch activity logs for all orders in parallel (limit to first 50 to avoid too many requests)
+      const orderIdsToFetch = allOrderIds.slice(0, 50);
+      const activityLogPromises = orderIdsToFetch.map(orderId => fetchActivityLogs(orderId));
+      const activityLogResults = await Promise.allSettled(activityLogPromises);
+      
+      const allActivityLogs: any[] = [];
+      activityLogResults.forEach((result) => {
+        if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+          allActivityLogs.push(...result.value);
+        }
+      });
+      
+      setActivityLogs(allActivityLogs);
     } catch (error) {
       console.error('Error fetching timeline:', error);
       setTimeline([]);
+      setActivityLogs([]);
     }
-  }, []);
+  }, [orders]);
 
   // CRITICAL: Update refs whenever fetchOrders or fetchTimeline changes
   // This allows useEffect to use stable refs instead of dependencies
@@ -503,6 +579,33 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     let initialFetchComplete = !shouldFetch; // If already fetched, mark as complete immediately
     let isMounted = true; // Track if component is still mounted
     
+    // CRITICAL: Prevent refetch on tab visibility change
+    // Only allow refetch if data is stale (older than 5 minutes) and user explicitly comes back
+    let lastVisibilityChange = Date.now();
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab hidden - just track time
+        lastVisibilityChange = Date.now();
+        console.log('[OrderContext] Tab hidden, preserving state');
+      } else {
+        // Tab visible again - only refresh if data is stale (5+ minutes old)
+        const cacheAge = ordersCacheRef.current ? Date.now() - ordersCacheRef.current.timestamp : Infinity;
+        const staleThreshold = 5 * 60 * 1000; // 5 minutes
+        
+        if (cacheAge > staleThreshold && initialFetchComplete) {
+          console.log('[OrderContext] Tab visible after', Math.round(cacheAge / 1000), 's, refreshing stale data');
+          // Silently refresh in background without showing loading state
+          if (fetchOrdersRef.current) {
+            fetchOrdersRef.current(false, false); // Don't show loading, don't force refresh
+          }
+        } else {
+          console.log('[OrderContext] Tab visible, data fresh, preserving state');
+        }
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
     // CRITICAL: Fetch orders immediately when profile is ready (only if needed)
     const fetchWhenReady = async () => {
       if (!isMounted || !shouldFetch) {
@@ -531,15 +634,23 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       fetchWhenReady();
     }
 
-    // Use debounce to prevent too many rapid updates
+    // Use debounce to prevent too many rapid updates (reduced for faster real-time feel)
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    const debouncedFetch = (callback: () => void) => {
+    const debouncedFetch = (callback: () => void, immediate = false) => {
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
+      if (immediate) {
+        // Execute immediately for critical updates
         if (isMounted) {
           callback();
         }
-      }, 500); // Increased to 500ms debounce for better performance
+      } else {
+        // Debounce for batch updates (reduced to 200ms for faster updates)
+        debounceTimer = setTimeout(() => {
+          if (isMounted) {
+            callback();
+          }
+        }, 200); // Reduced from 500ms to 200ms for faster real-time feel
+      }
     };
 
     // Supabase Realtime subscriptions - RLS automatically filters based on user access
@@ -548,9 +659,31 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       console.log('[OrderContext] Orders change received:', payload.eventType);
       // Only trigger real-time updates after initial fetch is complete
       if (initialFetchComplete && isMounted && fetchOrdersRef.current) {
+        // Use immediate=true for critical updates (INSERT, DELETE) and debounce for UPDATE
+        const isCriticalUpdate = payload.eventType === 'INSERT' || payload.eventType === 'DELETE';
         debouncedFetch(() => {
-          fetchOrdersRef.current?.(false); // Don't show loading on real-time updates
-        });
+          // CRITICAL: Clear cache before real-time update to ensure fresh data
+          // Real-time updates should always fetch fresh data
+          if (fetchOrdersRef.current) {
+            // Clear cache to force fresh fetch (access ref from closure)
+            // Store current cache for potential restore
+            const currentCache = ordersCacheRef.current;
+            ordersCacheRef.current = null;
+            // Fetch with forceRefresh=true to bypass all guards
+            fetchOrdersRef.current(false, true).then(() => {
+              // Also refresh timeline after orders update
+              if (fetchTimelineRef.current) {
+                fetchTimelineRef.current();
+              }
+            }).catch((err) => {
+              console.error('[OrderContext] Error in real-time orders fetch:', err);
+              // Restore cache on error (fallback)
+              if (currentCache) {
+                ordersCacheRef.current = currentCache;
+              }
+            });
+          }
+        }, isCriticalUpdate);
       }
     });
 
@@ -558,9 +691,31 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       console.log('[OrderContext] Order items change received:', payload.eventType);
       // Only trigger real-time updates after initial fetch is complete
       if (initialFetchComplete && isMounted && fetchOrdersRef.current) {
+        // Use immediate=true for critical updates (INSERT, DELETE) and debounce for UPDATE
+        const isCriticalUpdate = payload.eventType === 'INSERT' || payload.eventType === 'DELETE';
         debouncedFetch(() => {
-          fetchOrdersRef.current?.(false); // Don't show loading on real-time updates
-        });
+          // CRITICAL: Clear cache before real-time update to ensure fresh data
+          // Real-time updates should always fetch fresh data
+          if (fetchOrdersRef.current) {
+            // Clear cache to force fresh fetch (access ref from closure)
+            // Store current cache for potential restore
+            const currentCache = ordersCacheRef.current;
+            ordersCacheRef.current = null;
+            // Fetch with forceRefresh=true to bypass all guards
+            fetchOrdersRef.current(false, true).then(() => {
+              // Also refresh timeline after items update
+              if (fetchTimelineRef.current) {
+                fetchTimelineRef.current();
+              }
+            }).catch((err) => {
+              console.error('[OrderContext] Error in real-time items fetch:', err);
+              // Restore cache on error (fallback)
+              if (currentCache) {
+                ordersCacheRef.current = currentCache;
+              }
+            });
+          }
+        }, isCriticalUpdate);
       }
     });
 
@@ -576,10 +731,35 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         },
         (payload) => {
           console.log('[OrderContext] Timeline change received:', payload.eventType);
-          if (isMounted && fetchTimelineRef.current) {
+          if (initialFetchComplete && isMounted && fetchTimelineRef.current) {
+            // For timeline updates, use immediate execution for faster feel
+            const isCriticalUpdate = payload.eventType === 'INSERT' || payload.eventType === 'DELETE';
             debouncedFetch(() => {
               fetchTimelineRef.current?.();
-            });
+            }, isCriticalUpdate);
+          }
+        }
+      )
+      .subscribe();
+
+    // Activity logs subscription - Subscribe to order_activity_logs table changes
+    const activityLogsChannel = supabase
+      .channel('activity-logs-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'order_activity_logs',
+        },
+        (payload) => {
+          console.log('[OrderContext] Activity log change received:', payload.eventType);
+          if (initialFetchComplete && isMounted && fetchTimelineRef.current) {
+            // For activity logs, use immediate execution for faster feel
+            const isCriticalUpdate = payload.eventType === 'INSERT' || payload.eventType === 'DELETE';
+            debouncedFetch(() => {
+              fetchTimelineRef.current?.();
+            }, isCriticalUpdate);
           }
         }
       )
@@ -591,6 +771,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       unsubscribeOrders();
       unsubscribeItems();
       supabase.removeChannel(timelineChannel);
+      supabase.removeChannel(activityLogsChannel);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       // CRITICAL: DO NOT call setOrders([]) here - it causes orders to disappear
       // DO NOT clear cache or fetch guard on unmount - keep for session persistence
     };
@@ -897,10 +1079,44 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     const order = orders.find(o => o.order_id === orderId);
     const orderUUID = order?.id || orderId;
     
-    return timeline
-      .filter(entry => entry.order_id === orderUUID && (!itemId || entry.item_id === itemId))
-      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-  }, [timeline, orders]);
+    // Get timeline entries for this order
+    const timelineEntries = timeline
+      .filter(entry => entry.order_id === orderUUID && (!itemId || entry.item_id === itemId));
+    
+    // Get activity logs for this order
+    const orderActivityLogs = activityLogs.filter(log => {
+      // Find order by UUID or order_id
+      if (log.order_id === orderUUID) return true;
+      // If log.order_id is a UUID, check if it matches order.id
+      if (order && log.order_id === order.id) return true;
+      return false;
+    }).filter(log => !itemId || log.item_id === itemId);
+    
+    // Convert activity logs to timeline-like format for merging
+    const activityLogEntries: (TimelineEntry & { department?: string })[] = orderActivityLogs.map(log => ({
+      timeline_id: log.id,
+      order_id: orderUUID,
+      item_id: log.item_id || undefined,
+      product_name: undefined,
+      stage: log.department as Stage, // Use department as stage for grouping
+      substage: undefined,
+      action: log.action as any,
+      performed_by: log.created_by || '',
+      performed_by_name: log.performed_by_name || 'User',
+      notes: log.message,
+      attachments: undefined,
+      qty_confirmed: undefined,
+      paper_treatment: undefined,
+      created_at: new Date(log.created_at),
+      is_public: true,
+      // Add department info for UI grouping
+      department: log.department,
+    }));
+    
+    // Merge and sort by date
+    const merged = [...timelineEntries, ...activityLogEntries];
+    return merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [timeline, orders, activityLogs]);
 
   const addTimelineEntry = useCallback(async (entry: Omit<TimelineEntry, 'timeline_id' | 'created_at'>) => {
     try {
@@ -917,8 +1133,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Ensure performed_by is user.id (UUID) if available
-      const { user: currentUser } = authRefs.current;
-      const performedBy = entry.performed_by || currentUser?.id || '';
+      const performedBy = entry.performed_by || user?.id || '';
 
       await supabaseAddTimelineEntry({
         ...entry,
@@ -953,17 +1168,29 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const previousPriority = item.priority_computed;
 
-      const deptMap: Record<Stage, 'sales' | 'design' | 'prepress' | 'production'> = {
+      const deptMap: Record<Stage, 'sales' | 'design' | 'prepress' | 'production' | 'dispatch'> = {
         sales: 'sales',
         design: 'design', 
         prepress: 'prepress',
         production: 'production',
         outsource: 'production',
-        dispatch: 'production',
+        dispatch: 'dispatch',
         completed: 'production',
       };
+      
+      const targetDepartment = deptMap[newStage] || 'sales';
 
-      // Add timeline entry FIRST
+      // Log activity FIRST (department-wise tracking)
+      await logActivity(
+        order.order_id,
+        itemId,
+        targetDepartment,
+        'status_changed',
+        `${item.product_name} moved to ${newStage}${substage ? ` - ${substage}` : ''}`,
+        { previous_stage: item.current_stage, new_stage: newStage, substage }
+      );
+
+      // Add timeline entry
       await addTimelineEntry({
         order_id: order.id!,
         item_id: itemId,
@@ -1035,6 +1262,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         await checkAndNotifyPriority(order.order_id, itemId, item.product_name, newPriority, previousPriority);
       }
 
+      // Update dependencies to include logActivity
       toast({
         title: "Stage Updated",
         description: `Item moved to ${newStage}${substage ? ` - ${substage}` : ''}`,
@@ -1047,7 +1275,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         variant: "destructive",
       });
     }
-  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
+  }, [orders, user, profile, addTimelineEntry, fetchOrders, logActivity]);
 
   const updateItemSubstage = useCallback(async (orderId: string, itemId: string, substage: SubStage) => {
     try {
@@ -1415,6 +1643,21 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const newStage = stageMap[department] || 'sales';
       
+      // Log activity FIRST (department-wise tracking) with proper format
+      const previousDepartment = item.assigned_department;
+      const activityMessage = previousDepartment !== department
+        ? `Order assigned from ${previousDepartment} → ${department} department`
+        : `${item.product_name} assigned to ${department} department`;
+
+      await logActivity(
+        order.order_id,
+        itemId,
+        department as 'sales' | 'design' | 'prepress' | 'production' | 'dispatch',
+        'assigned',
+        activityMessage,
+        { previous_department: previousDepartment, new_department: department, stage: newStage }
+      );
+      
       // Unassign user if department changes (user might be from different department)
       // Use Supabase service to assign to department
       await assignOrderItemToDepartment(order.id!, itemId, department);
@@ -1535,7 +1778,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         variant: "destructive",
       });
     }
-  }, [orders, updateItemStage, user, profile, addTimelineEntry]);
+  }, [orders, updateItemStage, user, profile, addTimelineEntry, logActivity]);
 
   const assignToOutsource = useCallback(async (
     orderId: string,
@@ -1641,9 +1884,49 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       if (!order) return;
 
       const item = order.items.find(i => i.item_id === itemId);
+      if (!item) return;
+
+      // Get previous department for activity log
+      const previousDepartment = item.assigned_department;
+
+      // Get user's department for activity log
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('department')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      // Also check user_roles for department
+      const { data: userRole } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', userId)
+        .limit(1)
+        .maybeSingle();
+
+      const newDepartment = (userRole?.role || userProfile?.department || item.assigned_department || 'sales').toLowerCase();
 
       // Use Supabase service to assign to user
       await assignOrderItemToUser(order.id!, itemId, userId);
+
+      // Log activity with proper format: "Order assigned from Design → Prepress to user Amit"
+      const activityMessage = previousDepartment !== newDepartment
+        ? `Order assigned from ${previousDepartment} → ${newDepartment} to user ${userName}`
+        : `Order assigned to user ${userName} in ${newDepartment} department`;
+
+      await logActivity(
+        order.order_id,
+        itemId,
+        newDepartment as 'sales' | 'design' | 'prepress' | 'production' | 'dispatch',
+        'assigned',
+        activityMessage,
+        { 
+          previous_department: previousDepartment, 
+          new_department: newDepartment,
+          assigned_user: userId,
+          assigned_user_name: userName
+        }
+      );
 
       await addTimelineEntry({
         order_id: order.id!,
@@ -1653,7 +1936,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         action: 'assigned',
         performed_by: user?.id || '',
         performed_by_name: profile?.full_name || 'Unknown',
-        notes: `Assigned to ${userName}`,
+        notes: activityMessage,
         is_public: true,
       });
 
@@ -1683,7 +1966,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         variant: "destructive",
       });
     }
-  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
+  }, [orders, user, profile, addTimelineEntry, fetchOrders, logActivity]);
 
   const uploadFile = useCallback(async (orderId: string, itemId: string, file: File, replaceExisting: boolean = false) => {
     try {
@@ -1824,6 +2107,17 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const currentItem = order.items.find(i => i.item_id === itemId);
       const currentStage = currentItem?.current_stage || 'sales';
+      const currentDepartment = currentItem?.assigned_department || 'sales';
+      
+      // Log activity FIRST (department-wise tracking)
+      await logActivity(
+        order.order_id,
+        itemId,
+        currentDepartment as 'sales' | 'design' | 'prepress' | 'production' | 'dispatch',
+        'file_uploaded',
+        `${currentItem?.product_name || 'Item'}: ${replaceExisting ? 'Replaced with' : 'Uploaded'} ${file.name}`,
+        { file_type: fileType, file_name: file.name, file_url: downloadURL }
+      );
       
       await addTimelineEntry({
         order_id: order.id!,
@@ -1878,7 +2172,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       });
       throw error; // Re-throw to let caller handle it
     }
-  }, [orders, user, profile, role, addTimelineEntry, fetchOrders, toast]);
+  }, [orders, user, profile, role, addTimelineEntry, fetchOrders, toast, logActivity]);
 
   const addNote = useCallback(async (orderId: string, note: string) => {
     try {
@@ -1896,6 +2190,19 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         .eq('id', order.id!);
 
       if (updateError) throw updateError;
+
+      // Log activity (determine department from order items)
+      const firstItem = order.items[0];
+      const noteDepartment = firstItem?.assigned_department || 'sales';
+      
+      await logActivity(
+        order.order_id,
+        undefined,
+        noteDepartment as 'sales' | 'design' | 'prepress' | 'production' | 'dispatch',
+        'note_added',
+        `Note added to order ${order.order_id}`,
+        { note_preview: note.substring(0, 50) }
+      );
 
       await addTimelineEntry({
         order_id: order.id!,
@@ -1921,7 +2228,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         variant: "destructive",
       });
     }
-  }, [orders, user, profile, addTimelineEntry, fetchOrders]);
+  }, [orders, user, profile, addTimelineEntry, fetchOrders, logActivity]);
 
   const updateOrder = useCallback(async (orderId: string, updates: Partial<Order>) => {
     try {

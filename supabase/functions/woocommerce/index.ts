@@ -566,7 +566,22 @@ serve(async (req) => {
           }
 
           // Create order in Supabase
-          const orderId = `WC-${wooOrderId}`;
+          // FIX: Use numeric order ID only (no WC- prefix) for WooCommerce orders
+          const orderId = wooOrderId.toString();
+          
+          // CRITICAL: Check for existing order by order_id to prevent duplicates
+          const { data: existingOrderById } = await adminSupabase
+            .from('orders')
+            .select('id, source, woo_order_id')
+            .eq('order_id', orderId)
+            .maybeSingle();
+          
+          // If order exists, skip (prevent duplicates)
+          if (existingOrderById) {
+            console.log(`Order ${orderId} already exists (ID: ${existingOrderById.id}), skipping duplicate`);
+            continue;
+          }
+          
           const { data: newOrder, error: orderError } = await adminSupabase
             .from('orders')
             .insert({
@@ -602,6 +617,11 @@ serve(async (req) => {
             .single();
 
           if (orderError || !newOrder) {
+            // Handle unique constraint violations (duplicate order_id)
+            if (orderError?.code === '23505' || orderError?.message?.includes('duplicate') || orderError?.message?.includes('unique')) {
+              console.log(`Order ${orderId} already exists (unique constraint), skipping duplicate`);
+              continue;
+            }
             errors.push(`Order ${wooOrderId}: ${orderError?.message || 'Failed to create order'}`);
             continue;
           }
@@ -731,20 +751,32 @@ serve(async (req) => {
         try {
           const wooOrderId = wooOrder.id;
           
-          // SAFEGUARD 8: Duplicate Prevention - Check by woo_order_id only
+          // FIX: Use numeric order ID only (no WC- prefix) for WooCommerce orders
+          const orderId = wooOrderId.toString();
+          
+          // SAFEGUARD 8: Duplicate Prevention - Check by both order_id and woo_order_id
+          // Check by order_id first (primary check for duplicates)
+          const { data: existingByOrderId } = await adminSupabase
+            .from('orders')
+            .select('id, source, archived_from_wc, woo_order_id')
+            .eq('order_id', orderId)
+            .maybeSingle();
+          
+          // Also check by woo_order_id as fallback (in case order_id format changed)
           const { data: existingByWooId } = await adminSupabase
             .from('orders')
-            .select('id, source, archived_from_wc')
+            .select('id, source, archived_from_wc, order_id')
             .eq('woo_order_id', wooOrderId)
             .maybeSingle();
 
+          // Use existingByOrderId if found, otherwise use existingByWooId
+          const existingOrder = existingByOrderId || existingByWooId;
+
           // SAFEGUARD 7: Manual Orders Protection - Never touch manual orders
-          if (existingByWooId && existingByWooId.source === 'manual') {
-            console.log(`Skipping manual order with woo_order_id ${wooOrderId} - manual orders are protected`);
+          if (existingOrder && existingOrder.source === 'manual') {
+            console.log(`Skipping manual order with order_id ${orderId} or woo_order_id ${wooOrderId} - manual orders are protected`);
             continue;
           }
-
-          const orderId = `WC-${wooOrderId}`;
           
           // Extract billing details
           const billing = wooOrder.billing || {};
@@ -797,9 +829,9 @@ serve(async (req) => {
           }
           
           let orderDbId: string;
-          const isRestored = existingByWooId && existingByWooId.archived_from_wc === true;
+          const isRestored = existingOrder && existingOrder.archived_from_wc === true;
 
-          if (existingByWooId) {
+          if (existingOrder) {
             // SAFEGUARD 1: Only update WooCommerce orders (source = 'woocommerce')
             // SAFEGUARD 3: Stage-agnostic - update regardless of current stage
             const { error: updateError } = await adminSupabase
@@ -830,7 +862,7 @@ serve(async (req) => {
                 archived_from_wc: false, // Restore if was archived
                 updated_at: syncedAt,
               })
-              .eq('id', existingByWooId.id);
+              .eq('id', existingOrder.id);
 
             if (updateError) {
               console.error(`Failed to update order ${orderId}:`, updateError);
@@ -838,7 +870,16 @@ serve(async (req) => {
               continue;
             }
             
-            orderDbId = existingByWooId.id;
+            orderDbId = existingOrder.id;
+            
+            // CRITICAL: If order_id doesn't match, update it to numeric format (migration fix)
+            if (existingOrder.order_id && existingOrder.order_id !== orderId && existingOrder.order_id.startsWith('WC-')) {
+              console.log(`Updating order_id from ${existingOrder.order_id} to ${orderId} (removing WC- prefix)`);
+              await adminSupabase
+                .from('orders')
+                .update({ order_id: orderId })
+                .eq('id', existingOrder.id);
+            }
             
             if (isRestored) {
               restoredCount++;
@@ -862,6 +903,18 @@ serve(async (req) => {
             }
           } else {
             // SAFEGUARD 5: Missing Order Logic - Create new order
+            // CRITICAL: Double-check for duplicates before inserting (race condition protection)
+            const { data: doubleCheckOrder } = await adminSupabase
+              .from('orders')
+              .select('id')
+              .eq('order_id', orderId)
+              .maybeSingle();
+            
+            if (doubleCheckOrder) {
+              console.log(`Order ${orderId} was created by another process, skipping duplicate`);
+              continue;
+            }
+            
             const { data: newOrder, error: orderError } = await adminSupabase
               .from('orders')
               .insert({
@@ -897,6 +950,11 @@ serve(async (req) => {
               .single();
 
             if (orderError) {
+              // Handle unique constraint violations (duplicate order_id) - race condition protection
+              if (orderError.code === '23505' || orderError.message?.includes('duplicate') || orderError.message?.includes('unique')) {
+                console.log(`Order ${orderId} already exists (unique constraint violation), skipping duplicate`);
+                continue;
+              }
               console.error(`Failed to create order ${orderId}:`, orderError);
               errors.push(`Create ${orderId}: ${orderError.message}`);
               continue;

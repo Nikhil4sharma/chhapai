@@ -230,6 +230,35 @@ export async function updateOrderItemStage(
 
     const assignedDept = deptMap[newStage];
 
+    // itemId can be either UUID (id) or string (item_id field)
+    // Try UUID first, then fallback to item_id field lookup
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let itemUuid: string | null = null;
+    
+    if (uuidRegex.test(itemId)) {
+      // Already a UUID, use directly
+      itemUuid = itemId;
+    } else {
+      // It's a string item_id, need to find the UUID id
+      const { data: itemData, error: itemError } = await supabase
+        .from('order_items')
+        .select('id')
+        .eq('item_id', itemId)
+        .eq('order_id', orderId)
+        .maybeSingle();
+      
+      if (itemError || !itemData) {
+        // If item_id column doesn't exist or item not found, try using itemId as UUID anyway
+        itemUuid = itemId;
+      } else {
+        itemUuid = itemData.id;
+      }
+    }
+    
+    if (!itemUuid) {
+      throw new Error(`Could not find order item with id: ${itemId}`);
+    }
+
     // Update item
     const { error: itemError } = await supabase
       .from('order_items')
@@ -239,10 +268,16 @@ export async function updateOrderItemStage(
         assigned_department: assignedDept,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', itemId)
+      .eq('id', itemUuid)
       .eq('order_id', orderId);
 
-    if (itemError) throw itemError;
+    if (itemError) {
+      // Provide more detailed error message for RLS issues
+      if (itemError.code === '42501') {
+        throw new Error(`Permission denied: Cannot update item stage to ${newStage}. ${itemError.message}`);
+      }
+      throw itemError;
+    }
 
     // Update order's current_department will be handled by trigger
   } catch (error) {
@@ -260,6 +295,36 @@ export async function assignOrderItemToDepartment(
   department: string
 ): Promise<void> {
   try {
+    // itemId can be either UUID (id) or string (item_id field)
+    // Try UUID first, then fallback to item_id field lookup
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let itemUuid: string | null = null;
+    
+    if (uuidRegex.test(itemId)) {
+      // Already a UUID, use directly
+      itemUuid = itemId;
+    } else {
+      // It's a string item_id, need to find the UUID id
+      const { data: itemData, error: itemError } = await supabase
+        .from('order_items')
+        .select('id')
+        .eq('item_id', itemId)
+        .eq('order_id', orderId)
+        .maybeSingle();
+      
+      if (itemError || !itemData) {
+        // If item_id column doesn't exist or item not found, try using itemId as UUID anyway
+        // (for backward compatibility)
+        itemUuid = itemId;
+      } else {
+        itemUuid = itemData.id;
+      }
+    }
+    
+    if (!itemUuid) {
+      throw new Error(`Could not find order item with id: ${itemId}`);
+    }
+    
     const { error } = await supabase
       .from('order_items')
       .update({
@@ -267,10 +332,36 @@ export async function assignOrderItemToDepartment(
         assigned_to: null, // Clear user assignment
         updated_at: new Date().toISOString(),
       })
-      .eq('id', itemId)
+      .eq('id', itemUuid)
       .eq('order_id', orderId);
 
-    if (error) throw error;
+    if (error) {
+      // Provide more detailed error message for RLS issues
+      if (error.code === '42501') {
+        throw new Error(`Permission denied: Cannot assign item to ${department} department. ${error.message}`);
+      }
+      throw error;
+    }
+
+    // Update orders.current_department to reflect the department assignment
+    // This helps with RLS policies and department-based filtering
+    try {
+      const { error: orderUpdateError } = await supabase
+        .from('orders')
+        .update({
+          current_department: department,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', orderId);
+
+      if (orderUpdateError && orderUpdateError.code !== '42501') {
+        // Log but don't throw - this is not critical, trigger may handle it
+        console.warn('Warning: Could not update orders.current_department:', orderUpdateError);
+      }
+    } catch (e) {
+      // Ignore errors - not critical
+      console.warn('Warning: Could not update orders.current_department:', e);
+    }
   } catch (error) {
     console.error('Error in assignOrderItemToDepartment:', error);
     throw error;
@@ -295,17 +386,50 @@ export async function assignOrderItemToUser(
 
     const department = profile?.department || 'sales';
 
+    // Also get user's role for department mapping
+    let userDepartment = department;
+    const { data: roleData } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', userId)
+      .limit(1)
+      .maybeSingle();
+    
+    if (roleData?.role) {
+      userDepartment = roleData.role;
+    }
+
     const { error } = await supabase
       .from('order_items')
       .update({
         assigned_to: userId,
-        assigned_department: department,
+        assigned_department: userDepartment,
         updated_at: new Date().toISOString(),
       })
       .eq('id', itemId)
       .eq('order_id', orderId);
 
     if (error) throw error;
+
+    // Update orders.current_department and assigned_user to reflect the assignment
+    try {
+      const { error: orderUpdateError } = await supabase
+        .from('orders')
+        .update({
+          current_department: userDepartment,
+          assigned_user: userId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', orderId);
+
+      if (orderUpdateError && orderUpdateError.code !== '42501') {
+        // Log but don't throw - this is not critical, trigger may handle it
+        console.warn('Warning: Could not update orders.current_department/assigned_user:', orderUpdateError);
+      }
+    } catch (e) {
+      // Ignore errors - not critical
+      console.warn('Warning: Could not update orders.current_department/assigned_user:', e);
+    }
   } catch (error) {
     console.error('Error in assignOrderItemToUser:', error);
     throw error;
@@ -409,6 +533,167 @@ export async function fetchTimelineEntries(orderId: string, itemId?: string): Pr
   } catch (error) {
     console.error('Error in fetchTimelineEntries:', error);
     throw error;
+  }
+}
+
+/**
+ * Add activity log entry (department-wise activity tracking)
+ */
+export async function addActivityLog(params: {
+  orderId: string;
+  itemId?: string;
+  department: 'sales' | 'design' | 'prepress' | 'production' | 'dispatch';
+  action: 'created' | 'assigned' | 'started' | 'completed' | 'rejected' | 'dispatched' | 'note_added' | 'file_uploaded' | 'status_changed';
+  message: string;
+  createdBy: string;
+  metadata?: Record<string, any>;
+}): Promise<void> {
+  try {
+    // Convert order_id string (WC-53522) to UUID (orders.id) if needed
+    let orderUuid: string | null = null;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    if (uuidRegex.test(params.orderId)) {
+      orderUuid = params.orderId;
+    } else {
+      const { data: orderData } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('order_id', params.orderId)
+        .maybeSingle();
+      
+      if (orderData) {
+        orderUuid = orderData.id;
+      }
+    }
+    
+    if (!orderUuid) {
+      console.warn('[addActivityLog] Could not find order UUID for:', params.orderId);
+      return;
+    }
+    
+    // Convert item_id to UUID if needed
+    let itemUuid: string | undefined = undefined;
+    if (params.itemId) {
+      if (uuidRegex.test(params.itemId)) {
+        itemUuid = params.itemId;
+      } else {
+        const { data: itemData } = await supabase
+          .from('order_items')
+          .select('id')
+          .eq('item_id', params.itemId)
+          .maybeSingle();
+        
+        if (itemData) {
+          itemUuid = itemData.id;
+        }
+      }
+    }
+    
+    const { error } = await supabase
+      .from('order_activity_logs')
+      .insert({
+        order_id: orderUuid,
+        item_id: itemUuid || null,
+        department: params.department,
+        action: params.action,
+        message: params.message,
+        created_by: params.createdBy,
+        metadata: params.metadata || {},
+      });
+    
+    if (error) {
+      console.error('[addActivityLog] Error inserting activity log:', error);
+      // Don't throw - activity logs are not critical
+    }
+  } catch (error) {
+    console.error('[addActivityLog] Error:', error);
+    // Don't throw - activity logs are not critical
+  }
+}
+
+/**
+ * Fetch activity logs for an order
+ */
+export async function fetchActivityLogs(orderId: string): Promise<any[]> {
+  try {
+    // Convert order_id string (WC-53522) to UUID if needed
+    let orderUuid: string | null = null;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    if (uuidRegex.test(orderId)) {
+      orderUuid = orderId;
+    } else {
+      const { data: orderData } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('order_id', orderId)
+        .maybeSingle();
+      
+      if (orderData) {
+        orderUuid = orderData.id;
+      }
+    }
+    
+    if (!orderUuid) {
+      // Don't log warning for every order - table might not exist yet
+      return [];
+    }
+    
+    const { data, error } = await supabase
+      .from('order_activity_logs')
+      .select('*')
+      .eq('order_id', orderUuid)
+      .order('created_at', { ascending: false })
+      .limit(200); // Limit to recent 200 logs per order
+    
+    if (error) {
+      // Handle table not found gracefully (table may not exist if migration hasn't run)
+      if (error.code === 'PGRST205' || 
+          error.code === '42P01' || 
+          error.code === 'PGRST116' ||
+          error.status === 404 ||
+          error.statusCode === 404 ||
+          error.message?.includes('relation') ||
+          error.message?.includes('does not exist') ||
+          error.message?.includes('Could not find the table')) {
+        // Table doesn't exist yet - this is OK during migration
+        // Silently return empty array (don't log - expected during migration)
+        return [];
+      }
+      // Don't log RLS/permission errors - expected for some users
+      if (error.code !== 'PGRST301' && error.code !== '42501') {
+        // Only log unexpected errors
+        console.warn('[fetchActivityLogs] Unexpected error (non-critical):', error.code, error.message);
+      }
+      return [];
+    }
+    
+    // Fetch profile names for created_by users
+    const userIds = [...new Set((data || []).map((log: any) => log.created_by).filter(Boolean))];
+    const profilesMap = new Map<string, string>();
+    
+    if (userIds.length > 0) {
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('user_id, full_name')
+        .in('user_id', userIds);
+      
+      (profilesData || []).forEach((profile: any) => {
+        if (profile.full_name) {
+          profilesMap.set(profile.user_id, profile.full_name);
+        }
+      });
+    }
+    
+    // Map to include profile name if available
+    return (data || []).map((log: any) => ({
+      ...log,
+      performed_by_name: profilesMap.get(log.created_by) || 'User',
+    }));
+  } catch (error) {
+    // Don't throw - return empty array on error
+    return [];
   }
 }
 

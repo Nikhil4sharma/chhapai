@@ -248,6 +248,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     // CRITICAL: Use onAuthStateChange ONLY for updates after initial load
     // This prevents duplicate fetches and race conditions
+    // CRITICAL: Ignore TOKEN_REFRESHED events on tab visibility change to prevent reloads
     const {
       data: { subscription: authSubscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -256,6 +257,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // CRITICAL: Ignore INITIAL_SESSION event - we already handled it in initializeAuth
       if (event === 'INITIAL_SESSION' && hasInitializedRef.current) {
         console.log('[Auth] Ignoring INITIAL_SESSION event - already initialized');
+        return;
+      }
+      
+      // CRITICAL: Ignore TOKEN_REFRESHED events that happen on tab focus
+      // These don't require re-fetching profile data
+      if (event === 'TOKEN_REFRESHED' && session?.user && lastFetchedUserIdRef.current === session.user.id) {
+        console.log('[Auth] Token refreshed but user already loaded, skipping profile fetch');
+        // Still update session for token refresh
+        setSession(session);
         return;
       }
       
