@@ -54,20 +54,22 @@ export function AssignUserDialog({
     try {
       const deptLower = department.toLowerCase().trim();
       
-      // Map department names to role names
+      // Map department names to role names (CRITICAL: This is the primary source of truth)
       const roleMap: Record<string, string> = {
         'sales': 'sales',
         'design': 'design',
         'prepress': 'prepress',
         'production': 'production',
         'outsource': 'production', // Outsource users might be in production role
+        'dispatch': 'production', // Dispatch is handled by production team
       };
       
       const matchingRole = roleMap[deptLower];
       
-      // Strategy 1: Fetch all users from user_roles with matching role (PRIMARY METHOD)
-      // This ensures we get ALL users assigned to this department role
+      // CRITICAL: Strategy 1 - Fetch ALL users from user_roles with matching role (PRIMARY METHOD)
+      // This is the source of truth - if user has role='design' in user_roles, they ARE in design department
       let allUserIds = new Set<string>();
+      let usersFromRoles = 0;
       
       if (matchingRole) {
         const { data: rolesData, error: rolesError } = await supabase
@@ -77,18 +79,25 @@ export function AssignUserDialog({
         
         if (rolesError) {
           console.error('[AssignUserDialog] Error fetching user_roles:', rolesError);
-        } else if (rolesData) {
+        } else if (rolesData && rolesData.length > 0) {
           rolesData.forEach(r => {
             if (r.user_id) {
               allUserIds.add(r.user_id);
+              usersFromRoles++;
             }
           });
-          console.log(`[AssignUserDialog] Found ${rolesData.length} users in user_roles for role: ${matchingRole}`);
+          console.log(`[AssignUserDialog] Found ${usersFromRoles} users in user_roles for role: ${matchingRole}`);
+        } else {
+          console.warn(`[AssignUserDialog] No users found in user_roles for role: ${matchingRole}, department: ${department}`);
         }
+      } else {
+        console.warn(`[AssignUserDialog] No role mapping found for department: ${department}`);
       }
       
-      // Strategy 2: Also fetch from profiles table with case-insensitive matching
-      // This catches users who might have department set in profiles but not in user_roles
+      // Strategy 2: Also fetch from profiles table with case-insensitive matching (BACKUP METHOD)
+      // This catches edge cases where department is set in profiles but role might be missing
+      // But user_roles is PRIMARY - profiles is just backup
+      let usersFromProfiles = 0;
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
         .select('user_id, full_name, department')
@@ -104,16 +113,21 @@ export function AssignUserDialog({
         });
         
         matchingProfiles.forEach(profile => {
-          if (profile.user_id) {
+          if (profile.user_id && !allUserIds.has(profile.user_id)) {
             allUserIds.add(profile.user_id);
+            usersFromProfiles++;
           }
         });
         
-        console.log(`[AssignUserDialog] Found ${matchingProfiles.length} users in profiles for department: ${department}`);
+        console.log(`[AssignUserDialog] Found ${usersFromProfiles} additional users in profiles for department: ${department}`);
       }
+      
+      console.log(`[AssignUserDialog] Total unique users collected: ${allUserIds.size} (${usersFromRoles} from roles, ${usersFromProfiles} from profiles)`);
 
-      // Now fetch full profile data for all collected user IDs
+      // CRITICAL: Now fetch full profile data for ALL collected user IDs
+      // Don't filter by department again - we already have the right users
       let allUsers: any[] = [];
+      const profileMap = new Map<string, any>();
       
       if (allUserIds.size > 0) {
         const userIdsArray = Array.from(allUserIds);
@@ -131,29 +145,53 @@ export function AssignUserDialog({
           if (userProfilesError) {
             console.error('[AssignUserDialog] Error fetching user profiles batch:', userProfilesError);
           } else if (userProfiles) {
+            userProfiles.forEach(profile => {
+              profileMap.set(profile.user_id, profile);
+            });
             allUsers = [...allUsers, ...userProfiles];
           }
         }
+        
+        // CRITICAL: Include users that have role but no profile entry
+        // Create entries for users found in user_roles but missing from profiles
+        userIdsArray.forEach(userId => {
+          if (!profileMap.has(userId)) {
+            console.warn(`[AssignUserDialog] User ${userId} has role but no profile entry - creating fallback entry`);
+            allUsers.push({
+              user_id: userId,
+              full_name: null,
+              department: department,
+            });
+          }
+        });
+      } else {
+        console.warn(`[AssignUserDialog] No user IDs collected for department: ${department}`);
       }
 
       // Deduplicate and sort by name
       const uniqueUsers = Array.from(
         new Map(allUsers.map(u => [u.user_id, u])).values()
       ).sort((a, b) => {
-        const nameA = (a.full_name || 'Unknown').toLowerCase();
-        const nameB = (b.full_name || 'Unknown').toLowerCase();
+        const nameA = (a.full_name || 'Unknown User').toLowerCase();
+        const nameB = (b.full_name || 'Unknown User').toLowerCase();
         return nameA.localeCompare(nameB);
       });
 
+      // Map to User interface - use department from profile or fallback to passed department
       const mappedUsers = uniqueUsers.map(profile => ({
         user_id: profile.user_id,
-        full_name: profile.full_name || 'Unknown',
-        department: profile.department || department,
+        full_name: profile.full_name || `User (${profile.user_id.slice(0, 8)}...)`,
+        department: profile.department || department, // Use profile department or fallback
       }));
 
       setUsers(mappedUsers);
       
-      console.log(`[AssignUserDialog] Final result: Found ${mappedUsers.length} users for department: ${department}`, mappedUsers);
+      console.log(`[AssignUserDialog] Final result: Found ${mappedUsers.length} users for department: ${department}`, {
+        department,
+        matchingRole,
+        userCount: mappedUsers.length,
+        users: mappedUsers.map(u => ({ name: u.full_name, id: u.user_id }))
+      });
     } catch (error) {
       console.error('[AssignUserDialog] Error fetching users:', error);
       setUsers([]);

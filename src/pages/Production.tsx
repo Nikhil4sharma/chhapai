@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Play, CheckSquare, Camera, Clock, CheckCircle, ArrowRight, Truck, AlertTriangle, User, Package } from 'lucide-react';
+import { Play, CheckSquare, Camera, Clock, CheckCircle, ArrowRight, ArrowLeft, Truck, AlertTriangle, User, Package } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -96,11 +96,13 @@ export default function Production() {
               return false;
             }
             
-            // CRITICAL: Exclude items in packing substage - they are ready for dispatch
-            // Packing is the last production stage, so items in packing should show in Dispatch page, not Production
-            if (item.current_stage === 'production' && item.current_substage === 'packing') {
+            // CRITICAL: Exclude items that are dispatched or completed - they should only show in Dispatch page
+            if (item.current_stage === 'completed' || item.is_dispatched) {
               return false;
             }
+            
+            // NOTE: Items in packing substage SHOULD show in Production page
+            // They will move to dispatch stage only after packing is completed
             
             // Filter by assigned_department AND current_stage
             const itemDept = (item.assigned_department || '').toLowerCase().trim();
@@ -310,6 +312,52 @@ export default function Production() {
     const stages = getItemStages(item);
     if (!item.current_substage) return -1;
     return stages.findIndex((s: any) => s.key === item.current_substage);
+  };
+
+  // Get previous and next stages for navigation
+  const getStageNavigation = (item: any) => {
+    const stages = getItemStages(item);
+    const currentIndex = getCurrentSubstageIndex(item);
+    
+    return {
+      previous: currentIndex > 0 ? stages[currentIndex - 1] : null,
+      current: currentIndex >= 0 ? stages[currentIndex] : null,
+      next: currentIndex < stages.length - 1 ? stages[currentIndex + 1] : null,
+      isFirst: currentIndex === 0,
+      isLast: currentIndex === stages.length - 1,
+    };
+  };
+
+  // Handle backward navigation (go to previous stage)
+  const handleGoToPreviousStage = async (orderId: string, itemId: string) => {
+    const order = orders.find(o => o.order_id === orderId);
+    const item = order?.items.find(i => i.item_id === itemId);
+    if (!item) return;
+
+    const nav = getStageNavigation(item);
+    if (nav.previous) {
+      await updateItemSubstage(orderId, itemId, nav.previous.key as SubStage);
+      toast({
+        title: "Moved to Previous Stage",
+        description: `Moved back to ${nav.previous.label}`,
+      });
+    }
+  };
+
+  // Handle forward navigation (go to next stage)
+  const handleGoToNextStage = async (orderId: string, itemId: string) => {
+    const order = orders.find(o => o.order_id === orderId);
+    const item = order?.items.find(i => i.item_id === itemId);
+    if (!item) return;
+
+    const nav = getStageNavigation(item);
+    if (nav.next) {
+      await updateItemSubstage(orderId, itemId, nav.next.key as SubStage);
+      toast({
+        title: "Moved to Next Stage",
+        description: `Moved forward to ${nav.next.label}`,
+      });
+    }
   };
 
   return (
@@ -578,51 +626,130 @@ export default function Production() {
                                   <TooltipContent>Item is ready for dispatch. Go to Dispatch page to add tracking details.</TooltipContent>
                                 </Tooltip>
                               ) : item.current_substage ? (
-                                <DropdownMenu>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                                          <CheckSquare className="h-4 w-4 mr-2" />
-                                          Complete {item.current_substage}
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Complete current stage</TooltipContent>
-                                  </Tooltip>
-                                  <DropdownMenuContent align="end" className="bg-popover">
-                                    <DropdownMenuItem onClick={() => handleCompleteStage(order.order_id, item.item_id)}>
-                                      <CheckCircle className="h-4 w-4 mr-2" />
-                                      Complete & Next Stage
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    {getItemStages(item).map((step: any) => (
-                                      <DropdownMenuItem 
-                                        key={step.key}
-                                        onClick={() => handleStartStage(order.order_id, item.item_id, step.key as SubStage)}
-                                      >
-                                        <ArrowRight className="h-4 w-4 mr-2" />
-                                        Jump to {step.label}
-                                      </DropdownMenuItem>
-                                    ))}
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem 
-                                      onClick={() => {
-                                        setSelectedItemForDelay({
-                                          orderId: order.order_id,
-                                          itemId: item.item_id,
-                                          productName: item.product_name,
-                                          stageName: item.current_substage || 'production'
-                                        });
-                                        setDelayDialogOpen(true);
-                                      }}
-                                      className="text-yellow-600 dark:text-yellow-400"
-                                    >
-                                      <AlertTriangle className="h-4 w-4 mr-2" />
-                                      Add Delay Reason
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
+                                <div className="flex flex-col gap-2">
+                                  {/* Stage Info Card */}
+                                  <div className="bg-muted/50 rounded-lg p-3 border border-border">
+                                    {(() => {
+                                      const nav = getStageNavigation(item);
+                                      return (
+                                        <div className="space-y-2">
+                                          <div className="text-xs font-medium text-muted-foreground">
+                                            Current Stage
+                                          </div>
+                                          <div className="text-sm font-semibold text-foreground">
+                                            {nav.current?.label || item.current_substage}
+                                          </div>
+                                          {nav.previous && (
+                                            <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                              <ArrowLeft className="h-3 w-3" />
+                                              Previous: {nav.previous.label}
+                                            </div>
+                                          )}
+                                          {nav.next && (
+                                            <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                              <ArrowRight className="h-3 w-3" />
+                                              Next: {nav.next.label}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })()}
+                                  </div>
+
+                                  {/* Action Buttons */}
+                                  <div className="flex gap-2">
+                                    {/* Backward Navigation */}
+                                    {(() => {
+                                      const nav = getStageNavigation(item);
+                                      if (!nav.previous) return null;
+                                      return (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              onClick={() => handleGoToPreviousStage(order.order_id, item.item_id)}
+                                              className="flex-1"
+                                            >
+                                              <ArrowLeft className="h-4 w-4 mr-2" />
+                                              Previous
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Go back to {getStageNavigation(item).previous?.label}</TooltipContent>
+                                        </Tooltip>
+                                      );
+                                    })()}
+
+                                    {/* Complete & Next */}
+                                    <DropdownMenu>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button size="sm" className="bg-green-600 hover:bg-green-700 flex-1">
+                                              <CheckSquare className="h-4 w-4 mr-2" />
+                                              Complete
+                                            </Button>
+                                          </DropdownMenuTrigger>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Complete current stage</TooltipContent>
+                                      </Tooltip>
+                                      <DropdownMenuContent align="end" className="bg-popover">
+                                        <DropdownMenuItem onClick={() => handleCompleteStage(order.order_id, item.item_id)}>
+                                          <CheckCircle className="h-4 w-4 mr-2" />
+                                          Complete & Next Stage
+                                        </DropdownMenuItem>
+                                        <DropdownMenuSeparator />
+                                        {getItemStages(item).map((step: any) => (
+                                          <DropdownMenuItem 
+                                            key={step.key}
+                                            onClick={() => handleStartStage(order.order_id, item.item_id, step.key as SubStage)}
+                                          >
+                                            <ArrowRight className="h-4 w-4 mr-2" />
+                                            Jump to {step.label}
+                                          </DropdownMenuItem>
+                                        ))}
+                                        <DropdownMenuSeparator />
+                                        <DropdownMenuItem 
+                                          onClick={() => {
+                                            setSelectedItemForDelay({
+                                              orderId: order.order_id,
+                                              itemId: item.item_id,
+                                              productName: item.product_name,
+                                              stageName: item.current_substage || 'production'
+                                            });
+                                            setDelayDialogOpen(true);
+                                          }}
+                                          className="text-yellow-600 dark:text-yellow-400"
+                                        >
+                                          <AlertTriangle className="h-4 w-4 mr-2" />
+                                          Add Delay Reason
+                                        </DropdownMenuItem>
+                                      </DropdownMenuContent>
+                                    </DropdownMenu>
+
+                                    {/* Forward Navigation */}
+                                    {(() => {
+                                      const nav = getStageNavigation(item);
+                                      if (!nav.next) return null;
+                                      return (
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              size="sm"
+                                              variant="outline"
+                                              onClick={() => handleGoToNextStage(order.order_id, item.item_id)}
+                                              className="flex-1"
+                                            >
+                                              Next
+                                              <ArrowRight className="h-4 w-4 ml-2" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Skip to {getStageNavigation(item).next?.label}</TooltipContent>
+                                        </Tooltip>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
                               ) : (
                                 <DropdownMenu>
                                   <Tooltip>

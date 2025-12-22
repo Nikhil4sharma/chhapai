@@ -1414,7 +1414,10 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       const nextSubstage = sequence[currentIndex + 1];
       await updateItemSubstage(orderId, itemId, nextSubstage);
     }
-  }, [orders, user, profile, updateItemStage, updateItemSubstage, addTimelineEntry]);
+
+    // CRITICAL FIX: Force refresh orders after stage completion to update UI
+    await fetchOrders(false);
+  }, [orders, user, profile, updateItemStage, updateItemSubstage, addTimelineEntry, fetchOrders]);
 
   const startSubstage = useCallback(async (orderId: string, itemId: string, substage: SubStage) => {
     await updateItemSubstage(orderId, itemId, substage);

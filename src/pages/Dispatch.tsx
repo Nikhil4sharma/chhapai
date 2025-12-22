@@ -113,21 +113,14 @@ export default function Dispatch() {
     if (!selectedItem) return;
 
     try {
-      // First, update dispatch_info using Supabase
-      const { error: updateError } = await supabase
-        .from('order_items')
-        .update({
-          dispatch_info: dispatchInfo,
-          is_dispatched: true,
-          current_stage: 'dispatch',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', selectedItem.itemId);
-
-      if (updateError) throw updateError;
-
-      // Then use markAsDispatched from OrderContext which handles timeline and notifications
-      await markAsDispatched(selectedItem.orderId, selectedItem.itemId);
+      // Use markAsDispatched from OrderContext which handles:
+      // 1. Setting dispatch_info
+      // 2. Setting is_dispatched = true
+      // 3. Moving to completed stage
+      // 4. Timeline entries
+      // 5. Notifications
+      // 6. Order completion check
+      await markAsDispatched(selectedItem.orderId, selectedItem.itemId, dispatchInfo);
 
       toast({
         title: "Item Dispatched",

@@ -1854,7 +1854,7 @@ export default function OrderDetail() {
           open={assignUserDialogOpen}
           onOpenChange={setAssignUserDialogOpen}
           onAssign={handleAssignUser}
-          department={selectedItem?.assigned_department || 'sales'}
+          department={selectedItem?.assigned_department || selectedItem?.current_stage || 'sales'}
           currentUserId={selectedItem?.assigned_to}
         />
 
