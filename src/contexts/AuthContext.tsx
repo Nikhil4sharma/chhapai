@@ -20,8 +20,7 @@ interface AuthContextType {
   profile: Profile | null;
   role: AppRole | null;
   isLoading: boolean;
-  authReady: boolean; // Session initialized (from getSession or onAuthStateChange)
-  profileReady: boolean; // Profile and role loaded
+  authReady: boolean; // CRITICAL: Single source of truth - ALWAYS becomes true, even on error
   isAdmin: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signUp: (email: string, password: string, fullName: string, role: AppRole) => Promise<{ error: Error | null }>;
@@ -38,8 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
-  const [authReady, setAuthReady] = useState(false); // Session initialized
-  const [profileReady, setProfileReady] = useState(false); // Profile + role loaded
+  const [authReady, setAuthReady] = useState(false); // CRITICAL: Single source of truth - ALWAYS becomes true
 
   // CRITICAL: Guard to prevent infinite loops
   const hasInitializedRef = useRef<boolean>(false);
@@ -140,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             production_stage: profileData.production_stage || null,
           };
           setProfile(profileObj);
-          console.log('[Auth] Profile loaded:', {
+          console.log('[BOOTSTRAP] Profile loaded:', {
             userId,
             full_name: profileData.full_name,
             department: profileData.department,
@@ -171,22 +169,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setRole(null);
         } else if (roleData) {
           setRole(roleData.role as AppRole);
-          console.log('[Auth] Role loaded:', roleData.role);
+          console.log('[BOOTSTRAP] Role loaded:', roleData.role);
         } else {
           setRole(null);
-          console.warn('[Auth] No role found for user:', userId);
+          console.warn('[BOOTSTRAP] No role found for user:', userId);
         }
       } else {
-        console.error('[Auth] Error fetching role (settled):', roleResult.reason);
+        console.error('[BOOTSTRAP] Error fetching role (settled):', roleResult.reason);
         setRole(null);
       }
 
-      // Mark profile as ready after both attempts complete
-      setProfileReady(true);
-      console.log('[Auth] User data fetch complete');
+      console.log('[BOOTSTRAP] User data fetch complete');
     } catch (error) {
-      console.error('[Auth] Error fetching user data:', error);
-      setProfileReady(true); // Still mark as ready to prevent infinite loading
+      console.error('[BOOTSTRAP] Error fetching user data:', error);
+      // Profile/role loading is non-blocking - errors don't prevent app from rendering
     } finally {
       isFetchingRef.current = false;
     }
@@ -202,43 +198,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // CRITICAL: Use getSession() FIRST for initial session check
-    // This prevents auth flicker on hard reload
+    // CRITICAL: Bootstrap flow - ALWAYS sets authReady = true, even on error
     const initializeAuth = async () => {
       // CRITICAL: Mark as initialized immediately to prevent re-runs
       hasInitializedRef.current = true;
       
       try {
+        console.log('[BOOTSTRAP] Starting auth initialization...');
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
         
-        if (!mounted) return;
+        if (!mounted) {
+          console.log('[BOOTSTRAP] Component unmounted during init, setting authReady');
+          setAuthReady(true);
+          return;
+        }
         
         if (error) {
-          console.error('[Auth] Error getting initial session:', error);
+          console.error('[BOOTSTRAP] Error getting initial session:', error);
+          // CRITICAL: ALWAYS set authReady = true, even on error
           setAuthReady(true);
-          setProfileReady(true); // Mark profile ready even on error
+          console.log('[BOOTSTRAP] Auth ready (error state)');
           return;
         }
 
-        console.log('[Auth] Initial session check:', initialSession?.user?.email || 'No session');
+        console.log('[BOOTSTRAP] Session restored:', initialSession?.user?.email || 'No session');
         
         // Set initial session state
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
+        
+        // CRITICAL: Set authReady BEFORE fetching profile/role
+        // This allows UI to render while profile/role loads in background
         setAuthReady(true);
+        console.log('[BOOTSTRAP] Auth ready');
 
-        // If session exists, fetch user data immediately
+        // If session exists, fetch user data in background (non-blocking)
         if (initialSession?.user) {
-          await fetchUserData(initialSession.user.id);
+          console.log('[BOOTSTRAP] Fetching user profile and role...');
+          // Don't await - let it load in background
+          fetchUserData(initialSession.user.id).catch(err => {
+            console.error('[BOOTSTRAP] Background profile fetch failed:', err);
+            // Non-blocking - app continues to render
+          });
         } else {
-          // No session - mark profile as ready (no profile to load)
-          setProfileReady(true);
+          console.log('[BOOTSTRAP] No session - auth ready');
         }
       } catch (error) {
-        console.error('[Auth] Error initializing auth:', error);
+        console.error('[BOOTSTRAP] Error initializing auth:', error);
+        // CRITICAL: ALWAYS set authReady = true, even on error
         if (mounted) {
           setAuthReady(true);
-          setProfileReady(true);
+          console.log('[BOOTSTRAP] Auth ready (error state)');
         }
       }
     };
@@ -256,14 +266,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // CRITICAL: Ignore INITIAL_SESSION event - we already handled it in initializeAuth
       if (event === 'INITIAL_SESSION' && hasInitializedRef.current) {
-        console.log('[Auth] Ignoring INITIAL_SESSION event - already initialized');
+        console.log('[BOOTSTRAP] Ignoring INITIAL_SESSION event - already initialized');
         return;
       }
       
       // CRITICAL: Ignore TOKEN_REFRESHED events that happen on tab focus
       // These don't require re-fetching profile data
       if (event === 'TOKEN_REFRESHED' && session?.user && lastFetchedUserIdRef.current === session.user.id) {
-        console.log('[Auth] Token refreshed but user already loaded, skipping profile fetch');
+        console.log('[BOOTSTRAP] Token refreshed but user already loaded, skipping profile fetch');
         // Still update session for token refresh
         setSession(session);
         return;
@@ -272,18 +282,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Suppress "Invalid Refresh Token" errors when user is not authenticated (expected behavior)
       if (event === 'SIGNED_OUT' || (!session && event === 'TOKEN_REFRESHED')) {
         // This is expected when user is not logged in, don't log as error
-        console.log('[Auth] Auth state changed:', event, 'No session');
+        console.log('[BOOTSTRAP] Auth state changed:', event, 'No session');
       } else {
-        console.log('[Auth] Auth state changed:', event, session?.user?.email);
+        console.log('[BOOTSTRAP] Auth state changed:', event, session?.user?.email);
       }
       
       // Update session and user state
       setSession(session);
       setUser(session?.user ?? null);
       
-      // Mark auth as ready if not already
+      // CRITICAL: ALWAYS ensure authReady is true after auth state changes
       if (!authReady) {
         setAuthReady(true);
+        console.log('[BOOTSTRAP] Auth ready (from state change)');
       }
 
       if (session?.user) {
@@ -294,17 +305,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                            lastFetchedUserIdRef.current !== session.user.id;
         
         if (shouldFetch) {
-          setProfileReady(false); // Reset profile ready state
-          await fetchUserData(session.user.id);
+          console.log('[BOOTSTRAP] Fetching user profile and role (state change)...');
+          // Don't await - non-blocking background fetch
+          fetchUserData(session.user.id).catch(err => {
+            console.error('[BOOTSTRAP] Background profile fetch failed:', err);
+          });
         } else {
-          console.log('[Auth] Profile already loaded for user, skipping fetch');
+          console.log('[BOOTSTRAP] Profile already loaded for user, skipping fetch');
         }
       } else {
         // Session cleared - reset all state
         setProfile(null);
         setRole(null);
         lastFetchedUserIdRef.current = null;
-        setProfileReady(true); // Mark as ready (no profile to load)
+        console.log('[BOOTSTRAP] Session cleared - state reset');
       }
     });
 
@@ -405,14 +419,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
-      console.log('[Auth] Signing out...');
+      console.log('[BOOTSTRAP] Signing out...');
       
       // Clear local state first
       setUser(null);
       setSession(null);
       setProfile(null);
       setRole(null);
-      setProfileReady(true); // Mark profile ready (no profile to load)
+      lastFetchedUserIdRef.current = null;
       
       // Then sign out from Supabase
       const { error } = await supabase.auth.signOut({
@@ -420,17 +434,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
       
       if (error) {
-        console.error('[Auth] Error signing out:', error);
+        console.error('[BOOTSTRAP] Error signing out:', error);
         // Even if error, clear local state
         setUser(null);
         setSession(null);
         setProfile(null);
         setRole(null);
-        setProfileReady(true);
+        lastFetchedUserIdRef.current = null;
         throw error;
       }
       
-      console.log('[Auth] Signed out successfully');
+      console.log('[BOOTSTRAP] Signed out successfully');
       
       // Clear localStorage to ensure session is removed
       if (typeof window !== 'undefined') {
@@ -443,13 +457,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
       }
     } catch (error) {
-      console.error('[Auth] Error signing out:', error);
+      console.error('[BOOTSTRAP] Error signing out:', error);
       // Ensure state is cleared even on error
       setUser(null);
       setSession(null);
       setProfile(null);
       setRole(null);
-      setProfileReady(true);
+      lastFetchedUserIdRef.current = null;
       throw error;
     }
   }, []);
@@ -486,9 +500,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) throw error;
 
-      // Refresh profile data
-      setProfileReady(false);
-      await fetchUserData(user.id);
+      // Refresh profile data (non-blocking)
+      fetchUserData(user.id).catch(err => {
+        console.error('[BOOTSTRAP] Error refreshing profile:', err);
+      });
 
       return { error: null };
     } catch (error: any) {
@@ -508,16 +523,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Compute isLoading based on authReady and profileReady
-  // isLoading should be false only when:
-  // 1. Auth is initialized (authReady = true)
-  // 2. If session exists, profile must be ready; if no session, profileReady should be true
+  // CRITICAL: isLoading ONLY depends on authReady
+  // Profile/role loading is non-blocking - app renders even if they're null
   const computedIsLoading = useMemo(() => {
-    if (!authReady) return true;
-    if (session && !profileReady) return true;
-    if (!session && !profileReady) return true; // Wait for profileReady even if no session
-    return false;
-  }, [authReady, profileReady, session]);
+    return !authReady;
+  }, [authReady]);
 
   return (
     <AuthContext.Provider
@@ -528,7 +538,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         role,
         isLoading: computedIsLoading,
         authReady,
-        profileReady,
         isAdmin,
         signIn,
         signUp,

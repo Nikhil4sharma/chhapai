@@ -43,12 +43,12 @@ type FilterOption = 'all' | 'red' | 'yellow' | 'blue';
 export default function Dashboard() {
   // ALL HOOKS MUST BE CALLED FIRST - before any conditional returns
   const { orders: allOrders, getOrdersByDepartment, getUrgentOrdersForAdmin, getUrgentOrdersForDepartment, getCompletedOrders, isLoading } = useOrders();
-  const { isAdmin, role, profile, user, isLoading: authLoading, profileReady } = useAuth();
+  const { isAdmin, role, profile, user, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { requestPushPermission } = useNotifications();
   
-  // CRITICAL: Show loading if profile is not ready (defensive guard)
-  if (!profileReady && authLoading) {
+  // CRITICAL: Show loading if auth is not ready
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

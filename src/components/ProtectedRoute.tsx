@@ -8,12 +8,11 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { user, role, isLoading, isAdmin, session, authReady, profileReady } = useAuth();
+  const { user, role, isLoading, isAdmin, session, authReady } = useAuth();
   const location = useLocation();
 
-  // CRITICAL: Wait until auth is initialized AND profile is ready
-  // This prevents auth flicker and premature redirects
-  if (!authReady || !profileReady || isLoading) {
+  // CRITICAL: ONLY wait for authReady - profile/role loading is non-blocking
+  if (!authReady || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -21,17 +20,14 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     );
   }
 
-  // CRITICAL: Only redirect if auth is ready AND profile is ready AND no session exists
-  // Never logout user just because profile is temporarily null during initial load
-  if (!session && authReady && profileReady) {
+  // CRITICAL: Only redirect if auth is ready AND no session exists
+  if (!session && authReady) {
     console.log('[ProtectedRoute] No session after auth ready, redirecting to auth');
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 
-  // CRITICAL: If session exists but no user/profile yet, wait (shouldn't happen if profileReady is true)
-  // This is a defensive check
-  if (session && !user && profileReady) {
-    // Session exists but user is null - this shouldn't happen, but wait a bit
+  // CRITICAL: If session exists but no user, wait briefly (shouldn't happen normally)
+  if (session && !user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -39,12 +35,11 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     );
   }
 
-  // CRITICAL: Check role-based access ONLY after profile is ready
-  // Never deny access during initial hydration phase
-  if (allowedRoles && profileReady) {
-    // If role is still null after profileReady, it means user has no role
-    // Allow access for now (defensive) - role checks should be done at page level
-    if (role && !isAdmin && !allowedRoles.includes(role)) {
+  // CRITICAL: Check role-based access
+  // Role can be null initially (non-blocking load), so we check if it exists
+  if (allowedRoles && role) {
+    // Only check if role is loaded - if null, allow access (defensive)
+    if (!isAdmin && !allowedRoles.includes(role)) {
       console.log('[ProtectedRoute] Role check failed:', { role, allowedRoles, isAdmin });
       return <Navigate to="/dashboard" replace />;
     }

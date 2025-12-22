@@ -44,11 +44,11 @@ import { supabase } from '@/integrations/supabase/client';
 import { uploadFileToSupabase } from '@/services/supabaseStorage';
 
 export default function Settings() {
-  const { isAdmin, user, profileReady, isLoading: authLoading } = useAuth();
+  const { isAdmin, user, isLoading: authLoading } = useAuth();
   const { lastSyncTime, refreshOrders } = useOrders();
   
   // CRITICAL: Wait for auth to be ready before rendering
-  if (!profileReady || authLoading) {
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />

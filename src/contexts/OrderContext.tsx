@@ -248,7 +248,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   const [activityLogs, setActivityLogs] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const { user, profile, role, isAdmin, profileReady, authReady } = useAuth();
+  const { user, profile, role, isAdmin, authReady } = useAuth();
   
   // In-memory cache to prevent duplicate queries
   const ordersCacheRef = useRef<{ orders: Order[]; timestamp: number } | null>(null);
@@ -310,10 +310,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     
-    // CRITICAL: Don't fetch if profile is not ready
-    // Orders require role and department to filter correctly
-    if (!profileReady || !authReady) {
-      console.log('[fetchOrders] Profile not ready, skipping fetch', { profileReady, authReady });
+    // CRITICAL: Only wait for authReady - profile/role loading is non-blocking
+    if (!authReady) {
+      console.log('[BOOTSTRAP] Auth not ready, skipping fetch');
       return;
     }
     
@@ -322,12 +321,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       return; // Don't fetch if no user
     }
     
-    // CRITICAL: Guard - Don't fetch if role is missing (unless admin)
-    // Admin can fetch without role, but other roles need role
+    // CRITICAL: Role check is non-blocking - if role is null, allow admin to fetch
+    // For non-admin users, wait for role to load (but don't block indefinitely)
     if (!isAdmin && !role) {
-      console.warn('[fetchOrders] Role missing, skipping fetch', { role, isAdmin });
-      setIsLoading(false);
-      return;
+      console.log('[BOOTSTRAP] Role not loaded yet, waiting...', { role, isAdmin });
+      // Don't return - allow fetching to proceed (defensive)
+      // Role will be used for filtering if available
     }
     
     // CRITICAL: Check if we've already fetched for this user+role combination (unless force refresh)
@@ -428,7 +427,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       // Always clear fetching flag
       isFetchingRef.current = false;
     }
-  }, [user?.id, role, profileReady, authReady, isAdmin]); // CRITICAL: Only depend on user.id and role, not profile or derived state
+  }, [user?.id, role, authReady, isAdmin]); // CRITICAL: Only depend on user.id and role, not profile or derived state
 
   const fetchTimeline = useCallback(async () => {
     try {
@@ -522,12 +521,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
   }, [fetchTimeline]);
 
   // Real-time subscription for orders, items, timeline, and files - optimized
-  // CRITICAL: Wait for profileReady before fetching orders
-  // This ensures role and department are available for proper filtering
+  // CRITICAL: Wait for authReady before initializing realtime subscriptions
+  // Profile/role loading is non-blocking - subscriptions start after authReady
   useEffect(() => {
-    // CRITICAL: Don't fetch if auth or profile is not ready
-    if (!authReady || !profileReady) {
-      console.log('[OrderContext] Waiting for auth/profile ready', { authReady, profileReady });
+    // CRITICAL: Only wait for authReady - realtime must not block UI rendering
+    if (!authReady) {
+      console.log('[BOOTSTRAP] Auth not ready, waiting for realtime subscriptions');
       return;
     }
     
@@ -542,15 +541,14 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // CRITICAL: Guard - Don't fetch if role is missing (unless admin)
-    // Only check role, not profile.department (removed from dependencies)
+    // CRITICAL: Role check is non-blocking - allow subscriptions even if role is null
+    // Role will be used for filtering if available
     if (!isAdmin && !role) {
-      console.warn('[OrderContext] Role missing, skipping fetch', { 
+      console.log('[BOOTSTRAP] Role not loaded yet, but allowing realtime subscriptions', { 
         role, 
         isAdmin 
       });
-      setIsLoading(false);
-      return;
+      // Don't return - allow subscriptions to proceed (defensive)
     }
 
     // CRITICAL: Reset fetch guard when user or role changes
@@ -776,7 +774,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       // CRITICAL: DO NOT call setOrders([]) here - it causes orders to disappear
       // DO NOT clear cache or fetch guard on unmount - keep for session persistence
     };
-  }, [user?.id, role, profileReady, authReady, isAdmin]); // CRITICAL: Only depend on user.id and role, remove profile and derived state
+  }, [user?.id, role, authReady, isAdmin]); // CRITICAL: Only depend on user.id and role, remove profile and derived state
 
   const refreshOrders = useCallback(async () => {
     // Force refresh by bypassing cache
