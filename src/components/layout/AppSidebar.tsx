@@ -20,8 +20,8 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/contexts/AuthContext';
-import { useOrders } from '@/contexts/OrderContext';
+import { useAuth } from '@/features/auth/context/AuthContext';
+import { useOrders } from '@/features/orders/context/OrderContext';
 import { useMemo } from 'react';
 
 interface NavItem {

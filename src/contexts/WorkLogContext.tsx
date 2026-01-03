@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { WorkLog, WorkNote, DailyPerformanceReport } from '@/types/worklog';
-import { useAuth } from './AuthContext';
+import { useAuth } from '@/features/auth/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 // Firebase removed - using Supabase only
@@ -117,15 +117,15 @@ export function WorkLogProvider({ children }: { children: React.ReactNode }) {
 
   const getWorkLogsByUser = useCallback((userId?: string, date?: string) => {
     let filtered = workLogs;
-    
+
     if (userId) {
       filtered = filtered.filter(log => log.user_id === userId);
     }
-    
+
     if (date) {
       filtered = filtered.filter(log => log.work_date === date);
     }
-    
+
     return filtered;
   }, [workLogs]);
 
@@ -135,12 +135,12 @@ export function WorkLogProvider({ children }: { children: React.ReactNode }) {
 
   const getWorkNotesByOrder = useCallback((orderId: string, itemId?: string) => {
     let filtered = workNotes.filter(note => note.order_id === orderId);
-    
+
     if (itemId) {
       filtered = filtered.filter(note => note.order_item_id === itemId);
     }
-    
-    return filtered.sort((a, b) => 
+
+    return filtered.sort((a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
   }, [workNotes]);

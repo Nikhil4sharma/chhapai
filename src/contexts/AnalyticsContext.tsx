@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { 
-  DeliveryPerformanceMetrics, 
-  DepartmentEfficiencyMetrics, 
+import {
+  DeliveryPerformanceMetrics,
+  DepartmentEfficiencyMetrics,
   UserProductivityMetrics,
   OrderHealthScore,
   DelayReason,
@@ -12,9 +12,9 @@ import {
 } from '@/types/analytics';
 import { Order, Stage, UserRole } from '@/types/order';
 import { WorkLog } from '@/types/worklog';
-import { useOrders } from './OrderContext';
+import { useOrders } from '@/features/orders/context/OrderContext';
 import { useWorkLogs } from './WorkLogContext';
-import { useAuth } from './AuthContext';
+import { useAuth } from '@/features/auth/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
 import {
   calculateDeliveryPerformance,
@@ -35,21 +35,21 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
   const { user, profile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [learningData, setLearningData] = useState<any>(null);
-  
+
   // Cache for table existence check - avoid repeated checks
   // Use localStorage to persist across page reloads and avoid unnecessary queries
   const getCachedTableExists = (): boolean | null => {
     const cached = localStorage.getItem('delay_reasons_table_exists');
     return cached === null ? null : cached === 'true';
   };
-  
+
   const [delayReasonsTableExists, setDelayReasonsTableExists] = useState<boolean | null>(getCachedTableExists());
-  
+
   // Check if delay_reasons table exists (only once, with localStorage cache)
   useEffect(() => {
     let isMounted = true;
     let abortController: AbortController | null = null;
-    
+
     const checkTableExists = async () => {
       // Skip query if we already know table doesn't exist from cache
       const cached = getCachedTableExists();
@@ -57,17 +57,17 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         setDelayReasonsTableExists(false);
         return;
       }
-      
+
       // If cached as true, set it but don't query
       if (cached === true) {
         setDelayReasonsTableExists(true);
         return;
       }
-      
+
       // Only query if we don't have a cached value
       // Use AbortController to prevent errors if component unmounts
       abortController = new AbortController();
-      
+
       try {
         // Make a silent query - errors are expected if table doesn't exist
         const { error } = await supabase
@@ -75,11 +75,11 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
           .select('id')
           .limit(1)
           .maybeSingle();
-        
+
         if (isMounted && !abortController.signal.aborted) {
           // Check for table not found errors (404, PGRST205, etc.)
           const isTableNotFound = error && (
-            error.code === 'PGRST205' || 
+            error.code === 'PGRST205' ||
             error.code === '42P01' || // PostgreSQL table does not exist
             error.message?.includes('Could not find the table') ||
             error.message?.includes('relation "delay_reasons" does not exist') ||
@@ -88,7 +88,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
             error.statusCode === 404 ||
             (error.hint && error.hint.includes('delay_reasons'))
           );
-          
+
           if (isTableNotFound) {
             // Table doesn't exist - cache it to avoid future queries
             setDelayReasonsTableExists(false);
@@ -107,14 +107,14 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       } catch (error: any) {
         // Silently handle any exceptions - don't log to avoid console noise
         if (isMounted && !abortController?.signal.aborted) {
-          const isTableNotFound = error?.code === 'PGRST205' || 
-              error?.code === '42P01' ||
-              error?.message?.includes('Could not find the table') ||
-              error?.message?.includes('relation "delay_reasons" does not exist') ||
-              error?.message?.includes('does not exist') ||
-              error?.status === 404 ||
-              error?.statusCode === 404;
-              
+          const isTableNotFound = error?.code === 'PGRST205' ||
+            error?.code === '42P01' ||
+            error?.message?.includes('Could not find the table') ||
+            error?.message?.includes('relation "delay_reasons" does not exist') ||
+            error?.message?.includes('does not exist') ||
+            error?.status === 404 ||
+            error?.statusCode === 404;
+
           if (isTableNotFound) {
             setDelayReasonsTableExists(false);
             localStorage.setItem('delay_reasons_table_exists', 'false');
@@ -124,10 +124,10 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         }
       }
     };
-    
+
     // Check table existence once on mount (only if not cached)
     checkTableExists();
-    
+
     return () => {
       isMounted = false;
       if (abortController) {
@@ -198,11 +198,11 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     try {
       const departments: UserRole[] = ['sales', 'design', 'prepress', 'production', 'outsource'];
       const results: Record<string, DepartmentEfficiencyMetrics> = {};
-      
+
       for (const dept of departments) {
         results[dept] = await calculateDepartmentEfficiency(orders, workLogs, dept, startDate, endDate);
       }
-      
+
       return results as Record<UserRole, DepartmentEfficiencyMetrics>;
     } catch (error) {
       console.error('Error calculating all departments efficiency:', error);
@@ -224,7 +224,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       const userLog = workLogs.find(log => log.user_id === userId);
       const userName = userLog?.user_name || 'Unknown';
       const department = userLog?.department as UserRole || 'sales';
-      
+
       return calculateUserProductivity(userId, userName, department, workLogs, orders, startDate, endDate);
     } catch (error) {
       console.error('Error calculating user productivity:', error);
@@ -243,12 +243,12 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     try {
       const userIds = new Set(workLogs.map(log => log.user_id));
       const results: UserProductivityMetrics[] = [];
-      
+
       for (const userId of userIds) {
         const metrics = await getUserProductivity(userId, startDate, endDate);
         results.push(metrics);
       }
-      
+
       return results.sort((a, b) => b.productivity_score - a.productivity_score);
     } catch (error) {
       console.error('Error calculating all users productivity:', error);
@@ -267,7 +267,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     if (delayReasonsTableExists === false) {
       return [];
     }
-    
+
     // If table existence is unknown, wait a bit and check
     if (delayReasonsTableExists === null) {
       // Wait for table check to complete (max 1 second)
@@ -276,31 +276,31 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         return [];
       }
     }
-    
+
     try {
       let query = supabase
         .from('delay_reasons')
         .select('*')
         .eq('order_id', orderId)
         .order('reported_at', { ascending: false });
-      
+
       if (itemId) {
         query = query.eq('item_id', itemId);
       }
-      
+
       const { data, error } = await query;
-      
+
       if (error) {
         // Handle table not found errors (PGRST205, 404, etc.) - table might not exist yet
-        const isTableNotFound = error.code === 'PGRST205' || 
-            error.code === '42P01' ||
-            error.message?.includes('Could not find the table') ||
-            error.message?.includes('relation "delay_reasons" does not exist') ||
-            error.message?.includes('does not exist') ||
-            error.status === 404 ||
-            error.statusCode === 404 ||
-            (error.hint && error.hint.includes('delay_reasons'));
-            
+        const isTableNotFound = error.code === 'PGRST205' ||
+          error.code === '42P01' ||
+          error.message?.includes('Could not find the table') ||
+          error.message?.includes('relation "delay_reasons" does not exist') ||
+          error.message?.includes('does not exist') ||
+          error.status === 404 ||
+          error.statusCode === 404 ||
+          (error.hint && error.hint.includes('delay_reasons'));
+
         if (isTableNotFound) {
           // Mark table as not existing to avoid future requests
           setDelayReasonsTableExists(false);
@@ -310,16 +310,16 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         console.error('Error fetching delay reasons:', error);
         return [];
       }
-      
+
       // If we got data, table exists
       if (data && delayReasonsTableExists !== true) {
         setDelayReasonsTableExists(true);
       }
-      
+
       if (!data) {
         return [];
       }
-      
+
       const reasons: DelayReason[] = data.map((row: any) => ({
         reason_id: row.id,
         order_id: row.order_id,
@@ -334,14 +334,14 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         resolved_at: row.resolved_at ? new Date(row.resolved_at) : undefined,
         is_resolved: row.is_resolved || false,
       }));
-      
+
       return reasons;
     } catch (error: any) {
       // Silently handle table not found errors
-      if (error?.code === 'PGRST205' || 
-          error?.message?.includes('Could not find the table') ||
-          error?.status === 404 ||
-          error?.statusCode === 404) {
+      if (error?.code === 'PGRST205' ||
+        error?.message?.includes('Could not find the table') ||
+        error?.status === 404 ||
+        error?.statusCode === 404) {
         setDelayReasonsTableExists(false);
         return [];
       }
@@ -361,29 +361,29 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       if (!order) {
         throw new Error('Order not found');
       }
-      
-      const item = itemId 
+
+      const item = itemId
         ? order.items.find(i => i.item_id === itemId)
         : order.items[0];
-      
+
       if (!item) {
         throw new Error('Item not found');
       }
-      
+
       // Get user workload (simplified - count of assigned orders)
-      const userWorkload = item.assigned_to 
+      const userWorkload = item.assigned_to
         ? orders.filter(o => o.items.some(i => i.assigned_to === item.assigned_to)).length
         : undefined;
-      
+
       // Get historical delays (simplified - count delay reasons for this order)
       const delayReasons = await getDelayReasons(orderId, itemId);
       const historicalDelays = delayReasons.length;
-      
+
       // Use enhanced calculation with learning data if available
       if (learningData) {
         return await calculateOrderHealthScoreEnhanced(item, order, userWorkload, historicalDelays, learningData);
       }
-      
+
       return calculateOrderHealthScore(item, order, userWorkload, historicalDelays);
     } catch (error) {
       console.error('Error calculating order health score:', error);
@@ -398,7 +398,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       const scores: OrderHealthScore[] = [];
-      
+
       for (const order of orders) {
         for (const item of order.items) {
           if (!item.is_dispatched && item.current_stage !== 'completed') {
@@ -411,7 +411,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
           }
         }
       }
-      
+
       return scores.sort((a, b) => a.score - b.score); // Sort by score ascending (worst first)
     } catch (error) {
       console.error('Error calculating all order health scores:', error);
@@ -428,7 +428,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     if (!user || !profile) {
       throw new Error('User not authenticated');
     }
-    
+
     // Early return if table doesn't exist
     if (delayReasonsTableExists === false) {
       toast({
@@ -438,7 +438,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       });
       return;
     }
-    
+
     try {
       const { error } = await supabase
         .from('delay_reasons')
@@ -453,18 +453,18 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
           reported_by_name: reason.reported_by_name,
           is_resolved: false,
         });
-      
+
       if (error) {
         // Handle table not found errors
-        const isTableNotFound = error.code === 'PGRST205' || 
-            error.code === '42P01' ||
-            error.message?.includes('Could not find the table') ||
-            error.message?.includes('relation "delay_reasons" does not exist') ||
-            error.message?.includes('does not exist') ||
-            error.status === 404 ||
-            error.statusCode === 404 ||
-            (error.hint && error.hint.includes('delay_reasons'));
-            
+        const isTableNotFound = error.code === 'PGRST205' ||
+          error.code === '42P01' ||
+          error.message?.includes('Could not find the table') ||
+          error.message?.includes('relation "delay_reasons" does not exist') ||
+          error.message?.includes('does not exist') ||
+          error.status === 404 ||
+          error.statusCode === 404 ||
+          (error.hint && error.hint.includes('delay_reasons'));
+
         if (isTableNotFound) {
           setDelayReasonsTableExists(false);
           toast({
@@ -476,27 +476,27 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         }
         throw error;
       }
-      
+
       // Mark table as existing if we successfully inserted
       if (delayReasonsTableExists !== true) {
         setDelayReasonsTableExists(true);
       }
-      
+
       toast({
         title: "Delay Reason Recorded",
         description: "Delay reason has been recorded successfully",
       });
     } catch (error: any) {
       // Handle table not found errors
-      const isTableNotFound = error?.code === 'PGRST205' || 
-          error?.code === '42P01' ||
-          error?.message?.includes('Could not find the table') ||
-          error?.message?.includes('relation "delay_reasons" does not exist') ||
-          error?.message?.includes('does not exist') ||
-          error?.status === 404 ||
-          error?.statusCode === 404 ||
-          (error?.hint && error.hint.includes('delay_reasons'));
-          
+      const isTableNotFound = error?.code === 'PGRST205' ||
+        error?.code === '42P01' ||
+        error?.message?.includes('Could not find the table') ||
+        error?.message?.includes('relation "delay_reasons" does not exist') ||
+        error?.message?.includes('does not exist') ||
+        error?.status === 404 ||
+        error?.statusCode === 404 ||
+        (error?.hint && error.hint.includes('delay_reasons'));
+
       if (isTableNotFound) {
         setDelayReasonsTableExists(false);
         toast({
@@ -533,25 +533,25 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         most_common: [],
       };
     }
-    
+
     try {
       const { data, error } = await supabase
         .from('delay_reasons')
         .select('category, stage')
         .gte('reported_at', startDate.toISOString())
         .lte('reported_at', endDate.toISOString());
-      
+
       if (error) {
         // Handle table not found errors
-        const isTableNotFound = error.code === 'PGRST205' || 
-            error.code === '42P01' ||
-            error.message?.includes('Could not find the table') ||
-            error.message?.includes('relation "delay_reasons" does not exist') ||
-            error.message?.includes('does not exist') ||
-            error.status === 404 ||
-            error.statusCode === 404 ||
-            (error.hint && error.hint.includes('delay_reasons'));
-            
+        const isTableNotFound = error.code === 'PGRST205' ||
+          error.code === '42P01' ||
+          error.message?.includes('Could not find the table') ||
+          error.message?.includes('relation "delay_reasons" does not exist') ||
+          error.message?.includes('does not exist') ||
+          error.status === 404 ||
+          error.statusCode === 404 ||
+          (error.hint && error.hint.includes('delay_reasons'));
+
         if (isTableNotFound) {
           setDelayReasonsTableExists(false);
           return {
@@ -567,12 +567,12 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
           most_common: [],
         };
       }
-      
+
       // If we got data, table exists
       if (data && delayReasonsTableExists !== true) {
         setDelayReasonsTableExists(true);
       }
-      
+
       if (!data) {
         return {
           by_category: {} as Record<DelayReasonCategory, number>,
@@ -580,22 +580,22 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
           most_common: [],
         };
       }
-      
+
       const byCategory: Record<string, number> = {};
       const byStage: Record<string, number> = {};
-      
+
       data.forEach((row: any) => {
         const category = row.category as DelayReasonCategory;
         const stage = row.stage as Stage;
-        
+
         byCategory[category] = (byCategory[category] || 0) + 1;
         byStage[stage] = (byStage[stage] || 0) + 1;
       });
-      
+
       const mostCommon = Object.entries(byCategory)
         .map(([category, count]) => ({ category: category as DelayReasonCategory, count }))
         .sort((a, b) => b.count - a.count);
-      
+
       return {
         by_category: byCategory as Record<DelayReasonCategory, number>,
         by_stage: byStage as Record<Stage, number>,
@@ -620,13 +620,13 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       const vendorOrders = orders.filter(order =>
-        order.items.some(item => 
+        order.items.some(item =>
           item.outsource_info?.vendor.vendor_name === vendorName &&
           order.created_at >= startDate &&
           order.created_at <= endDate
         )
       );
-      
+
       // TODO: Implement full vendor analytics calculation
       return {
         vendor_name: vendorName,
@@ -664,13 +664,13 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
           }
         });
       });
-      
+
       const results: VendorAnalytics[] = [];
       for (const vendorName of vendorNames) {
         const analytics = await getVendorAnalytics(vendorName, startDate, endDate);
         results.push(analytics);
       }
-      
+
       return results;
     } catch (error) {
       console.error('Error calculating all vendors analytics:', error);
@@ -691,11 +691,11 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
       const delayStats = await getDelayReasonStats(startDate, endDate);
       const allDeptEfficiency = await getAllDepartmentsEfficiency(startDate, endDate);
       const healthScores = await getAllOrderHealthScores();
-      
+
       const activeOrders = orders.filter(o => !o.is_completed).length;
       const atRiskOrders = healthScores.filter(s => s.status === 'yellow').length;
       const delayedOrders = healthScores.filter(s => s.status === 'red').length;
-      
+
       // Calculate department efficiency scores (0-100)
       const deptScores: Record<UserRole, number> = {} as any;
       Object.keys(allDeptEfficiency).forEach(dept => {
@@ -703,15 +703,15 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
         const processedRatio = metrics.orders_processed / (metrics.orders_processed + metrics.orders_pending);
         deptScores[dept as UserRole] = Math.round(processedRatio * 100);
       });
-      
+
       // Identify bottlenecks (departments with low efficiency)
       const bottleneckDepartments = Object.keys(deptScores)
         .filter(dept => deptScores[dept as UserRole] < 50)
         .map(dept => dept as UserRole);
-      
+
       // Generate risk alerts
       const riskAlerts: ExecutiveKPIs['risk_alerts'] = [];
-      
+
       if (delayedOrders > 10) {
         riskAlerts.push({
           type: 'delay',
@@ -720,7 +720,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
           affected_orders: healthScores.filter(s => s.status === 'red').map(s => s.order_id).slice(0, 10),
         });
       }
-      
+
       if (bottleneckDepartments.length > 0) {
         riskAlerts.push({
           type: 'bottleneck',
@@ -729,7 +729,7 @@ export function AnalyticsProvider({ children }: { children: React.ReactNode }) {
           affected_orders: [],
         });
       }
-      
+
       return {
         date_range: { start: startDate, end: endDate },
         total_orders: deliveryMetrics.total_orders,

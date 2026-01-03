@@ -17,8 +17,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { toast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
-import { useOrders } from '@/contexts/OrderContext';
+import { useAuth } from '@/features/auth/context/AuthContext';
+import { useOrders } from '@/features/orders/context/OrderContext';
 import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 

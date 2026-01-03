@@ -10,10 +10,10 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useNavigate } from 'react-router-dom';
-import { useOrders } from '@/contexts/OrderContext';
+import { useOrders } from '@/features/orders/context/OrderContext';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { PriorityBadge } from '@/components/orders/PriorityBadge';
+import { PriorityBadge } from '@/features/orders/components/PriorityBadge';
 import { Order } from '@/types/order';
 
 interface SearchBarProps {

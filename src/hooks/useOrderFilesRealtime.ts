@@ -57,8 +57,8 @@ export function useOrderFilesRealtime({
           const orderFile: OrderFile = {
             file_id: newFile.id,
             file_name: newFile.file_name,
-            url: newFile.url,
-            type: newFile.type as any,
+            url: newFile.file_url || newFile.url,
+            type: (newFile.file_type || newFile.type) as any,
             uploaded_by: newFile.uploaded_by,
             uploaded_at: newFile.created_at,
           };

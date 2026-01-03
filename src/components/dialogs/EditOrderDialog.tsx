@@ -21,7 +21,7 @@ import {
 import { Order } from '@/types/order';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/features/auth/context/AuthContext';
 
 interface EditOrderDialogProps {
   open: boolean;

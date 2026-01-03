@@ -21,7 +21,7 @@ import {
 import { DelayReasonCategory } from '@/types/analytics';
 import { Stage } from '@/types/order';
 import { useAnalytics } from '@/contexts/AnalyticsContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/features/auth/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
 
 interface DelayReasonDialogProps {

@@ -33,6 +33,7 @@ export interface OrderFinancials {
   tax_cgst?: number;
   tax_sgst?: number;
   payment_status?: string;
+  amount_received?: number;
 }
 
 export interface OrderFile {

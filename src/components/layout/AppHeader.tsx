@@ -12,9 +12,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useOrders } from '@/contexts/OrderContext';
+import { useOrders } from '@/features/orders/context/OrderContext';
 import { useWorkLogs } from '@/contexts/WorkLogContext';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/features/auth/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
 
 interface AppHeaderProps {
