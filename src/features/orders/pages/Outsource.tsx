@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from 'react';
-import { Building2, Search, Filter, Calendar, Package, AlertCircle, CheckCircle, Clock, Truck, FileText, Plus, Edit } from 'lucide-react';
+import { Building2, Search, Filter, Calendar, Package, AlertCircle, CheckCircle, Clock, Truck, FileText, Plus, Edit, Settings } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -177,7 +177,7 @@ export default function Outsource() {
     setWorkTypeFilter('all');
     setDateFilter('all');
     setSearchTerm('');
-    
+
     // Apply specific filter and switch tab based on card clicked
     switch (filterType) {
       case 'withVendor':
@@ -203,7 +203,7 @@ export default function Outsource() {
         setActiveTab('all');
         break;
     }
-    
+
     // Scroll to tabs section
     setTimeout(() => {
       const tabsSection = document.querySelector('[role="tablist"]');
@@ -237,11 +237,17 @@ export default function Outsource() {
                 Track and manage external vendor work
               </p>
             </div>
+            {isAdmin && (
+              <Button onClick={() => navigate('/admin/settings?tab=vendors')} variant="outline" size="sm">
+                <Settings className="h-4 w-4 mr-2" />
+                Manage Vendors
+              </Button>
+            )}
           </div>
 
           {/* Stats Cards - Clickable with navigation */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
-            <Card 
+            <Card
               className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               onClick={() => handleCardClick('total')}
             >
@@ -258,7 +264,7 @@ export default function Outsource() {
               </CardContent>
             </Card>
 
-            <Card 
+            <Card
               className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               onClick={() => handleCardClick('withVendor')}
             >
@@ -275,7 +281,7 @@ export default function Outsource() {
               </CardContent>
             </Card>
 
-            <Card 
+            <Card
               className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               onClick={() => handleCardClick('dispatched')}
             >
@@ -292,7 +298,7 @@ export default function Outsource() {
               </CardContent>
             </Card>
 
-            <Card 
+            <Card
               className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               onClick={() => handleCardClick('pendingQC')}
             >
@@ -309,7 +315,7 @@ export default function Outsource() {
               </CardContent>
             </Card>
 
-            <Card 
+            <Card
               className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
               onClick={() => handleCardClick('delayed')}
             >

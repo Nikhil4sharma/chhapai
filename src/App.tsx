@@ -57,6 +57,8 @@ const UserProductivityReports = lazy(() => import("@/features/reports/pages/User
 const VendorAnalytics = lazy(() => import("@/features/reports/pages/VendorAnalytics"));
 // HR Employee View
 const EmployeeDashboard = lazy(() => import('@/features/hr/pages/EmployeeDashboard'));
+// Inventory
+const InventoryDashboard = lazy(() => import("@/features/inventory/pages/InventoryDashboard"));
 
 const PageLoader = () => (
   <div className="h-screen w-full flex items-center justify-center">
@@ -166,6 +168,15 @@ const App = () => (
                           <ProtectedRoute allowedRoles={['admin', 'sales', 'super_admin']}>
                             <Suspense fallback={<PageLoader />}>
                               <Dispatched />
+                            </Suspense>
+                          </ProtectedRoute>
+                        } />
+
+                        {/* Inventory */}
+                        <Route path="/inventory" element={
+                          <ProtectedRoute allowedRoles={['admin', 'sales', 'production', 'super_admin']}>
+                            <Suspense fallback={<PageLoader />}>
+                              <InventoryDashboard />
                             </Suspense>
                           </ProtectedRoute>
                         } />

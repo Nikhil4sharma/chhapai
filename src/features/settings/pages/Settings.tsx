@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  Settings as SettingsIcon, 
-  Bell, 
-  Shield, 
-  Palette, 
-  Database, 
-  Save, 
-  Plus, 
+import {
+  Settings as SettingsIcon,
+  Bell,
+  Shield,
+  Palette,
+  Database,
+  Save,
+  Plus,
   Trash2,
   ShoppingCart,
   RefreshCw,
@@ -21,6 +21,7 @@ import {
   Mail,
   MapPin,
   User,
+  Factory,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -42,11 +43,14 @@ import { toast } from '@/hooks/use-toast';
 import { PRODUCTION_STEPS } from '@/types/order';
 import { supabase } from '@/integrations/supabase/client';
 import { uploadFileToSupabase } from '@/services/supabaseStorage';
+import { useWorkflow } from '@/contexts/WorkflowContext';
+import { WorkflowSettingsTab } from '@/features/settings/components/WorkflowSettingsTab';
+import { Network } from 'lucide-react'; // For workflow icon
 
 export default function Settings() {
   const { isAdmin, user, isLoading: authLoading } = useAuth();
   const { lastSyncTime, refreshOrders } = useOrders();
-  
+
   // CRITICAL: Wait for auth to be ready before rendering
   if (authLoading) {
     return (
@@ -55,7 +59,7 @@ export default function Settings() {
       </div>
     );
   }
-  
+
   // CRITICAL: Only admin can access settings
   if (!isAdmin) {
     return (
@@ -76,9 +80,9 @@ export default function Settings() {
     orderUpdates: true,
     urgentAlerts: true,
   });
-  const [productionStages, setProductionStages] = useState<Array<{ key: string; label: string; order: number }>>(
-    PRODUCTION_STEPS.map(s => ({ key: s.key, label: s.label, order: s.order }))
-  );
+  const { productionStages, updateProductionStages } = useWorkflow();
+  // Local state for stages is no longer needed as it comes from context
+
   const [newStageName, setNewStageName] = useState('');
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [faviconUrl, setFaviconUrl] = useState<string>('/favicon.ico');
@@ -91,13 +95,13 @@ export default function Settings() {
   // Load appearance settings from Supabase
   useEffect(() => {
     if (!isAdmin) return;
-    
+
     const loadAppearanceSettings = async () => {
       try {
         const { data: settingsData, error: settingsError } = await supabase
           .from('app_settings')
-          .select('setting_value')
-          .eq('setting_key', 'appearance')
+          .select('value')
+          .eq('key', 'appearance')
           .maybeSingle();
 
         if (settingsError && settingsError.code !== 'PGRST116') {
@@ -105,16 +109,16 @@ export default function Settings() {
           return;
         }
 
-        if (settingsData?.setting_value) {
-          const appearance = settingsData.setting_value as {
+        if (settingsData?.value) {
+          const appearance = settingsData.value as {
             favicon_url?: string;
             logo_url?: string;
           };
-          
+
           if (appearance.favicon_url) {
             setFaviconUrl(appearance.favicon_url);
           }
-          
+
           if (appearance.logo_url) {
             setLogoUrl(appearance.logo_url);
           }
@@ -127,36 +131,16 @@ export default function Settings() {
     loadAppearanceSettings();
   }, [isAdmin]);
 
-  // Vendor management states
-  const [vendors, setVendors] = useState<Array<{
-    id: string;
-    vendor_name: string;
-    vendor_company?: string;
-    contact_person: string;
-    phone: string;
-    email?: string;
-    city?: string;
-    created_at: Date;
-    updated_at: Date;
-  }>>([]);
-  const [newVendor, setNewVendor] = useState({
-    vendor_name: '',
-    vendor_company: '',
-    contact_person: '',
-    phone: '',
-    email: '',
-    city: '',
-  });
-  const [editingVendorId, setEditingVendorId] = useState<string | null>(null);
+
 
   // Load notification preferences and production stages from Firestore (only once on mount)
   useEffect(() => {
     if (!user || settingsLoaded) return;
-    
+
     const loadSettings = async () => {
       try {
         if (!user || !user.id) return;
-        
+
         // TODO: Migrate to Supabase user_settings table
         // For now, use defaults
         setNotifications({
@@ -165,90 +149,75 @@ export default function Settings() {
           orderUpdates: true,
           urgentAlerts: true,
         });
-        
+
         setSettingsLoaded(true);
       } catch (error) {
         console.error('Error loading settings:', error);
         setSettingsLoaded(true);
       }
     };
-    
+
     loadSettings();
   }, [user, isAdmin, settingsLoaded]);
 
 
 
-  // Load vendors from Supabase
-  useEffect(() => {
-    if (!isAdmin) return;
-    
-    const loadVendors = async () => {
-      try {
-        const { data: vendorsData, error: vendorsError } = await supabase
-          .from('vendors')
-          .select('*')
-          .order('created_at', { ascending: false });
 
-        if (vendorsError) throw vendorsError;
-
-        const mappedVendors = (vendorsData || []).map(v => ({
-          id: v.id,
-          vendor_name: v.vendor_name,
-          vendor_company: v.vendor_company || undefined,
-          contact_person: v.contact_person,
-          phone: v.phone,
-          email: v.email || undefined,
-          city: v.city || undefined,
-          created_at: new Date(v.created_at),
-          updated_at: new Date(v.updated_at),
-        }));
-
-        setVendors(mappedVendors);
-      } catch (error) {
-        console.error('Error loading vendors:', error);
-      }
-    };
-
-    loadVendors();
-  }, [isAdmin]);
 
   // Load production stages from Supabase
+  // Production stages are loaded via useWorkflow context
+
+
+  // Workflow Configuration State
+  const [workflowConfig, setWorkflowConfig] = useState<any>(null);
+
+  // Load workflow config
   useEffect(() => {
     if (!isAdmin) return;
-    
-    const loadProductionStages = async () => {
+    const loadWorkflowConfig = async () => {
       try {
-        const { data: settingsData, error: settingsError } = await supabase
+        const { data, error } = await supabase
           .from('app_settings')
-          .select('setting_value')
-          .eq('setting_key', 'production_stages')
-          .single();
+          .select('value')
+          .eq('key', 'workflow_config')
+          .maybeSingle();
 
-        if (settingsError && settingsError.code !== 'PGRST116') {
-          console.error('Error loading production stages:', settingsError);
-          return;
-        }
+        if (error && error.code !== 'PGRST116') throw error;
 
-        if (settingsData?.setting_value) {
-          const stages = settingsData.setting_value as Array<{ key: string; label: string; order: number }>;
-          if (Array.isArray(stages) && stages.length > 0) {
-            setProductionStages(stages);
-          }
+        if (data?.value) {
+          setWorkflowConfig(data.value);
         }
-      } catch (error) {
-        console.error('Error loading production stages:', error);
+      } catch (err) {
+        console.error('Error loading workflow config:', err);
       }
     };
-
-    loadProductionStages();
+    loadWorkflowConfig();
   }, [isAdmin]);
+
+  const handleUpdateWorkflow = async (newConfig: any) => {
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({
+          key: 'workflow_config',
+          value: newConfig,
+          updated_at: new Date().toISOString()
+        });
+
+      if (error) throw error;
+      setWorkflowConfig(newConfig);
+      toast({ title: "Workflow Updated", description: "Changes saved successfully." });
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to save workflow", variant: "destructive" });
+    }
+  };
 
 
   // WooCommerce and WordPress functionality removed - not needed anymore
 
   const handleSave = async () => {
     if (!user) return;
-    
+
     try {
       // Save user notification settings (these columns don't exist in user_settings table yet)
       // Store in localStorage for now
@@ -259,26 +228,26 @@ export default function Settings() {
         order_updates: notifications.orderUpdates,
         urgent_alerts: notifications.urgentAlerts,
       };
-      
+
       // Save notification preferences to localStorage
       // Note: user_settings table only has sound_enabled and push_enabled columns
       // Future: Add these columns to user_settings table if needed
       localStorage.setItem('user_notification_settings', JSON.stringify(settingsData));
-      
+
       // Only save sound_enabled and push_enabled to user_settings table if needed
       // (Currently handled by useNotifications hook separately)
-      
+
       // Save production stages separately to app_settings (admin only)
       if (isAdmin) {
         try {
           const { error: stagesError } = await supabase
             .from('app_settings')
             .upsert({
-              setting_key: 'production_stages',
-              setting_value: productionStages,
+              key: 'production_stages',
+              value: productionStages,
               updated_at: new Date().toISOString(),
             }, {
-              onConflict: 'setting_key'
+              onConflict: 'key'
             });
 
           if (stagesError) throw stagesError;
@@ -286,10 +255,10 @@ export default function Settings() {
           console.error('Error saving production stages:', error);
         }
       }
-      
+
       // Mark as saved to prevent reload from overwriting
       setSettingsLoaded(true);
-      
+
       toast({
         title: "Settings Saved",
         description: "Your preferences have been updated and saved successfully",
@@ -313,7 +282,7 @@ export default function Settings() {
       });
       return;
     }
-    
+
     if (!isAdmin) {
       toast({
         title: "Error",
@@ -322,184 +291,28 @@ export default function Settings() {
       });
       return;
     }
-    
+
     const newStage = {
       key: newStageName.toLowerCase().replace(/\s+/g, '_'),
       label: newStageName,
       order: productionStages.length + 1,
     };
-    
-    const updatedStages = [...productionStages, newStage];
-    setProductionStages(updatedStages);
-    setNewStageName('');
-    
-    // Save immediately to Supabase
-    try {
-      const { error: settingsError } = await supabase
-        .from('app_settings')
-        .upsert({
-          setting_key: 'production_stages',
-          setting_value: updatedStages,
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'setting_key'
-        });
 
-      if (settingsError) throw settingsError;
-      
+    const updatedStages = [...productionStages, newStage];
+
+    // Use context to update
+    try {
+      await updateProductionStages(updatedStages);
+      setNewStageName('');
       toast({
         title: "Stage Added",
         description: `"${newStageName}" has been added and saved`,
       });
     } catch (error) {
-      console.error('Error saving stage:', error);
-      toast({
-        title: "Error",
-        description: "Failed to save stage. Please try again.",
-        variant: "destructive",
-      });
-      // Revert the change
-      setProductionStages(productionStages);
+      // Error handled in context
     }
   };
 
-  const handleAddVendor = async () => {
-    if (!newVendor.vendor_name.trim() || !newVendor.contact_person.trim() || !newVendor.phone.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Vendor name, contact person, and phone are required",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const vendorData = {
-        vendor_name: newVendor.vendor_name.trim(),
-        vendor_company: newVendor.vendor_company.trim() || null,
-        contact_person: newVendor.contact_person.trim(),
-        phone: newVendor.phone.trim(),
-        email: newVendor.email.trim() || null,
-        city: newVendor.city.trim() || null,
-      };
-
-      const { data: newVendorData, error: vendorError } = await supabase
-        .from('vendors')
-        .insert(vendorData)
-        .select()
-        .single();
-
-      if (vendorError) throw vendorError;
-      if (!newVendorData) throw new Error('Vendor creation failed');
-
-      const addedVendorName = vendorData.vendor_name;
-      setVendors([...vendors, { 
-        id: newVendorData.id,
-        vendor_name: newVendorData.vendor_name,
-        vendor_company: newVendorData.vendor_company || undefined,
-        contact_person: newVendorData.contact_person,
-        phone: newVendorData.phone,
-        email: newVendorData.email || undefined,
-        city: newVendorData.city || undefined,
-        created_at: new Date(newVendorData.created_at),
-        updated_at: new Date(newVendorData.updated_at),
-      }]);
-      setNewVendor({
-        vendor_name: '',
-        vendor_company: '',
-        contact_person: '',
-        phone: '',
-        email: '',
-        city: '',
-      });
-
-      toast({
-        title: "Vendor Added",
-        description: `${addedVendorName} has been added successfully`,
-      });
-    } catch (error) {
-      console.error('Error adding vendor:', error);
-      toast({
-        title: "Error",
-        description: "Failed to add vendor",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleUpdateVendor = async (vendorId: string, updatedData: typeof newVendor) => {
-    if (!updatedData.vendor_name.trim() || !updatedData.contact_person.trim() || !updatedData.phone.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Vendor name, contact person, and phone are required",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      const { error: vendorError } = await supabase
-        .from('vendors')
-        .update({
-          vendor_name: updatedData.vendor_name.trim(),
-          vendor_company: updatedData.vendor_company.trim() || null,
-          contact_person: updatedData.contact_person.trim(),
-          phone: updatedData.phone.trim(),
-          email: updatedData.email.trim() || null,
-          city: updatedData.city.trim() || null,
-        })
-        .eq('id', vendorId);
-
-      if (vendorError) throw vendorError;
-
-      setVendors(vendors.map(v => v.id === vendorId ? {
-        ...v,
-        ...updatedData,
-        vendor_company: updatedData.vendor_company.trim() || undefined,
-        email: updatedData.email.trim() || undefined,
-        city: updatedData.city.trim() || undefined,
-        updated_at: new Date(),
-      } : v));
-      setEditingVendorId(null);
-
-      toast({
-        title: "Vendor Updated",
-        description: "Vendor details have been updated successfully",
-      });
-    } catch (error) {
-      console.error('Error updating vendor:', error);
-      toast({
-        title: "Error",
-        description: "Failed to update vendor",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleDeleteVendor = async (vendorId: string) => {
-    try {
-      const { error: vendorError } = await supabase
-        .from('vendors')
-        .delete()
-        .eq('id', vendorId);
-
-      if (vendorError) throw vendorError;
-
-      setVendors(vendors.filter(v => v.id !== vendorId));
-
-      toast({
-        title: "Vendor Deleted",
-        description: "Vendor has been removed successfully",
-      });
-    } catch (error) {
-      console.error('Error deleting vendor:', error);
-      toast({
-        title: "Error",
-        description: "Failed to delete vendor",
-        variant: "destructive",
-      });
-    }
-  };
 
   const handleRemoveStage = async (key: string) => {
     if (!isAdmin) {
@@ -510,37 +323,18 @@ export default function Settings() {
       });
       return;
     }
-    
-    const updatedStages = productionStages.filter(s => s.key !== key);
-    setProductionStages(updatedStages);
-    
-    // Save immediately to Supabase
-    try {
-      const { error: settingsError } = await supabase
-        .from('app_settings')
-        .upsert({
-          setting_key: 'production_stages',
-          setting_value: updatedStages,
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'setting_key'
-        });
 
-      if (settingsError) throw settingsError;
-      
+    const updatedStages = productionStages.filter(s => s.key !== key);
+
+    // Use context to update
+    try {
+      await updateProductionStages(updatedStages);
       toast({
         title: "Stage Removed",
         description: "Production stage has been removed and saved",
       });
     } catch (error) {
-      console.error('Error removing stage:', error);
-      toast({
-        title: "Error",
-        description: "Failed to remove stage. Please try again.",
-        variant: "destructive",
-      });
-      // Revert the change
-      setProductionStages(productionStages);
+      // Error handled in context
     }
   };
 
@@ -570,17 +364,20 @@ export default function Settings() {
             </TabsTrigger>
             {isAdmin && (
               <>
-                <TabsTrigger value="vendors" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
-                  <Building2 className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Vendors</span>
-                </TabsTrigger>
-                <TabsTrigger value="stages" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
-                  <Database className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Stages</span>
-                </TabsTrigger>
+
                 <TabsTrigger value="security" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
                   <Shield className="h-4 w-4 sm:mr-2" />
                   <span className="hidden sm:inline">Security</span>
+                </TabsTrigger>
+
+                <TabsTrigger value="stages" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
+                  <Factory className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Stages</span>
+                </TabsTrigger>
+
+                <TabsTrigger value="workflow" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
+                  <Network className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Workflow</span>
                 </TabsTrigger>
               </>
             )}
@@ -599,9 +396,9 @@ export default function Settings() {
                     <Label className="text-sm">Email Notifications</Label>
                     <p className="text-xs sm:text-sm text-muted-foreground">Receive notifications via email</p>
                   </div>
-                  <Switch 
+                  <Switch
                     checked={notifications.email}
-                    onCheckedChange={(checked) => setNotifications({...notifications, email: checked})}
+                    onCheckedChange={(checked) => setNotifications({ ...notifications, email: checked })}
                   />
                 </div>
                 <Separator />
@@ -610,19 +407,19 @@ export default function Settings() {
                     <Label className="text-sm">Push Notifications</Label>
                     <p className="text-xs sm:text-sm text-muted-foreground">Receive push notifications in browser</p>
                   </div>
-                  <Switch 
+                  <Switch
                     checked={notifications.push}
-                    onCheckedChange={(checked) => setNotifications({...notifications, push: checked})}
+                    onCheckedChange={(checked) => setNotifications({ ...notifications, push: checked })}
                   />
                 </div>
-                
+
                 {/* Enable Notifications Button - Show if permission not granted */}
                 {Notification.permission !== 'granted' && (
                   <div className="flex items-center justify-between gap-3 pt-2 pb-2 border-t border-border">
                     <div className="space-y-0.5 min-w-0">
                       <Label className="text-sm font-medium">Enable Browser Notifications</Label>
                       <p className="text-xs sm:text-sm text-muted-foreground">
-                        {Notification.permission === 'denied' 
+                        {Notification.permission === 'denied'
                           ? 'Notifications are blocked. Enable them in browser settings.'
                           : 'Click to allow notifications from this site'}
                       </p>
@@ -653,7 +450,7 @@ export default function Settings() {
                           console.log('Requesting notification permission...');
                           const permission = await Notification.requestPermission();
                           console.log('Permission result:', permission);
-                          
+
                           if (permission === 'granted') {
                             toast({
                               title: "Notifications Enabled!",
@@ -692,11 +489,11 @@ export default function Settings() {
                 <div className="flex items-center justify-between gap-3 pt-2">
                   <div className="space-y-0.5 min-w-0">
                     <Label className="text-sm">Test Push Notification</Label>
-                      <p className="text-xs sm:text-sm text-muted-foreground">
-                        {Notification.permission === 'granted' 
-                          ? "Send a test notification to verify it's working"
-                          : 'Enable notifications first to test'}
-                      </p>
+                    <p className="text-xs sm:text-sm text-muted-foreground">
+                      {Notification.permission === 'granted'
+                        ? "Send a test notification to verify it's working"
+                        : 'Enable notifications first to test'}
+                    </p>
                   </div>
                   <Button
                     variant="outline"
@@ -715,7 +512,7 @@ export default function Settings() {
 
                       // Check current permission status
                       let permission = Notification.permission;
-                      
+
                       // Request permission if not granted (this requires user interaction - which we have via button click)
                       if (permission === 'default') {
                         try {
@@ -793,9 +590,9 @@ export default function Settings() {
                     <Label className="text-sm">Order Updates</Label>
                     <p className="text-xs sm:text-sm text-muted-foreground">Get notified when orders change status</p>
                   </div>
-                  <Switch 
+                  <Switch
                     checked={notifications.orderUpdates}
-                    onCheckedChange={(checked) => setNotifications({...notifications, orderUpdates: checked})}
+                    onCheckedChange={(checked) => setNotifications({ ...notifications, orderUpdates: checked })}
                   />
                 </div>
                 <Separator />
@@ -804,9 +601,9 @@ export default function Settings() {
                     <Label className="text-sm">Urgent Alerts</Label>
                     <p className="text-xs sm:text-sm text-muted-foreground">Get alerts for high-priority items</p>
                   </div>
-                  <Switch 
+                  <Switch
                     checked={notifications.urgentAlerts}
-                    onCheckedChange={(checked) => setNotifications({...notifications, urgentAlerts: checked})}
+                    onCheckedChange={(checked) => setNotifications({ ...notifications, urgentAlerts: checked })}
                   />
                 </div>
               </CardContent>
@@ -828,7 +625,7 @@ export default function Settings() {
                   </p>
                 </div>
                 <Separator />
-                
+
                 {/* Favicon Upload */}
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -895,14 +692,14 @@ export default function Settings() {
                           try {
                             const fileExt = file.name.split('.').pop();
                             const fileName = `app-settings/favicon.${fileExt}`;
-                            
+
                             // Upload to Supabase Storage
                             const { url: downloadURL } = await uploadFileToSupabase(
                               file,
                               'order-files',
                               'app-settings'
                             );
-                            
+
                             // Load existing appearance settings first to merge
                             const { data: existingSettings } = await supabase
                               .from('app_settings')
@@ -911,7 +708,7 @@ export default function Settings() {
                               .maybeSingle();
 
                             const existingAppearance = (existingSettings?.setting_value as any) || {};
-                            
+
                             // Save to Supabase app_settings table with merged values
                             const { error: saveError } = await supabase
                               .from('app_settings')
@@ -931,7 +728,7 @@ export default function Settings() {
                             }
 
                             setFaviconUrl(downloadURL);
-                            
+
                             // Update page favicon
                             const link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
                             if (link) {
@@ -1030,14 +827,14 @@ export default function Settings() {
                           try {
                             const fileExt = file.name.split('.').pop();
                             const fileName = `app-settings/logo.${fileExt}`;
-                            
+
                             // Upload to Supabase Storage
                             const { url: downloadURL } = await uploadFileToSupabase(
                               file,
                               'order-files',
                               'app-settings'
                             );
-                            
+
                             // Load existing appearance settings first to merge
                             const { data: existingSettings } = await supabase
                               .from('app_settings')
@@ -1046,7 +843,7 @@ export default function Settings() {
                               .maybeSingle();
 
                             const existingAppearance = (existingSettings?.setting_value as any) || {};
-                            
+
                             // Save to Supabase app_settings table with merged values
                             const { error: saveError } = await supabase
                               .from('app_settings')
@@ -1087,7 +884,7 @@ export default function Settings() {
                   </div>
                 </div>
                 <Separator />
-                
+
                 <div className="space-y-2">
                   <Label>Company Name</Label>
                   <Input defaultValue="Chhapai" />
@@ -1098,284 +895,7 @@ export default function Settings() {
 
 
 
-          {/* Vendors Management (Admin Only) */}
-          {isAdmin && (
-            <TabsContent value="vendors">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Building2 className="h-5 w-5" />
-                    Outsource Vendors
-                  </CardTitle>
-                  <CardDescription>Manage vendor details for outsource assignments</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4 sm:space-y-6">
-                  {/* Add New Vendor Form */}
-                  <div className="bg-secondary/50 rounded-lg p-4 space-y-4">
-                    <h4 className="font-medium text-foreground">Add New Vendor</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="new_vendor_name" className="flex items-center gap-2">
-                          <Building2 className="h-3.5 w-3.5" />
-                          Vendor Name <span className="text-destructive">*</span>
-                        </Label>
-                        <Input
-                          id="new_vendor_name"
-                          placeholder="Enter vendor name"
-                          value={newVendor.vendor_name}
-                          onChange={(e) => setNewVendor({ ...newVendor, vendor_name: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new_vendor_company">Vendor Company</Label>
-                        <Input
-                          id="new_vendor_company"
-                          placeholder="Enter company name (optional)"
-                          value={newVendor.vendor_company}
-                          onChange={(e) => setNewVendor({ ...newVendor, vendor_company: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new_contact_person" className="flex items-center gap-2">
-                          <User className="h-3.5 w-3.5" />
-                          Contact Person <span className="text-destructive">*</span>
-                        </Label>
-                        <Input
-                          id="new_contact_person"
-                          placeholder="Enter contact person name"
-                          value={newVendor.contact_person}
-                          onChange={(e) => setNewVendor({ ...newVendor, contact_person: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new_phone" className="flex items-center gap-2">
-                          <Phone className="h-3.5 w-3.5" />
-                          Phone <span className="text-destructive">*</span>
-                        </Label>
-                        <Input
-                          id="new_phone"
-                          type="tel"
-                          placeholder="Enter phone number"
-                          value={newVendor.phone}
-                          onChange={(e) => setNewVendor({ ...newVendor, phone: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new_email" className="flex items-center gap-2">
-                          <Mail className="h-3.5 w-3.5" />
-                          Email
-                        </Label>
-                        <Input
-                          id="new_email"
-                          type="email"
-                          placeholder="Enter email (optional)"
-                          value={newVendor.email}
-                          onChange={(e) => setNewVendor({ ...newVendor, email: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="new_city" className="flex items-center gap-2">
-                          <MapPin className="h-3.5 w-3.5" />
-                          City / Location
-                        </Label>
-                        <Input
-                          id="new_city"
-                          placeholder="Enter city (optional)"
-                          value={newVendor.city}
-                          onChange={(e) => setNewVendor({ ...newVendor, city: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                    <Button onClick={handleAddVendor} className="w-full sm:w-auto">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Vendor
-                    </Button>
-                  </div>
 
-                  <Separator />
-
-                  {/* Vendors List */}
-                  <div className="space-y-3">
-                    <h4 className="font-medium text-foreground">Saved Vendors ({vendors.length})</h4>
-                    {vendors.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Building2 className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                        <p>No vendors added yet</p>
-                        <p className="text-sm">Add your first vendor using the form above</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {vendors.map((vendor) => (
-                          <div
-                            key={vendor.id}
-                            className="p-4 bg-secondary/50 rounded-lg border border-border"
-                          >
-                            {editingVendorId === vendor.id ? (
-                              <div className="space-y-4">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                  <div className="space-y-2">
-                                    <Label>Vendor Name <span className="text-destructive">*</span></Label>
-                                    <Input
-                                      value={newVendor.vendor_name}
-                                      onChange={(e) => setNewVendor({ ...newVendor, vendor_name: e.target.value })}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Company</Label>
-                                    <Input
-                                      value={newVendor.vendor_company}
-                                      onChange={(e) => setNewVendor({ ...newVendor, vendor_company: e.target.value })}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Contact Person <span className="text-destructive">*</span></Label>
-                                    <Input
-                                      value={newVendor.contact_person}
-                                      onChange={(e) => setNewVendor({ ...newVendor, contact_person: e.target.value })}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Phone <span className="text-destructive">*</span></Label>
-                                    <Input
-                                      type="tel"
-                                      value={newVendor.phone}
-                                      onChange={(e) => setNewVendor({ ...newVendor, phone: e.target.value })}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Email</Label>
-                                    <Input
-                                      type="email"
-                                      value={newVendor.email}
-                                      onChange={(e) => setNewVendor({ ...newVendor, email: e.target.value })}
-                                    />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>City</Label>
-                                    <Input
-                                      value={newVendor.city}
-                                      onChange={(e) => setNewVendor({ ...newVendor, city: e.target.value })}
-                                    />
-                                  </div>
-                                </div>
-                                <div className="flex gap-2">
-                                  <Button
-                                    size="sm"
-                                    onClick={() => {
-                                      handleUpdateVendor(vendor.id, newVendor);
-                                      setNewVendor({
-                                        vendor_name: '',
-                                        vendor_company: '',
-                                        contact_person: '',
-                                        phone: '',
-                                        email: '',
-                                        city: '',
-                                      });
-                                    }}
-                                  >
-                                    <Save className="h-4 w-4 mr-2" />
-                                    Save
-                                  </Button>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setEditingVendorId(null);
-                                      setNewVendor({
-                                        vendor_name: '',
-                                        vendor_company: '',
-                                        contact_person: '',
-                                        phone: '',
-                                        email: '',
-                                        city: '',
-                                      });
-                                    }}
-                                  >
-                                    Cancel
-                                  </Button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex items-start justify-between gap-4">
-                                <div className="flex-1 space-y-2">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <h5 className="font-semibold text-foreground">{vendor.vendor_name}</h5>
-                                    {vendor.vendor_company && (
-                                      <Badge variant="outline" className="text-xs">
-                                        {vendor.vendor_company}
-                                      </Badge>
-                                    )}
-                                    {vendor.city && (
-                                      <Badge variant="outline" className="text-xs">
-                                        <MapPin className="h-3 w-3 mr-1" />
-                                        {vendor.city}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-muted-foreground">
-                                    <div className="flex items-center gap-2">
-                                      <User className="h-3.5 w-3.5" />
-                                      <span>{vendor.contact_person}</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <Phone className="h-3.5 w-3.5" />
-                                      <span>{vendor.phone}</span>
-                                    </div>
-                                    {vendor.email && (
-                                      <div className="flex items-center gap-2">
-                                        <Mail className="h-3.5 w-3.5" />
-                                        <span>{vendor.email}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="flex gap-2">
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        onClick={() => {
-                                          setEditingVendorId(vendor.id);
-                                          setNewVendor({
-                                            vendor_name: vendor.vendor_name,
-                                            vendor_company: vendor.vendor_company || '',
-                                            contact_person: vendor.contact_person,
-                                            phone: vendor.phone,
-                                            email: vendor.email || '',
-                                            city: vendor.city || '',
-                                          });
-                                        }}
-                                      >
-                                        <Edit className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Edit vendor</TooltipContent>
-                                  </Tooltip>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon-sm"
-                                        onClick={() => handleDeleteVendor(vendor.id)}
-                                      >
-                                        <Trash2 className="h-4 w-4 text-destructive" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Delete vendor</TooltipContent>
-                                  </Tooltip>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          )}
 
           {/* Production Stages (Admin Only) */}
           {isAdmin && (
@@ -1387,7 +907,7 @@ export default function Settings() {
                 </CardHeader>
                 <CardContent className="space-y-4 sm:space-y-6">
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <Input 
+                    <Input
                       placeholder="New stage name..."
                       value={newStageName}
                       onChange={(e) => setNewStageName(e.target.value)}
@@ -1407,7 +927,7 @@ export default function Settings() {
 
                   <div className="space-y-2">
                     {productionStages.map((stage, index) => (
-                      <div 
+                      <div
                         key={stage.key}
                         className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg"
                       >
@@ -1417,8 +937,8 @@ export default function Settings() {
                         </div>
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <Button 
-                              variant="ghost" 
+                            <Button
+                              variant="ghost"
                               size="icon-sm"
                               onClick={() => handleRemoveStage(stage.key)}
                             >
@@ -1432,6 +952,13 @@ export default function Settings() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+          )}
+
+          {/* Workflow (Admin Only) */}
+          {isAdmin && (
+            <TabsContent value="workflow">
+              <WorkflowSettingsTab />
             </TabsContent>
           )}
 

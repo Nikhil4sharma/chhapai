@@ -1,10 +1,20 @@
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { WorkflowSettings } from "@/features/admin/components/WorkflowSettings";
-import { Settings, Shield, Globe, Database, Bell } from "lucide-react";
+import { WorkflowSettingsTab } from "@/features/settings/components/WorkflowSettingsTab";
+import { VendorManagement } from "@/features/admin/components/VendorManagement";
+import { Settings, Shield, Globe, Database, Bell, Building2 } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+
 
 export default function AdminSettings() {
+    const [searchParams, setSearchParams] = useSearchParams();
+    const currentTab = searchParams.get('tab') || 'workflow';
+
+    const handleTabChange = (value: string) => {
+        setSearchParams({ tab: value });
+    };
+
     return (
         <div className="container mx-auto p-6 space-y-8 animate-fade-in">
             <div className="flex flex-col gap-2">
@@ -12,7 +22,7 @@ export default function AdminSettings() {
                 <p className="text-muted-foreground">Configure system-wide preferences, workflows, and integrations.</p>
             </div>
 
-            <Tabs defaultValue="workflow" className="space-y-6">
+            <Tabs value={currentTab} onValueChange={handleTabChange} className="space-y-6">
                 <div className="relative">
                     <TabsList className="h-auto p-1 bg-muted/50 rounded-lg inline-flex flex-wrap gap-1">
                         <TabsTrigger value="general" className="gap-2 px-4 py-2">
@@ -27,12 +37,15 @@ export default function AdminSettings() {
                         <TabsTrigger value="automation" className="gap-2 px-4 py-2">
                             <Bell className="h-4 w-4" /> Automation
                         </TabsTrigger>
+                        <TabsTrigger value="vendors" className="gap-2 px-4 py-2">
+                            <Building2 className="h-4 w-4" /> Vendors
+                        </TabsTrigger>
                     </TabsList>
                 </div>
 
                 <TabsContent value="workflow" className="space-y-6">
                     <div className="grid gap-6">
-                        <WorkflowSettings />
+                        <WorkflowSettingsTab />
                     </div>
                 </TabsContent>
 
@@ -55,6 +68,12 @@ export default function AdminSettings() {
                             </div>
                         </CardContent>
                     </Card>
+                </TabsContent>
+
+                <TabsContent value="vendors" className="space-y-6">
+                    <div className="grid gap-6">
+                        <VendorManagement />
+                    </div>
                 </TabsContent>
 
                 <TabsContent value="integrations">

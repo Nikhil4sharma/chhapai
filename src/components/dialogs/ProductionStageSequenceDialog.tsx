@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { PRODUCTION_STEPS } from '@/types/order';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
+import { useWorkflow } from '@/contexts/WorkflowContext';
 
 interface ProductionStageSequenceDialogProps {
   open: boolean;
@@ -33,46 +34,21 @@ export function ProductionStageSequenceDialog({
   currentSequence,
   onConfirm,
 }: ProductionStageSequenceDialogProps) {
-  const [availableStages, setAvailableStages] = useState<Array<{ key: string; label: string; order: number }>>(PRODUCTION_STEPS);
+  const { productionStages } = useWorkflow();
   const [selectedStages, setSelectedStages] = useState<string[]>(
-    currentSequence || PRODUCTION_STEPS.map(s => s.key)
+    currentSequence || (productionStages.length > 0 ? productionStages.map(s => s.key) : PRODUCTION_STEPS.map(s => s.key))
   );
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
-  // Load production stages from Settings (app_settings)
+  // Use effective available stages (prefer context, fallback to static)
+  const availableStages = productionStages.length > 0 ? productionStages : PRODUCTION_STEPS.map(s => ({ key: s.key, label: s.label, order: s.order }));
+
+  // Initialize selected stages if not provided
   useEffect(() => {
-    const loadProductionStages = async () => {
-      try {
-        const { data: settingsData, error: settingsError } = await supabase
-          .from('app_settings')
-          .select('setting_value')
-          .eq('setting_key', 'production_stages')
-          .maybeSingle();
-
-        if (settingsError && settingsError.code !== 'PGRST116') {
-          console.error('Error loading production stages:', settingsError);
-          return;
-        }
-
-        if (settingsData?.setting_value) {
-          const stages = settingsData.setting_value as Array<{ key: string; label: string; order: number }>;
-          if (Array.isArray(stages) && stages.length > 0) {
-            setAvailableStages(stages);
-            // If no current sequence, use all available stages
-            if (!currentSequence) {
-              setSelectedStages(stages.map(s => s.key));
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error loading production stages:', error);
-      }
-    };
-
-    if (open) {
-      loadProductionStages();
+    if (!currentSequence && selectedStages.length === 0 && availableStages.length > 0) {
+      setSelectedStages(availableStages.map(s => s.key));
     }
-  }, [open, currentSequence]);
+  }, [currentSequence, availableStages]);
 
   const handleToggleStage = (stageKey: string) => {
     setSelectedStages(prev => {
@@ -152,7 +128,7 @@ export function ProductionStageSequenceDialog({
                     checked={selectedStages.includes(stage.key)}
                     onCheckedChange={() => handleToggleStage(stage.key)}
                   />
-                  <Label 
+                  <Label
                     htmlFor={`stage-${stage.key}`}
                     className="text-sm cursor-pointer"
                   >
@@ -168,7 +144,7 @@ export function ProductionStageSequenceDialog({
             <Label className="text-xs font-medium text-muted-foreground">
               Production Sequence ({selectedStages.length} stages):
             </Label>
-            
+
             {selectedStages.length === 0 ? (
               <div className="text-sm text-muted-foreground p-4 bg-secondary/50 rounded-lg text-center">
                 Select at least one production stage
@@ -240,8 +216,8 @@ export function ProductionStageSequenceDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleConfirm} 
+          <Button
+            onClick={handleConfirm}
             disabled={selectedStages.length === 0}
             className="bg-green-600 hover:bg-green-700"
           >

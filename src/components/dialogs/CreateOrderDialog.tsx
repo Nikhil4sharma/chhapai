@@ -47,6 +47,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Loader2 } from 'lucide-react';
 import { autoLogWorkAction } from '@/utils/workLogHelper';
 import { Priority } from '@/types/order';
+import { PaperSelector } from '@/features/inventory/components/PaperSelector';
+import { reservePaperForJob } from '@/services/inventory';
 
 // Helper to compute priority based on days until delivery
 const computePriority = (deliveryDate: Date | null | undefined): Priority => {
@@ -74,6 +76,9 @@ interface ProductItem {
   id: string;
   name: string;
   quantity: number;
+  price?: number;
+  paperId?: string;
+  paperRequired?: number;
   specifications: Record<string, string>;
 }
 
@@ -124,6 +129,30 @@ export function CreateOrderDialog({
   // has already changed to order B, causing stale data to be imported
   const wooCommerceFetchOrderNumberRef = useRef<string | null>(null);
 
+  // Admin Selection State
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('sales');
+  const [selectedUser, setSelectedUser] = useState<string>('');
+  const [availableUsers, setAvailableUsers] = useState<any[]>([]);
+
+  // Fetch users for admin selection
+  useEffect(() => {
+    if (isAdmin && open) {
+      const fetchUsers = async () => {
+        const { data } = await supabase
+          .from('profiles')
+          .select('user_id, full_name, department');
+        if (data) setAvailableUsers(data);
+      };
+      fetchUsers();
+    }
+  }, [isAdmin, open]);
+
+  // Filter users by selected department
+  const departmentUsers = availableUsers.filter(u =>
+    u.department === selectedDepartment ||
+    (selectedDepartment === 'sales' && u.department === 'admin') // Admins can be in sales too? Optional logic
+  );
+
   const [customerData, setCustomerData] = useState({
     name: '',
     phone: '',
@@ -153,7 +182,7 @@ export function CreateOrderDialog({
       state: '',
       pincode: '',
     });
-    setProducts([{ id: generateId(), name: '', quantity: 1, specifications: {} }]);
+    setProducts([{ id: generateId(), name: '', quantity: 1, price: 0, specifications: {} }]);
     setDeliveryDate(undefined);
     setGlobalNotes('');
     setNewSpecKey('');
@@ -702,6 +731,11 @@ export function CreateOrderDialog({
   };
 
   const validateForm = (): string | null => {
+    if (isAdmin) {
+      if (!selectedDepartment) return "Department is required for Admins";
+      if (!selectedUser) return "Assigned User is required for Admins";
+    }
+
     if (!orderNumber.trim()) {
       return "Order number is required";
     }
@@ -794,8 +828,24 @@ export function CreateOrderDialog({
         ? wooOrderData.shipping_pincode
         : customerData.pincode;
 
+      // Determine Assignment
+      // Admin: Use selection
+      // Others: Default to Sales, User = null (or self?) -> Usually null means 'Open for team'
+      const finalDept = isAdmin ? selectedDepartment : 'sales';
+      const finalUser = isAdmin ? selectedUser : null;
+
+      // Determine Initial Status based on Department
+      let initialStatus = 'new_order'; // Default for sales
+      if (finalDept === 'design') initialStatus = 'design_in_progress';
+      else if (finalDept === 'prepress') initialStatus = 'proofread_in_progress';
+      else if (finalDept === 'production') initialStatus = 'in_production';
+      else if (finalDept === 'outsource') initialStatus = 'sent_to_vendor';
+
       // Calculate priority automatically based on delivery date
       const computedPriority = computePriority(deliveryDate);
+
+      // Calculate total for manual orders
+      const calculatedTotal = products.reduce((sum, p) => sum + ((Number(p.quantity) || 1) * (Number(p.price) || 0)), 0);
 
       // Create order
       const { data: orderData, error: orderError } = await supabase
@@ -819,12 +869,15 @@ export function CreateOrderDialog({
           priority: computedPriority, // Automatically calculated from delivery date
           source: orderSource,
           woo_order_id: wooOrderId,
-          order_total: isWooCommerceSource ? wooOrderData.order_total : null,
-          payment_status: isWooCommerceSource ? wooOrderData.payment_status : null,
-          order_status: isWooCommerceSource ? wooOrderData.payment_status : null,
+          order_total: isWooCommerceSource ? wooOrderData.order_total : calculatedTotal,
+          payment_status: isWooCommerceSource ? wooOrderData.payment_status : 'pending',
+          order_status: isWooCommerceSource ? wooOrderData.payment_status : 'processing',
           global_notes: globalNotes || null,
           created_by: user.id,
           is_completed: false,
+          // Assignment
+          current_department: finalDept,
+          assigned_user: finalUser
         })
         .select()
         .single();
@@ -848,6 +901,10 @@ export function CreateOrderDialog({
           ? wooOrderData.line_items[index]
           : null;
 
+        const lineTotal = isWooCommerceSource && wooLineItem
+          ? wooLineItem.total
+          : ((Number(product.quantity) || 1) * (Number(product.price) || 0));
+
         return {
           order_id: orderData.id,
           product_name: product.name.trim(),
@@ -858,13 +915,22 @@ export function CreateOrderDialog({
             : {},
           // Store WooCommerce meta data if available
           woo_meta: wooLineItem?.meta_data || null,
+          line_total: lineTotal,
           priority: computedPriority, // Automatically calculated from delivery date
-          current_stage: 'sales',
-          assigned_department: 'sales',
+
+          // New Workflow Fields (Correctly mapped)
+          department: finalDept,
+          status: initialStatus,
+
+          // Legacy Compatibility
+          current_stage: finalDept === 'sales' ? 'sales' : (finalDept === 'design' ? 'design' : (finalDept === 'prepress' ? 'prepress' : 'production')),
+          assigned_department: finalDept,
           delivery_date: deliveryDate?.toISOString() || null,
           need_design: false,
           is_ready_for_production: false,
           is_dispatched: false,
+          assigned_to: null,
+          current_substage: null,
         };
       });
 
@@ -877,8 +943,15 @@ export function CreateOrderDialog({
         quantity: Number(item.quantity) || 1,
         specifications: item.specifications || {},
         priority: computedPriority, // Automatically calculated from delivery date
+
+        // Map new fields + legacy fields
+        // department: item.department, // REMOVED: Not in DB schema
+        // status: item.status, // REMOVED: Not in DB schema
         current_stage: item.current_stage || 'sales',
-        assigned_department: item.assigned_department || 'sales',
+        assigned_department: item.assigned_department || 'sales', // Keep legacy for now
+        assigned_to: item.assigned_to,
+        current_substage: item.current_substage,
+
         delivery_date: item.delivery_date || null,
         need_design: item.need_design !== undefined ? item.need_design : false,
         is_ready_for_production: item.is_ready_for_production !== undefined ? item.is_ready_for_production : false,
@@ -910,6 +983,23 @@ export function CreateOrderDialog({
       }
 
       console.log('Successfully inserted order items:', insertedItems);
+
+      // RESERVING INVENTORY (Soft Fail)
+      try {
+        await Promise.all(products.map(async (p, idx) => {
+          if (p.paperId && p.paperRequired && p.paperRequired > 0) {
+            await reservePaperForJob(orderData.id, p.paperId, p.paperRequired, user?.id || '');
+            console.log(`Reserved inventory for product ${idx}: ${p.paperId}`);
+          }
+        }));
+      } catch (invError) {
+        console.error("Inventory Reservation Failed:", invError);
+        toast({
+          title: "Inventory Warning",
+          description: "Order created, but paper reservation failed. Please reserve manually.",
+          variant: "destructive"
+        });
+      }
 
       // Create timeline entry
       const timelineNotes = isWooCommerceSource
@@ -1420,6 +1510,53 @@ export function CreateOrderDialog({
               </div>
             </div>
 
+            {/* Admin Assignment Section */}
+            {isAdmin && (
+              <>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <User className="h-4 w-4" />
+                    Assignment (Admin Only)
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="after:content-['*'] after:ml-0.5 after:text-red-500">Assign Department</Label>
+                      <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select Department" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="sales">Sales</SelectItem>
+                          <SelectItem value="design">Design</SelectItem>
+                          <SelectItem value="prepress">Prepress</SelectItem>
+                          <SelectItem value="production">Production</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="after:content-['*'] after:ml-0.5 after:text-red-500">Assign User</Label>
+                      <Select value={selectedUser} onValueChange={setSelectedUser}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select User" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {departmentUsers.map(u => (
+                            <SelectItem key={u.user_id} value={u.user_id}>
+                              {u.full_name || 'Unknown'}
+                            </SelectItem>
+                          ))}
+                          {departmentUsers.length === 0 && (
+                            <SelectItem value="none" disabled>No users in this department</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+                <Separator />
+              </>
+            )}
+
             <Separator />
 
             {/* Order Settings */}
@@ -1511,7 +1648,7 @@ export function CreateOrderDialog({
                       </div>
                     </CardHeader>
                     <CardContent className="space-y-4 px-4 pb-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor={`product_name_${index}`}>Product Name *</Label>
                           <Input
@@ -1532,6 +1669,48 @@ export function CreateOrderDialog({
                             value={product.quantity}
                             onChange={(e) => updateProduct(index, 'quantity', parseInt(e.target.value) || 1)}
                           />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`product_price_${index}`}>Price (₹)</Label>
+                          <Input
+                            id={`product_price_${index}`}
+                            name={`product_price_${index}`}
+                            type="number"
+                            min="0"
+                            placeholder="0.00"
+                            value={product.price}
+                            onChange={(e) => updateProduct(index, 'price', parseFloat(e.target.value) || 0)}
+                          />
+                        </div>
+
+                        {/* Material Selection (Inventory) */}
+                        <div className="col-span-1 sm:col-span-3 space-y-2 border rounded-md p-3 bg-slate-50 dark:bg-slate-900/50">
+                          <Label className="text-xs font-semibold text-muted-foreground uppercase">Inventory Allocation</Label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-1">
+                              <Label htmlFor={`paper_${index}`} className="text-xs">Select Paper</Label>
+                              <PaperSelector
+                                value={product.paperId}
+                                requiredQty={product.paperRequired || 0}
+                                onSelect={(paper) => {
+                                  updateProduct(index, 'paperId', paper?.id);
+                                  // Optionally auto-set gsm spec
+                                }}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label htmlFor={`paper_qty_${index}`} className="text-xs">Est. Sheets Required</Label>
+                              <Input
+                                id={`paper_qty_${index}`}
+                                type="number"
+                                min="0"
+                                placeholder="Sheets"
+                                value={product.paperRequired || ''}
+                                onChange={(e) => updateProduct(index, 'paperRequired', parseInt(e.target.value) || 0)}
+                                disabled={!product.paperId}
+                              />
+                            </div>
+                          </div>
                         </div>
                       </div>
 
@@ -1693,6 +1872,6 @@ export function CreateOrderDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
+    </Dialog >
   );
 }

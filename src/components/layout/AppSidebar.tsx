@@ -19,6 +19,7 @@ import {
   Building2,
   Briefcase,
   ChevronDown,
+  Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -148,9 +149,21 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           roles: ['admin', 'sales', 'design', 'production', 'dispatch', 'super_admin']
         },
         {
+          label: 'Inventory',
+          path: '/inventory',
+          icon: Layers,
+          roles: ['admin', 'production', 'prepress', 'super_admin']
+        },
+        {
           label: 'Customers',
           path: '/customers',
           icon: Users,
+          roles: ['admin', 'sales', 'super_admin']
+        },
+        {
+          label: 'Sales',
+          path: '/sales',
+          icon: ShoppingCart,
           roles: ['admin', 'sales', 'super_admin']
         },
         {

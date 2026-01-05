@@ -77,20 +77,39 @@ export function DesignProcessDialog({
 
             setLoadingUsers(true);
             try {
-                // Fetch profiles with matching department
-                const { data: profiles, error } = await supabase
-                    .from('profiles')
-                    .select('user_id, full_name, department')
-                    .eq('department', selectedDept);
+                // Fetch profiles and roles in parallel
+                console.log('Fetching users parallel for:', selectedDept);
+                const [profilesResponse, rolesResponse] = await Promise.all([
+                    supabase.from('profiles').select('user_id, full_name, department'),
+                    supabase.from('user_roles').select('user_id, role').eq('role', selectedDept.toLowerCase())
+                ]);
 
-                if (error) throw error;
+                if (profilesResponse.error) {
+                    console.error("Profile fetch error", profilesResponse.error);
+                }
+                // Roles fetch might fail if RLS blocks it for non-admins, so we handle it gracefully
+                const rolesData = rolesResponse.data || [];
+                const roleUserIds = new Set(rolesData.map(r => r.user_id));
+                const profiles = profilesResponse.data || [];
 
-                if (profiles) {
-                    setUsers(profiles.map(p => ({
-                        id: p.user_id,
-                        name: p.full_name || 'Unknown',
-                        role: p.department
-                    })));
+                console.log('Profiles:', profiles.length, 'Roles found:', rolesData.length);
+
+                if (profiles.length > 0) {
+                    const filteredUsers = profiles
+                        .filter(p => {
+                            const hasRole = roleUserIds.has(p.user_id);
+                            // Relaxed matching for department string
+                            const matchesDept = p.department && p.department.trim().toLowerCase() === selectedDept.trim().toLowerCase();
+                            return hasRole || matchesDept;
+                        })
+                        .map(p => ({
+                            id: p.user_id,
+                            name: p.full_name || 'Unknown',
+                            role: p.department || (roleUserIds.has(p.user_id) ? selectedDept : '')
+                        }));
+
+                    console.log('Final filtered users:', filteredUsers);
+                    setUsers(filteredUsers);
                 } else {
                     setUsers([]);
                 }
@@ -100,6 +119,7 @@ export function DesignProcessDialog({
             } finally {
                 setLoadingUsers(false);
             }
+
         };
 
         if (selectedDept) {

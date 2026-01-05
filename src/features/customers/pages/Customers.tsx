@@ -171,19 +171,58 @@ export default function Customers() {
             </div>
 
             {/* Stats Cards - Refined */}
-            <div className="grid gap-6 md:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-4">
                 {[
-                    { title: "Avg. Order Value", value: `₹${avgOrderValue.toFixed(0)}`, icon: ShoppingBag, color: "text-purple-600", bg: "bg-purple-50", darkBg: "dark:bg-purple-900/20" },
-                    { title: "Total Revenue", value: `₹${totalRevenue.toLocaleString()}`, icon: IndianRupee, color: "text-emerald-600", bg: "bg-emerald-50", darkBg: "dark:bg-emerald-900/20" },
-                    { title: "Total Customers", value: customers.length, icon: Users, color: "text-blue-600", bg: "bg-blue-50", darkBg: "dark:bg-blue-900/20" }
+                    {
+                        title: "Total Revenue",
+                        value: `₹${totalRevenue.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`,
+                        icon: IndianRupee,
+                        color: "text-emerald-600",
+                        bg: "bg-emerald-50",
+                        darkBg: "dark:bg-emerald-900/20",
+                        onClick: () => setFilter('high-value'),
+                        active: filter === 'high-value'
+                    },
+                    {
+                        title: "Avg. Order Value",
+                        value: `₹${avgOrderValue.toFixed(0)}`,
+                        icon: ShoppingBag,
+                        color: "text-purple-600",
+                        bg: "bg-purple-50",
+                        darkBg: "dark:bg-purple-900/20",
+                        onClick: () => setSortBy('spent-high'),
+                        active: sortBy === 'spent-high'
+                    },
+                    {
+                        title: "All Customers",
+                        value: customers.length,
+                        icon: Users,
+                        color: "text-blue-600",
+                        bg: "bg-blue-50",
+                        darkBg: "dark:bg-blue-900/20",
+                        onClick: () => setFilter('all'),
+                        active: filter === 'all'
+                    },
+                    {
+                        title: "Repeat Rate",
+                        value: `${customers.length > 0 ? ((customers.filter(c => c.orders_count > 1).length / customers.length) * 100).toFixed(0) : 0}%`,
+                        icon: ArrowUpNarrowWide,
+                        color: "text-orange-600",
+                        bg: "bg-orange-50",
+                        darkBg: "dark:bg-orange-900/20",
+                        onClick: () => setFilter('repeat'),
+                        active: filter === 'repeat'
+                    }
                 ].map((stat, i) => (
-                    <Card key={i} className="border-none shadow-sm bg-white dark:bg-slate-900 ring-1 ring-slate-200/50 dark:ring-slate-800 transition-all hover:shadow-md">
+                    <Card key={i}
+                        onClick={stat.onClick}
+                        className={`border-none shadow-sm bg-white dark:bg-slate-900 ring-1 ring-slate-200/50 dark:ring-slate-800 transition-all hover:shadow-md cursor-pointer group ${stat.active ? 'ring-2 ring-blue-500 dark:ring-blue-500 bg-blue-50/50 dark:bg-blue-900/10' : ''}`}>
                         <CardContent className="p-6 flex items-center justify-between">
                             <div>
-                                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{stat.title}</p>
+                                <p className="text-sm font-medium text-slate-500 dark:text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{stat.title}</p>
                                 <h3 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-2 tracking-tight">{stat.value}</h3>
                             </div>
-                            <div className={`h-12 w-12 ${stat.bg} ${stat.darkBg} rounded-2xl flex items-center justify-center ${stat.color} ring-1 ring-inset ring-black/5`}>
+                            <div className={`h-12 w-12 ${stat.bg} ${stat.darkBg} rounded-2xl flex items-center justify-center ${stat.color} ring-1 ring-inset ring-black/5 group-hover:scale-110 transition-transform`}>
                                 <stat.icon className="h-6 w-6" />
                             </div>
                         </CardContent>

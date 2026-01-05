@@ -1,3 +1,5 @@
+import { Department, ProductStatus, SalesStatus, DesignStatus, PrepressStatus, ProductionStatus, OutsourceStatus } from './workflow';
+
 export type Priority = 'blue' | 'yellow' | 'red';
 
 export type Stage = 'sales' | 'design' | 'prepress' | 'production' | 'outsource' | 'dispatch' | 'completed';
@@ -39,15 +41,6 @@ export interface OrderFinancials {
 export interface OrderFile {
   file_id: string;
   url: string;
-  type: 'proof' | 'final' | 'image' | 'other';
-  uploaded_by: string;
-  uploaded_at: Date;
-  is_public?: boolean;
-}
-
-export interface OrderFile {
-  file_id: string;
-  url: string;
   file_name?: string;
   type: 'proof' | 'final' | 'image' | 'other';
   uploaded_by: string;
@@ -84,8 +77,17 @@ export interface OrderItem {
     display_value: string;
   }>;
   need_design: boolean;
+
+  // Legacy Fields (Migration to 'department' and 'status' in progress)
   current_stage: Stage;
   current_substage: SubStage;
+
+  // New Workflow Fields
+  department: Department;
+  status: ProductStatus;
+  previous_department?: Department;
+  previous_status?: ProductStatus;
+
   assigned_to?: string;
   assigned_to_name?: string | null;
   assigned_department: UserRole;

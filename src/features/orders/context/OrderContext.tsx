@@ -17,6 +17,7 @@ import {
   addActivityLog,
   subscribeToOrdersChanges,
   subscribeToOrderItemsChanges,
+  updateItemSpecifications,
 } from '@/features/orders/services/supabaseOrdersService';
 import { autoLogWorkAction } from '@/utils/workLogHelper';
 import { uploadOrderFile, deleteFileFromSupabase } from '@/services/supabaseStorage';
@@ -985,17 +986,17 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
     // CRITICAL: If neither role nor profile department matches, return empty array
     // BUT: Also check if user has no role/profile set - in that case, allow access if they're requesting their own department
-    if (!roleMatches && !profileMatches) {
+    if (!roleMatches && !profileMatches && !isAdmin) { // Admin can access everything
       // Special case: If user has no role/profile set, but they're requesting a department that matches their current context
       // This handles edge cases where user data might be incomplete
       if (!role && !profile?.department) {
-        if (!isAdmin && !isSalesRole) {
+        if (!isSalesRole) { // Sales might not havedept set but has role
           console.warn(`[getOrdersForDepartment] User has no role or profile department set. Denying access to ${department}`);
         }
         return [];
       }
       // Only log warning for non-admin/sales users
-      if (!isAdmin && !isSalesRole) {
+      if (!isSalesRole) {
         console.warn(`[getOrdersForDepartment] User role (${role}) and profile department (${profile?.department}) do not match requested department (${department})`);
       }
       return []; // Return empty array if neither role nor profile department matches
@@ -2358,11 +2359,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
   const updateItemSpecifications = useCallback(async (orderId: string, itemId: string, updates: Record<string, any>) => {
     try {
-      // Assuming supabaseService is available in this scope, or it should be imported/defined.
-      // If not, the direct supabase call would be:
-      // await supabase.from('order_items').update(updates).eq('id', itemId);
-      // For now, I'll assume supabaseService.updateItemSpecifications exists as per the instruction.
-      await supabaseService.updateItemSpecifications(orderId, itemId, updates);
+      // Use the imported service function
+      await updateItemSpecifications(orderId, itemId, updates);
       await refreshOrders();
 
       toast({

@@ -2,12 +2,12 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { UpdateDeliveryDateDialog } from '@/components/dialogs/UpdateDeliveryDateDialog';
-import { 
-  ArrowLeft, 
-  Phone, 
-  Mail, 
-  MapPin, 
-  Calendar, 
+import {
+  ArrowLeft,
+  Phone,
+  Mail,
+  MapPin,
+  Calendar,
   Package,
   Upload,
   Edit,
@@ -45,6 +45,7 @@ import { FileHistory } from '@/features/orders/components/FileHistory';
 import { ProductSpecifications } from '@/features/orders/components/ProductSpecifications';
 import { ShippingDetails } from '@/features/orders/components/ShippingDetails';
 import { OrderFinancials } from '@/features/orders/components/OrderFinancials';
+import { JobMaterialsCard } from '@/features/orders/components/JobMaterialsCard';
 import {
   Tooltip,
   TooltipContent,
@@ -108,18 +109,18 @@ import { fetchTimelineEntries, fetchActivityLogs } from '@/features/orders/servi
 export default function OrderDetail() {
   const { orderId } = useParams();
   const navigate = useNavigate();
-  const { 
-    getOrderById, 
-    getTimelineForOrder, 
-    uploadFile, 
+  const {
+    getOrderById,
+    getTimelineForOrder,
+    uploadFile,
     assignToDepartment,
     assignToOutsource,
     assignToUser,
-    addNote, 
-    updateOrder, 
-    updateItemStage, 
-    completeSubstage, 
-    sendToProduction, 
+    addNote,
+    updateOrder,
+    updateItemStage,
+    completeSubstage,
+    sendToProduction,
     markAsDispatched,
     deleteOrder,
     updateItemDeliveryDate,
@@ -135,7 +136,7 @@ export default function OrderDetail() {
   const { isAdmin, role, user, profile, isLoading: authLoading } = useAuth();
   const { canViewFinancials } = useFinancialAccess();
   const { getWorkNotesByOrder, addWorkNote, getWorkLogsByOrder } = useWorkLogs();
-  
+
   // CRITICAL: Wait for auth to be ready before rendering
   if (authLoading) {
     return (
@@ -144,36 +145,36 @@ export default function OrderDetail() {
       </div>
     );
   }
-  
+
   // Local state for real-time updates (merged with context data)
   const [localOrder, setLocalOrder] = useState<Order | null>(null);
   const [localTimeline, setLocalTimeline] = useState<TimelineEntry[]>([]);
   const timelineFetchedRef = useRef(false);
-  
+
   // Get order from context (fallback)
   const contextOrder = getOrderById(orderId || '');
   const contextTimelineEntries = orderId ? getTimelineForOrder(orderId) : [];
-  
+
   // Use local state if available, otherwise use context
   const order = localOrder || contextOrder;
   const timelineEntries = localTimeline.length > 0 ? localTimeline : contextTimelineEntries;
-  
+
   const workNotes = orderId ? getWorkNotesByOrder(orderId) : [];
   const workLogsForOrder = orderId ? getWorkLogsByOrder(orderId) : [];
-  
+
   // Fetch timeline immediately on mount (only once)
   useEffect(() => {
     if (!orderId || timelineFetchedRef.current) return;
-    
+
     const fetchTimeline = async () => {
       try {
         timelineFetchedRef.current = true;
         console.log('[OrderDetail] Fetching timeline immediately for order:', orderId);
-        
+
         // Fetch timeline entries (already returns TimelineEntry[])
         const timelineData = await fetchTimelineEntries(orderId);
         const activityLogs = await fetchActivityLogs(orderId);
-        
+
         // Transform activity logs to TimelineEntry format
         const mappedActivityLogs: TimelineEntry[] = (activityLogs || []).map(log => ({
           timeline_id: log.id,
@@ -188,36 +189,36 @@ export default function OrderDetail() {
           is_public: true,
           created_at: new Date(log.created_at),
         }));
-        
+
         // Combine and sort
         const combinedTimeline: TimelineEntry[] = [
           ...(timelineData || []),
           ...mappedActivityLogs,
-        ].sort((a, b) => 
+        ].sort((a, b) =>
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
-        
+
         setLocalTimeline(combinedTimeline);
         console.log('[OrderDetail] Timeline fetched:', combinedTimeline.length, 'entries');
       } catch (error) {
         console.error('[OrderDetail] Error fetching timeline:', error);
       }
     };
-    
+
     fetchTimeline();
   }, [orderId]);
-  
+
   // Initialize local order state from context
   useEffect(() => {
     if (contextOrder && !localOrder) {
       setLocalOrder(contextOrder);
     }
   }, [contextOrder, localOrder]);
-  
+
   // Merge timeline entries with work logs for comprehensive timeline view
   const timeline = useMemo(() => {
     const combined: TimelineEntry[] = [...timelineEntries];
-    
+
     // Convert work logs to timeline entries
     workLogsForOrder.forEach(log => {
       combined.push({
@@ -233,13 +234,13 @@ export default function OrderDetail() {
         created_at: log.created_at,
       });
     });
-    
+
     // Sort by created_at descending (newest first)
-    return combined.sort((a, b) => 
+    return combined.sort((a, b) =>
       new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
     );
   }, [timelineEntries, workLogsForOrder]);
-  
+
   // Real-time subscriptions (use order.id UUID, not order_id string)
   const realtime = useOrderDetailRealtime({
     orderId: order?.id || '',
@@ -327,7 +328,7 @@ export default function OrderDetail() {
         try {
           const timelineData = await fetchTimelineEntries(orderId);
           const activityLogs = await fetchActivityLogs(orderId);
-          
+
           const mappedActivityLogs: TimelineEntry[] = (activityLogs || []).map(log => ({
             timeline_id: log.id,
             order_id: log.order_id,
@@ -341,14 +342,14 @@ export default function OrderDetail() {
             is_public: true,
             created_at: new Date(log.created_at),
           }));
-          
+
           const combinedTimeline: TimelineEntry[] = [
             ...(timelineData || []),
             ...mappedActivityLogs,
-          ].sort((a, b) => 
+          ].sort((a, b) =>
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
           );
-          
+
           setLocalTimeline(combinedTimeline);
         } catch (error) {
           console.error('[OrderDetail] Error refreshing timeline:', error);
@@ -382,7 +383,7 @@ export default function OrderDetail() {
   const [qcDialogOpen, setQcDialogOpen] = useState(false);
   const [postQCDialogOpen, setPostQCDialogOpen] = useState(false);
   const [selectedItemForOutsourceAction, setSelectedItemForOutsourceAction] = useState<{ itemId: string; productName: string } | null>(null);
-  
+
   // Collapsible states - Important sections open by default for quick access
   const [itemsOpen, setItemsOpen] = useState(true);
   const [timelineOpen, setTimelineOpen] = useState(true); // Open by default
@@ -402,7 +403,7 @@ export default function OrderDetail() {
   const canEditItem = useCallback((item: OrderItem): boolean => {
     if (isAdmin) return true;
     if (role === 'sales') return true; // Sales can edit all
-    
+
     // User can only edit if item is in their department's stage
     const stageToDept: Record<Stage, string> = {
       sales: 'sales',
@@ -413,7 +414,7 @@ export default function OrderDetail() {
       completed: 'production',
       outsource: 'production', // Outsource is handled by production department
     };
-    
+
     const itemDept = stageToDept[item.current_stage];
     return itemDept === role || item.assigned_department === role;
   }, [isAdmin, role]);
@@ -424,7 +425,7 @@ export default function OrderDetail() {
   useEffect(() => {
     if (!order || !order.items) return;
     if (Object.keys(expandedProducts).length > 0) return;
-    
+
     // Get filtered items (same logic as filteredItems useMemo)
     let itemsToUse = order.items;
     if (!isAdmin && role !== 'sales' && role) {
@@ -435,7 +436,7 @@ export default function OrderDetail() {
         return itemDept === userDepartment || itemStage === userDepartment;
       });
     }
-    
+
     if (itemsToUse.length > 0) {
       setExpandedProducts({ [itemsToUse[0].item_id]: true });
     }
@@ -445,12 +446,12 @@ export default function OrderDetail() {
   // Admin and Sales can see all items, department users see only their assigned items
   const filteredItems = useMemo(() => {
     if (!order || !order.items) return [];
-    
+
     // Admin and Sales can see all items
     if (isAdmin || role === 'sales') {
       return order.items;
     }
-    
+
     // For department users, filter items assigned to their department
     if (role) {
       const userDepartment = role.toLowerCase().trim();
@@ -461,7 +462,7 @@ export default function OrderDetail() {
         return itemDept === userDepartment || itemStage === userDepartment;
       });
     }
-    
+
     // Fallback: show all items if no role
     return order.items;
   }, [order, isAdmin, role]);
@@ -641,31 +642,29 @@ export default function OrderDetail() {
                   <Badge className="bg-green-500 text-xs">Completed</Badge>
                 )}
               </div>
-              
+
               {/* Delivery Date - Color Coded */}
               <div className="flex items-center gap-3 flex-wrap">
                 <div className="flex items-center gap-2">
-                  <Calendar className={`h-4 w-4 ${
-                    order.priority_computed === 'red' ? 'text-red-500' :
+                  <Calendar className={`h-4 w-4 ${order.priority_computed === 'red' ? 'text-red-500' :
                     order.priority_computed === 'yellow' ? 'text-yellow-500' :
-                    'text-blue-500'
-                  }`} />
-                  <span className={`text-sm font-medium ${
-                    order.priority_computed === 'red' ? 'text-red-600 dark:text-red-400' :
+                      'text-blue-500'
+                    }`} />
+                  <span className={`text-sm font-medium ${order.priority_computed === 'red' ? 'text-red-600 dark:text-red-400' :
                     order.priority_computed === 'yellow' ? 'text-yellow-600 dark:text-yellow-400' :
-                    'text-blue-600 dark:text-blue-400'
-                  }`}>
+                      'text-blue-600 dark:text-blue-400'
+                    }`}>
                     Delivery: {deliveryDate ? format(deliveryDate, 'MMM d, yyyy') : 'Not set'}
                   </span>
                 </div>
-                
+
                 {/* Current Stage */}
                 {mainItem && (
                   <div className="flex items-center gap-2">
                     <StageBadge stage={mainItem.current_stage} />
                   </div>
                 )}
-                
+
                 {/* Assigned To */}
                 {mainItem?.assigned_to_name && (
                   <div className="flex items-center gap-2 text-sm">
@@ -675,7 +674,7 @@ export default function OrderDetail() {
                 )}
               </div>
             </div>
-            
+
             <div className="flex gap-2 flex-shrink-0">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -686,7 +685,7 @@ export default function OrderDetail() {
                 </TooltipTrigger>
                 <TooltipContent>Edit order details</TooltipContent>
               </Tooltip>
-              
+
               <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -708,7 +707,7 @@ export default function OrderDetail() {
                   {canDelete && (
                     <>
                       <DropdownMenuSeparator />
-                      <DropdownMenuItem 
+                      <DropdownMenuItem
                         className="text-destructive"
                         onClick={() => setDeleteDialogOpen(true)}
                       >
@@ -770,12 +769,15 @@ export default function OrderDetail() {
         <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Main content - Products Section */}
           <div className="lg:col-span-2 flex flex-col gap-4 min-h-0">
+            {/* Inventory Allocation Card */}
+            <JobMaterialsCard orderId={orderId!} />
+
             {/* Items - Scrollable Container */}
             <Card className="flex-1 flex flex-col min-h-0">
               <Collapsible open={itemsOpen} onOpenChange={setItemsOpen}>
                 <CardHeader className="flex-shrink-0 pb-3">
                   <CollapsibleTrigger asChild>
-                    <div 
+                    <div
                       className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors"
                     >
                       <CardTitle className="text-lg font-display flex items-center gap-2">
@@ -791,590 +793,590 @@ export default function OrderDetail() {
                     {hasItems ? (
                       filteredItems.map((item, index) => {
                         const deliveryDateFormatted = format(item.delivery_date, 'd MMMM yyyy');
-                      const priorityColor = item.priority_computed === 'red' 
-                        ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'
-                        : item.priority_computed === 'yellow'
-                        ? 'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800'
-                        : 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800';
-                      
-                      const itemExpanded = expandedItems[item.item_id] || {
-                        details: false,
-                        specifications: false,
-                        files: false,
-                      };
-                      
-                      const toggleItemSection = (section: 'details' | 'specifications' | 'files') => {
-                        setExpandedItems(prev => ({
-                          ...prev,
-                          [item.item_id]: {
-                            ...prev[item.item_id],
-                            [section]: !prev[item.item_id]?.[section],
-                          }
-                        }));
-                      };
+                        const priorityColor = item.priority_computed === 'red'
+                          ? 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/20 dark:text-red-400 dark:border-red-800'
+                          : item.priority_computed === 'yellow'
+                            ? 'bg-yellow-100 text-yellow-700 border-yellow-300 dark:bg-yellow-900/20 dark:text-yellow-400 dark:border-yellow-800'
+                            : 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800';
 
-                      const isProductExpanded = expandedProducts[item.item_id] ?? (index === 0); // First product open by default
-                      const toggleProduct = () => {
-                        setExpandedProducts(prev => ({
-                          ...prev,
-                          [item.item_id]: !prev[item.item_id],
-                        }));
-                      };
-                      
-                      return (
-                      <Collapsible 
-                        key={item.item_id} 
-                        open={isProductExpanded} 
-                        onOpenChange={toggleProduct}
-                        className={`bg-card border-2 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 ${index > 0 ? 'mt-4 sm:mt-6' : ''}`}
-                      >
-                        {/* Product Header - Always Visible & Clickable */}
-                        <CollapsibleTrigger asChild>
-                          <div className="flex items-center justify-between p-4 sm:p-5 lg:p-6 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-xl">
-                            <div className="flex flex-col gap-3 sm:gap-4 flex-1 min-w-0">
-                              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2 flex-wrap">
-                                    <h4 className="font-bold text-lg sm:text-xl text-foreground break-words">{item.product_name}</h4>
-                                    <Badge 
-                                      className={`${priorityColor} border font-medium text-xs px-2.5 py-0.5 w-fit`}
-                                    >
-                                      {deliveryDateFormatted}
-                                    </Badge>
-                                  </div>
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <PriorityBadge priority={item.priority_computed} />
-                                    <StageBadge stage={item.current_stage} />
-                                    {item.current_substage && (
-                                      <Badge variant="outline" className="capitalize text-xs">
-                                        {item.current_substage}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className="text-left sm:text-right">
-                                  <p className="text-xs text-muted-foreground mb-1">Order Number</p>
-                                  <p className="font-bold text-primary text-sm sm:text-base">{order.order_id}</p>
-                                </div>
-                              </div>
+                        const itemExpanded = expandedItems[item.item_id] || {
+                          details: false,
+                          specifications: false,
+                          files: false,
+                        };
 
-                              {/* Assigned user */}
-                              {item.assigned_to_name && (
-                                <div className="flex items-center gap-2 text-sm text-primary bg-primary/5 px-3 py-2 rounded-md border border-primary/10">
-                                  <UserCircle className="h-4 w-4" />
-                                  <span>Assigned to: <strong>{item.assigned_to_name}</strong></span>
-                                </div>
-                              )}
+                        const toggleItemSection = (section: 'details' | 'specifications' | 'files') => {
+                          setExpandedItems(prev => ({
+                            ...prev,
+                            [item.item_id]: {
+                              ...prev[item.item_id],
+                              [section]: !prev[item.item_id]?.[section],
+                            }
+                          }));
+                        };
 
-                              {/* Tracking Details - Show if dispatched */}
-                              {item.is_dispatched && item.dispatch_info && (
-                                <div className="border border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-800 rounded-lg p-4 space-y-3">
-                                  <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
-                                    <Truck className="h-5 w-5" />
-                                    <h5 className="font-semibold text-base">Tracking Details</h5>
-                                  </div>
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                                    <div>
-                                      <p className="text-xs text-muted-foreground mb-1">Courier Company</p>
-                                      <p className="font-medium">{item.dispatch_info.courier_company}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-xs text-muted-foreground mb-1">Tracking / AWB Number</p>
-                                      <p className="font-medium font-mono">{item.dispatch_info.tracking_number}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-xs text-muted-foreground mb-1">Dispatch Date</p>
-                                      <p className="font-medium">{format(new Date(item.dispatch_info.dispatch_date), 'MMM d, yyyy')}</p>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex-shrink-0 ml-2">
-                              {isProductExpanded ? (
-                                <ChevronUp className="h-5 w-5 text-muted-foreground" />
-                              ) : (
-                                <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                              )}
-                            </div>
-                          </div>
-                        </CollapsibleTrigger>
+                        const isProductExpanded = expandedProducts[item.item_id] ?? (index === 0); // First product open by default
+                        const toggleProduct = () => {
+                          setExpandedProducts(prev => ({
+                            ...prev,
+                            [item.item_id]: !prev[item.item_id],
+                          }));
+                        };
 
-                        {/* Product Content - Collapsible */}
-                        <CollapsibleContent>
-                          <div className="px-4 sm:px-5 lg:px-6 pb-4 sm:pb-5 lg:pb-6 pt-0">
-                            <div className="flex flex-col gap-4 sm:gap-5">
-                              {/* Product Details - Collapsible */}
-                              <Collapsible open={itemExpanded.details} onOpenChange={() => toggleItemSection('details')}>
+                        return (
+                          <Collapsible
+                            key={item.item_id}
+                            open={isProductExpanded}
+                            onOpenChange={toggleProduct}
+                            className={`bg-card border-2 rounded-xl shadow-sm hover:shadow-md transition-all duration-200 ${index > 0 ? 'mt-4 sm:mt-6' : ''}`}
+                          >
+                            {/* Product Header - Always Visible & Clickable */}
                             <CollapsibleTrigger asChild>
-                              <div className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-lg p-3 -mx-1 transition-colors">
-                                <div className="flex items-center gap-2">
-                                  <Package className="h-4 w-4 text-muted-foreground" />
-                                  <h5 className="font-semibold text-sm sm:text-base">Product Details</h5>
+                              <div className="flex items-center justify-between p-4 sm:p-5 lg:p-6 cursor-pointer hover:bg-muted/30 transition-colors rounded-t-xl">
+                                <div className="flex flex-col gap-3 sm:gap-4 flex-1 min-w-0">
+                                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2 flex-wrap">
+                                        <h4 className="font-bold text-lg sm:text-xl text-foreground break-words">{item.product_name}</h4>
+                                        <Badge
+                                          className={`${priorityColor} border font-medium text-xs px-2.5 py-0.5 w-fit`}
+                                        >
+                                          {deliveryDateFormatted}
+                                        </Badge>
+                                      </div>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <PriorityBadge priority={item.priority_computed} />
+                                        <StageBadge stage={item.current_stage} />
+                                        {item.current_substage && (
+                                          <Badge variant="outline" className="capitalize text-xs">
+                                            {item.current_substage}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="text-left sm:text-right">
+                                      <p className="text-xs text-muted-foreground mb-1">Order Number</p>
+                                      <p className="font-bold text-primary text-sm sm:text-base">{order.order_id}</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Assigned user */}
+                                  {item.assigned_to_name && (
+                                    <div className="flex items-center gap-2 text-sm text-primary bg-primary/5 px-3 py-2 rounded-md border border-primary/10">
+                                      <UserCircle className="h-4 w-4" />
+                                      <span>Assigned to: <strong>{item.assigned_to_name}</strong></span>
+                                    </div>
+                                  )}
+
+                                  {/* Tracking Details - Show if dispatched */}
+                                  {item.is_dispatched && item.dispatch_info && (
+                                    <div className="border border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-800 rounded-lg p-4 space-y-3">
+                                      <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
+                                        <Truck className="h-5 w-5" />
+                                        <h5 className="font-semibold text-base">Tracking Details</h5>
+                                      </div>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                                        <div>
+                                          <p className="text-xs text-muted-foreground mb-1">Courier Company</p>
+                                          <p className="font-medium">{item.dispatch_info.courier_company}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground mb-1">Tracking / AWB Number</p>
+                                          <p className="font-medium font-mono">{item.dispatch_info.tracking_number}</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground mb-1">Dispatch Date</p>
+                                          <p className="font-medium">{format(new Date(item.dispatch_info.dispatch_date), 'MMM d, yyyy')}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
-                                {itemExpanded.details ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                                <div className="flex-shrink-0 ml-2">
+                                  {isProductExpanded ? (
+                                    <ChevronUp className="h-5 w-5 text-muted-foreground" />
+                                  ) : (
+                                    <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                                  )}
+                                </div>
                               </div>
                             </CollapsibleTrigger>
+
+                            {/* Product Content - Collapsible */}
                             <CollapsibleContent>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg mt-2">
-                                <div>
-                                  <p className="text-xs text-muted-foreground mb-1">Product Name</p>
-                                  <p className="font-semibold text-sm sm:text-base">{item.product_name}</p>
-                                </div>
-                                <div>
-                                  <p className="text-xs text-muted-foreground mb-1">Quantity</p>
-                                  <p className="font-semibold text-sm sm:text-base">{item.quantity}</p>
-                                </div>
-                                {/* Financial data only for admin/sales */}
-                                {canViewFinancials && item.line_total && (
-                                  <div className="sm:col-span-2">
-                                    <p className="text-xs text-muted-foreground mb-1">Line Total</p>
-                                    <div className="flex items-baseline gap-2 flex-wrap">
-                                      <p className="font-semibold text-base sm:text-lg">₹{item.line_total.toFixed(2)}</p>
-                                      <p className="text-xs text-muted-foreground">
-                                        ({item.quantity} × ₹{(item.line_total / item.quantity).toFixed(2)})
-                                      </p>
-                                    </div>
-                                  </div>
-                                )}
-                                <div className="flex items-center justify-between sm:col-span-2">
-                                  <div>
-                                    <p className="text-xs text-muted-foreground mb-1">Delivery Date</p>
-                                    <div className="flex items-center gap-1.5">
-                                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
-                                      <p className="font-semibold text-sm sm:text-base">{format(item.delivery_date, 'MMM d, yyyy')}</p>
-                                    </div>
-                                  </div>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="h-8 w-8 p-0"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setSelectedItemForDeliveryDate({
-                                            itemId: item.item_id,
-                                            productName: item.product_name,
-                                            currentDate: item.delivery_date,
-                                          });
-                                          setDeliveryDateDialogOpen(true);
-                                        }}
-                                      >
-                                        <Edit className="h-4 w-4" />
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Update delivery date</TooltipContent>
-                                  </Tooltip>
-                                </div>
-                              </div>
-                            </CollapsibleContent>
-                          </Collapsible>
-
-                              {/* Outsource Information */}
-                              {item.current_stage === 'outsource' && item.outsource_info && (
-                                <div className="border-t pt-4 space-y-4">
-                                  <div className="bg-stage-outsource/5 border border-stage-outsource/20 rounded-lg p-4 space-y-4">
-                                <div className="flex items-center justify-between">
-                                  <h5 className="font-semibold text-foreground flex items-center gap-2">
-                                    <Building2 className="h-4 w-4" />
-                                    Outsource Details
-                                  </h5>
-                                  <Badge variant={`stage-${item.current_stage}` as any}>
-                                    {OUTSOURCE_STAGE_LABELS[item.outsource_info.current_outsource_stage]}
-                                  </Badge>
-                                </div>
-
-                                {/* Vendor Card */}
-                                <div className="bg-background rounded-lg p-3 border border-border">
-                                  <p className="text-xs text-muted-foreground mb-2">Vendor Information</p>
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                                    <div>
-                                      <p className="font-medium">{item.outsource_info.vendor.vendor_name}</p>
-                                      {item.outsource_info.vendor.vendor_company && (
-                                        <p className="text-xs text-muted-foreground">{item.outsource_info.vendor.vendor_company}</p>
-                                      )}
-                                    </div>
-                                    <div className="space-y-1">
-                                      {item.outsource_info.vendor.contact_person && (
-                                        <div className="flex items-center gap-1.5 text-xs">
-                                          <UserCircle className="h-3 w-3" />
-                                          <span>{item.outsource_info.vendor.contact_person}</span>
+                              <div className="px-4 sm:px-5 lg:px-6 pb-4 sm:pb-5 lg:pb-6 pt-0">
+                                <div className="flex flex-col gap-4 sm:gap-5">
+                                  {/* Product Details - Collapsible */}
+                                  <Collapsible open={itemExpanded.details} onOpenChange={() => toggleItemSection('details')}>
+                                    <CollapsibleTrigger asChild>
+                                      <div className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-lg p-3 -mx-1 transition-colors">
+                                        <div className="flex items-center gap-2">
+                                          <Package className="h-4 w-4 text-muted-foreground" />
+                                          <h5 className="font-semibold text-sm sm:text-base">Product Details</h5>
                                         </div>
-                                      )}
-                                      <div className="flex items-center gap-1.5 text-xs">
-                                        <Phone className="h-3 w-3" />
-                                        <span>{item.outsource_info.vendor.phone}</span>
+                                        {itemExpanded.details ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                                       </div>
-                                      {item.outsource_info.vendor.email && (
-                                        <div className="flex items-center gap-1.5 text-xs">
-                                          <Mail className="h-3 w-3" />
-                                          <span>{item.outsource_info.vendor.email}</span>
+                                    </CollapsibleTrigger>
+                                    <CollapsibleContent>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-muted/30 rounded-lg mt-2">
+                                        <div>
+                                          <p className="text-xs text-muted-foreground mb-1">Product Name</p>
+                                          <p className="font-semibold text-sm sm:text-base">{item.product_name}</p>
                                         </div>
-                                      )}
-                                      {item.outsource_info.vendor.city && (
-                                        <div className="flex items-center gap-1.5 text-xs">
-                                          <MapPin className="h-3 w-3" />
-                                          <span>{item.outsource_info.vendor.city}</span>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground mb-1">Quantity</p>
+                                          <p className="font-semibold text-sm sm:text-base">{item.quantity}</p>
                                         </div>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Job Details */}
-                                <div className="bg-background rounded-lg p-3 border border-border">
-                                  <p className="text-xs text-muted-foreground mb-2">Job Details</p>
-                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                                    <div>
-                                      <p className="text-xs text-muted-foreground">Work Type</p>
-                                      <p className="font-medium">{item.outsource_info.job_details.work_type}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-xs text-muted-foreground">Expected Ready</p>
-                                      <p className="font-medium">{format(item.outsource_info.job_details.expected_ready_date, 'MMM d, yyyy')}</p>
-                                    </div>
-                                    <div>
-                                      <p className="text-xs text-muted-foreground">Quantity Sent</p>
-                                      <p className="font-medium">{item.outsource_info.job_details.quantity_sent}</p>
-                                    </div>
-                                    {item.outsource_info.job_details.special_instructions && (
-                                      <div className="sm:col-span-2">
-                                        <p className="text-xs text-muted-foreground">Special Instructions</p>
-                                        <p className="text-sm">{item.outsource_info.job_details.special_instructions}</p>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Follow-Up Notes */}
-                                {item.outsource_info.follow_up_notes && item.outsource_info.follow_up_notes.length > 0 && (
-                                  <div className="bg-background rounded-lg p-3 border border-border">
-                                    <p className="text-xs text-muted-foreground mb-2">Follow-Up Notes</p>
-                                    <div className="space-y-2 max-h-40 overflow-y-auto">
-                                      {item.outsource_info.follow_up_notes.map((note) => (
-                                        <div key={note.note_id} className="text-xs p-2 bg-secondary/50 rounded">
-                                          <div className="flex items-center justify-between mb-1">
-                                            <span className="font-medium">{note.created_by_name}</span>
-                                            <span className="text-muted-foreground">{format(note.created_at, 'MMM d, h:mm a')}</span>
+                                        {/* Financial data only for admin/sales */}
+                                        {canViewFinancials && item.line_total && (
+                                          <div className="sm:col-span-2">
+                                            <p className="text-xs text-muted-foreground mb-1">Line Total</p>
+                                            <div className="flex items-baseline gap-2 flex-wrap">
+                                              <p className="font-semibold text-base sm:text-lg">₹{item.line_total.toFixed(2)}</p>
+                                              <p className="text-xs text-muted-foreground">
+                                                ({item.quantity} × ₹{(item.line_total / item.quantity).toFixed(2)})
+                                              </p>
+                                            </div>
                                           </div>
-                                          <p className="text-foreground">{note.note}</p>
+                                        )}
+                                        <div className="flex items-center justify-between sm:col-span-2">
+                                          <div>
+                                            <p className="text-xs text-muted-foreground mb-1">Delivery Date</p>
+                                            <div className="flex items-center gap-1.5">
+                                              <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                                              <p className="font-semibold text-sm sm:text-base">{format(item.delivery_date, 'MMM d, yyyy')}</p>
+                                            </div>
+                                          </div>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-8 w-8 p-0"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setSelectedItemForDeliveryDate({
+                                                    itemId: item.item_id,
+                                                    productName: item.product_name,
+                                                    currentDate: item.delivery_date,
+                                                  });
+                                                  setDeliveryDateDialogOpen(true);
+                                                }}
+                                              >
+                                                <Edit className="h-4 w-4" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Update delivery date</TooltipContent>
+                                          </Tooltip>
                                         </div>
-                                      ))}
+                                      </div>
+                                    </CollapsibleContent>
+                                  </Collapsible>
+
+                                  {/* Outsource Information */}
+                                  {item.current_stage === 'outsource' && item.outsource_info && (
+                                    <div className="border-t pt-4 space-y-4">
+                                      <div className="bg-stage-outsource/5 border border-stage-outsource/20 rounded-lg p-4 space-y-4">
+                                        <div className="flex items-center justify-between">
+                                          <h5 className="font-semibold text-foreground flex items-center gap-2">
+                                            <Building2 className="h-4 w-4" />
+                                            Outsource Details
+                                          </h5>
+                                          <Badge variant={`stage-${item.current_stage}` as any}>
+                                            {OUTSOURCE_STAGE_LABELS[item.outsource_info.current_outsource_stage]}
+                                          </Badge>
+                                        </div>
+
+                                        {/* Vendor Card */}
+                                        <div className="bg-background rounded-lg p-3 border border-border">
+                                          <p className="text-xs text-muted-foreground mb-2">Vendor Information</p>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                                            <div>
+                                              <p className="font-medium">{item.outsource_info.vendor.vendor_name}</p>
+                                              {item.outsource_info.vendor.vendor_company && (
+                                                <p className="text-xs text-muted-foreground">{item.outsource_info.vendor.vendor_company}</p>
+                                              )}
+                                            </div>
+                                            <div className="space-y-1">
+                                              {item.outsource_info.vendor.contact_person && (
+                                                <div className="flex items-center gap-1.5 text-xs">
+                                                  <UserCircle className="h-3 w-3" />
+                                                  <span>{item.outsource_info.vendor.contact_person}</span>
+                                                </div>
+                                              )}
+                                              <div className="flex items-center gap-1.5 text-xs">
+                                                <Phone className="h-3 w-3" />
+                                                <span>{item.outsource_info.vendor.phone}</span>
+                                              </div>
+                                              {item.outsource_info.vendor.email && (
+                                                <div className="flex items-center gap-1.5 text-xs">
+                                                  <Mail className="h-3 w-3" />
+                                                  <span>{item.outsource_info.vendor.email}</span>
+                                                </div>
+                                              )}
+                                              {item.outsource_info.vendor.city && (
+                                                <div className="flex items-center gap-1.5 text-xs">
+                                                  <MapPin className="h-3 w-3" />
+                                                  <span>{item.outsource_info.vendor.city}</span>
+                                                </div>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+
+                                        {/* Job Details */}
+                                        <div className="bg-background rounded-lg p-3 border border-border">
+                                          <p className="text-xs text-muted-foreground mb-2">Job Details</p>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                                            <div>
+                                              <p className="text-xs text-muted-foreground">Work Type</p>
+                                              <p className="font-medium">{item.outsource_info.job_details.work_type}</p>
+                                            </div>
+                                            <div>
+                                              <p className="text-xs text-muted-foreground">Expected Ready</p>
+                                              <p className="font-medium">{format(item.outsource_info.job_details.expected_ready_date, 'MMM d, yyyy')}</p>
+                                            </div>
+                                            <div>
+                                              <p className="text-xs text-muted-foreground">Quantity Sent</p>
+                                              <p className="font-medium">{item.outsource_info.job_details.quantity_sent}</p>
+                                            </div>
+                                            {item.outsource_info.job_details.special_instructions && (
+                                              <div className="sm:col-span-2">
+                                                <p className="text-xs text-muted-foreground">Special Instructions</p>
+                                                <p className="text-sm">{item.outsource_info.job_details.special_instructions}</p>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Follow-Up Notes */}
+                                        {item.outsource_info.follow_up_notes && item.outsource_info.follow_up_notes.length > 0 && (
+                                          <div className="bg-background rounded-lg p-3 border border-border">
+                                            <p className="text-xs text-muted-foreground mb-2">Follow-Up Notes</p>
+                                            <div className="space-y-2 max-h-40 overflow-y-auto">
+                                              {item.outsource_info.follow_up_notes.map((note) => (
+                                                <div key={note.note_id} className="text-xs p-2 bg-secondary/50 rounded">
+                                                  <div className="flex items-center justify-between mb-1">
+                                                    <span className="font-medium">{note.created_by_name}</span>
+                                                    <span className="text-muted-foreground">{format(note.created_at, 'MMM d, h:mm a')}</span>
+                                                  </div>
+                                                  <p className="text-foreground">{note.note}</p>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Outsource Actions */}
+                                        {(isAdmin || role === 'sales' || role === 'prepress') && (
+                                          <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+                                            {/* Add Follow-Up Note - Available at all stages */}
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              onClick={() => {
+                                                setSelectedItemForOutsourceAction({
+                                                  itemId: item.item_id,
+                                                  productName: item.product_name,
+                                                });
+                                                setFollowUpNoteDialogOpen(true);
+                                              }}
+                                            >
+                                              <FileText className="h-4 w-4 mr-1" />
+                                              Add Note
+                                            </Button>
+
+                                            {/* Stage-specific actions */}
+                                            {item.outsource_info.current_outsource_stage === 'outsourced' && (
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => {
+                                                  updateOutsourceStage(orderId!, item.item_id, 'vendor_in_progress');
+                                                }}
+                                              >
+                                                <ArrowRight className="h-4 w-4 mr-1" />
+                                                Mark In Progress
+                                              </Button>
+                                            )}
+
+                                            {item.outsource_info.current_outsource_stage === 'vendor_in_progress' && (
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => {
+                                                  setSelectedItemForOutsourceAction({
+                                                    itemId: item.item_id,
+                                                    productName: item.product_name,
+                                                  });
+                                                  setVendorDispatchDialogOpen(true);
+                                                }}
+                                              >
+                                                <Truck className="h-4 w-4 mr-1" />
+                                                Mark Dispatched
+                                              </Button>
+                                            )}
+
+                                            {item.outsource_info.current_outsource_stage === 'vendor_dispatched' && (
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => {
+                                                  setSelectedItemForOutsourceAction({
+                                                    itemId: item.item_id,
+                                                    productName: item.product_name,
+                                                  });
+                                                  setReceiveDialogOpen(true);
+                                                }}
+                                              >
+                                                <Package className="h-4 w-4 mr-1" />
+                                                Mark Received
+                                              </Button>
+                                            )}
+
+                                            {item.outsource_info.current_outsource_stage === 'received_from_vendor' && (
+                                              <Button
+                                                size="sm"
+                                                onClick={() => {
+                                                  updateOutsourceStage(orderId!, item.item_id, 'quality_check');
+                                                }}
+                                              >
+                                                <CheckCircle className="h-4 w-4 mr-1" />
+                                                Start QC
+                                              </Button>
+                                            )}
+
+                                            {item.outsource_info.current_outsource_stage === 'quality_check' && (
+                                              <Button
+                                                size="sm"
+                                                onClick={() => {
+                                                  setSelectedItemForOutsourceAction({
+                                                    itemId: item.item_id,
+                                                    productName: item.product_name,
+                                                  });
+                                                  setQcDialogOpen(true);
+                                                }}
+                                              >
+                                                <CheckCircle className="h-4 w-4 mr-1" />
+                                                Perform QC
+                                              </Button>
+                                            )}
+
+                                            {item.outsource_info.current_outsource_stage === 'decision_pending' && (
+                                              <Button
+                                                size="sm"
+                                                onClick={() => {
+                                                  setSelectedItemForOutsourceAction({
+                                                    itemId: item.item_id,
+                                                    productName: item.product_name,
+                                                  });
+                                                  setPostQCDialogOpen(true);
+                                                }}
+                                              >
+                                                <ArrowRight className="h-4 w-4 mr-1" />
+                                                Make Decision
+                                              </Button>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
-
-                                {/* Outsource Actions */}
-                                {(isAdmin || role === 'sales' || role === 'prepress') && (
-                                  <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-                                    {/* Add Follow-Up Note - Available at all stages */}
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => {
-                                        setSelectedItemForOutsourceAction({
-                                          itemId: item.item_id,
-                                          productName: item.product_name,
-                                        });
-                                        setFollowUpNoteDialogOpen(true);
-                                      }}
-                                    >
-                                      <FileText className="h-4 w-4 mr-1" />
-                                      Add Note
-                                    </Button>
-
-                                    {/* Stage-specific actions */}
-                                    {item.outsource_info.current_outsource_stage === 'outsourced' && (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                          updateOutsourceStage(orderId!, item.item_id, 'vendor_in_progress');
-                                        }}
-                                      >
-                                        <ArrowRight className="h-4 w-4 mr-1" />
-                                        Mark In Progress
-                                      </Button>
-                                    )}
-
-                                    {item.outsource_info.current_outsource_stage === 'vendor_in_progress' && (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                          setSelectedItemForOutsourceAction({
-                                            itemId: item.item_id,
-                                            productName: item.product_name,
-                                          });
-                                          setVendorDispatchDialogOpen(true);
-                                        }}
-                                      >
-                                        <Truck className="h-4 w-4 mr-1" />
-                                        Mark Dispatched
-                                      </Button>
-                                    )}
-
-                                    {item.outsource_info.current_outsource_stage === 'vendor_dispatched' && (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                          setSelectedItemForOutsourceAction({
-                                            itemId: item.item_id,
-                                            productName: item.product_name,
-                                          });
-                                          setReceiveDialogOpen(true);
-                                        }}
-                                      >
-                                        <Package className="h-4 w-4 mr-1" />
-                                        Mark Received
-                                      </Button>
-                                    )}
-
-                                    {item.outsource_info.current_outsource_stage === 'received_from_vendor' && (
-                                      <Button
-                                        size="sm"
-                                        onClick={() => {
-                                          updateOutsourceStage(orderId!, item.item_id, 'quality_check');
-                                        }}
-                                      >
-                                        <CheckCircle className="h-4 w-4 mr-1" />
-                                        Start QC
-                                      </Button>
-                                    )}
-
-                                    {item.outsource_info.current_outsource_stage === 'quality_check' && (
-                                      <Button
-                                        size="sm"
-                                        onClick={() => {
-                                          setSelectedItemForOutsourceAction({
-                                            itemId: item.item_id,
-                                            productName: item.product_name,
-                                          });
-                                          setQcDialogOpen(true);
-                                        }}
-                                      >
-                                        <CheckCircle className="h-4 w-4 mr-1" />
-                                        Perform QC
-                                      </Button>
-                                    )}
-
-                                    {item.outsource_info.current_outsource_stage === 'decision_pending' && (
-                                      <Button
-                                        size="sm"
-                                        onClick={() => {
-                                          setSelectedItemForOutsourceAction({
-                                            itemId: item.item_id,
-                                            productName: item.product_name,
-                                          });
-                                          setPostQCDialogOpen(true);
-                                        }}
-                                      >
-                                        <ArrowRight className="h-4 w-4 mr-1" />
-                                        Make Decision
-                                      </Button>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                                </div>
-                              )}
-
-                              {/* Product Specifications - Collapsible */}
-                              <Collapsible open={itemExpanded.specifications} onOpenChange={() => toggleItemSection('specifications')}>
-                                <CollapsibleTrigger asChild>
-                              <div className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-lg p-3 -mx-1 transition-colors border-t pt-4">
-                                <div className="flex items-center gap-2">
-                                  <FileText className="h-4 w-4 text-muted-foreground" />
-                                  <h5 className="font-semibold text-sm sm:text-base">Product Specifications</h5>
-                                  {item.specifications && Object.keys(item.specifications).length > 0 && (
-                                    <Badge variant="secondary" className="text-xs">
-                                      {Object.keys(item.specifications).filter(k => !/^\d+$/.test(k) && !['sku', 'SKU', 'notes', '_sku', 'product_sku', 'id'].includes(k.toLowerCase())).length} specs
-                                    </Badge>
                                   )}
-                                </div>
-                                {itemExpanded.specifications ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-                              </div>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                              <div className="pt-3">
-                                <ProductSpecifications item={item} />
-                              </div>
-                            </CollapsibleContent>
-                          </Collapsible>
 
-                              {/* Files with FileHistory component - Collapsible */}
-                              <Collapsible open={itemExpanded.files} onOpenChange={() => toggleItemSection('files')}>
-                            <CollapsibleTrigger asChild>
-                              <div className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-lg p-3 -mx-1 transition-colors border-t pt-4">
-                                <div className="flex items-center gap-2">
-                                  <Upload className="h-4 w-4 text-muted-foreground" />
-                                  <h5 className="font-semibold text-sm sm:text-base">
-                                    Files ({new Set(item.files.map(f => f.type || 'other')).size} role{item.files.length !== 1 ? 's' : ''})
-                                  </h5>
-                                  {item.files.length > 0 && (
-                                    <Badge variant="secondary" className="text-xs">
-                                      {item.files.length} file{item.files.length !== 1 ? 's' : ''}
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2">
+                                  {/* Product Specifications - Collapsible */}
+                                  <Collapsible open={itemExpanded.specifications} onOpenChange={() => toggleItemSection('specifications')}>
+                                    <CollapsibleTrigger asChild>
+                                      <div className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-lg p-3 -mx-1 transition-colors border-t pt-4">
+                                        <div className="flex items-center gap-2">
+                                          <FileText className="h-4 w-4 text-muted-foreground" />
+                                          <h5 className="font-semibold text-sm sm:text-base">Product Specifications</h5>
+                                          {item.specifications && Object.keys(item.specifications).length > 0 && (
+                                            <Badge variant="secondary" className="text-xs">
+                                              {Object.keys(item.specifications).filter(k => !/^\d+$/.test(k) && !['sku', 'SKU', 'notes', '_sku', 'product_sku', 'id'].includes(k.toLowerCase())).length} specs
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        {itemExpanded.specifications ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                                      </div>
+                                    </CollapsibleTrigger>
+                                    <CollapsibleContent>
+                                      <div className="pt-3">
+                                        <ProductSpecifications item={item} />
+                                      </div>
+                                    </CollapsibleContent>
+                                  </Collapsible>
+
+                                  {/* Files with FileHistory component - Collapsible */}
+                                  <Collapsible open={itemExpanded.files} onOpenChange={() => toggleItemSection('files')}>
+                                    <CollapsibleTrigger asChild>
+                                      <div className="flex items-center justify-between cursor-pointer hover:bg-muted/50 rounded-lg p-3 -mx-1 transition-colors border-t pt-4">
+                                        <div className="flex items-center gap-2">
+                                          <Upload className="h-4 w-4 text-muted-foreground" />
+                                          <h5 className="font-semibold text-sm sm:text-base">
+                                            Files ({new Set(item.files.map(f => f.type || 'other')).size} role{item.files.length !== 1 ? 's' : ''})
+                                          </h5>
+                                          {item.files.length > 0 && (
+                                            <Badge variant="secondary" className="text-xs">
+                                              {item.files.length} file{item.files.length !== 1 ? 's' : ''}
+                                            </Badge>
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          {canEditItem(item) && (
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="h-7 text-xs"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSelectedItemId(item.item_id);
+                                                setUploadDialogOpen(true);
+                                              }}
+                                            >
+                                              <Upload className="h-3 w-3 mr-1" />
+                                              Upload
+                                            </Button>
+                                          )}
+                                          {itemExpanded.files ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                                        </div>
+                                      </div>
+                                    </CollapsibleTrigger>
+                                    <CollapsibleContent>
+                                      <div className="pt-3">
+                                        {item.files.length > 0 ? (
+                                          <FileHistory
+                                            files={item.files}
+                                            orderId={orderId || ''}
+                                            itemId={item.item_id}
+                                            onFileDeleted={() => refreshOrders()}
+                                          />
+                                        ) : (
+                                          <div className="text-center py-6 text-muted-foreground border border-dashed rounded-lg">
+                                            <Upload className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                                            <p className="text-sm">No files uploaded yet</p>
+                                            {canEditItem(item) && (
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="mt-3"
+                                                onClick={() => {
+                                                  setSelectedItemId(item.item_id);
+                                                  setUploadDialogOpen(true);
+                                                }}
+                                              >
+                                                <Upload className="h-4 w-4 mr-2" />
+                                                Upload File
+                                              </Button>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </CollapsibleContent>
+                                  </Collapsible>
+
+                                  {/* Item Actions - Only show if user can edit this item */}
                                   {canEditItem(item) && (
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      className="h-7 text-xs"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setSelectedItemId(item.item_id);
-                                        setUploadDialogOpen(true);
-                                      }}
-                                    >
-                                      <Upload className="h-3 w-3 mr-1" />
-                                      Upload
-                                    </Button>
+                                    <div className="border-t pt-4 sm:pt-5">
+                                      <div className="flex flex-wrap gap-2 sm:gap-2.5">
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="flex-1 sm:flex-initial min-w-[140px]"
+                                              onClick={() => {
+                                                setSelectedItemId(item.item_id);
+                                                setWorkNoteDialogOpen(true);
+                                              }}
+                                            >
+                                              <MessageSquare className="h-4 w-4 mr-1.5" />
+                                              <span className="text-xs sm:text-sm">Work Note</span>
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Add a work note for this item</TooltipContent>
+                                        </Tooltip>
+
+                                        {/* Show Assign Dept first (more common workflow) */}
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="flex-1 sm:flex-initial min-w-[140px]"
+                                              onClick={() => openDialogForItem('assign', item.item_id)}
+                                            >
+                                              <Users className="h-4 w-4 mr-1.5" />
+                                              <span className="text-xs sm:text-sm">Assign Dept</span>
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>
+                                            Assign to department (automatically updates stage)
+                                          </TooltipContent>
+                                        </Tooltip>
+
+                                        {item.current_stage === 'production' && item.current_substage && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                size="sm"
+                                                className="flex-1 sm:flex-initial min-w-[140px]"
+                                                onClick={() => handleNextStage(item.item_id)}
+                                              >
+                                                <CheckCircle className="h-4 w-4 mr-1.5" />
+                                                <span className="text-xs sm:text-sm">Complete {item.current_substage}</span>
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Mark {item.current_substage} as complete and move to next</TooltipContent>
+                                          </Tooltip>
+                                        )}
+
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="flex-1 sm:flex-initial min-w-[140px]"
+                                              onClick={() => openDialogForItem('assignUser', item.item_id)}
+                                            >
+                                              <UserCircle className="h-4 w-4 mr-1.5" />
+                                              <span className="text-xs sm:text-sm">Assign User</span>
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Assign to team member</TooltipContent>
+                                        </Tooltip>
+
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className="flex-1 sm:flex-initial min-w-[140px]"
+                                              onClick={() => openDialogForItem('upload', item.item_id)}
+                                            >
+                                              <Upload className="h-4 w-4 mr-1.5" />
+                                              <span className="text-xs sm:text-sm">Upload</span>
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Upload file for this item</TooltipContent>
+                                        </Tooltip>
+                                      </div>
+                                    </div>
                                   )}
-                                  {itemExpanded.files ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+
+                                  {/* Show message if user cannot edit */}
+                                  {!canEditItem(item) && (
+                                    <div className="border-t pt-4 sm:pt-5">
+                                      <div className="flex items-center gap-2 text-sm text-muted-foreground bg-secondary/50 rounded-lg p-3">
+                                        <Lock className="h-4 w-4" />
+                                        <p>This item is in <span className="font-medium capitalize">{item.current_stage}</span> stage. Only {item.current_stage} department can make changes.</p>
+                                      </div>
+                                    </div>
+                                  )}
                                 </div>
-                              </div>
-                            </CollapsibleTrigger>
-                            <CollapsibleContent>
-                              <div className="pt-3">
-                                {item.files.length > 0 ? (
-                                  <FileHistory 
-                                    files={item.files} 
-                                    orderId={orderId || ''}
-                                    itemId={item.item_id}
-                                    onFileDeleted={() => refreshOrders()}
-                                  />
-                                ) : (
-                                  <div className="text-center py-6 text-muted-foreground border border-dashed rounded-lg">
-                                    <Upload className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                                    <p className="text-sm">No files uploaded yet</p>
-                                    {canEditItem(item) && (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        className="mt-3"
-                                        onClick={() => {
-                                          setSelectedItemId(item.item_id);
-                                          setUploadDialogOpen(true);
-                                        }}
-                                      >
-                                        <Upload className="h-4 w-4 mr-2" />
-                                        Upload File
-                                      </Button>
-                                    )}
-                                  </div>
-                                )}
                               </div>
                             </CollapsibleContent>
                           </Collapsible>
-
-                              {/* Item Actions - Only show if user can edit this item */}
-                              {canEditItem(item) && (
-                            <div className="border-t pt-4 sm:pt-5">
-                              <div className="flex flex-wrap gap-2 sm:gap-2.5">
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm"
-                                      className="flex-1 sm:flex-initial min-w-[140px]"
-                                      onClick={() => {
-                                        setSelectedItemId(item.item_id);
-                                        setWorkNoteDialogOpen(true);
-                                      }}
-                                    >
-                                      <MessageSquare className="h-4 w-4 mr-1.5" />
-                                      <span className="text-xs sm:text-sm">Work Note</span>
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Add a work note for this item</TooltipContent>
-                                </Tooltip>
-
-                                {/* Show Assign Dept first (more common workflow) */}
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm"
-                                      className="flex-1 sm:flex-initial min-w-[140px]"
-                                      onClick={() => openDialogForItem('assign', item.item_id)}
-                                    >
-                                      <Users className="h-4 w-4 mr-1.5" />
-                                      <span className="text-xs sm:text-sm">Assign Dept</span>
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    Assign to department (automatically updates stage)
-                                  </TooltipContent>
-                                </Tooltip>
-
-                                {item.current_stage === 'production' && item.current_substage && (
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Button 
-                                        size="sm"
-                                        className="flex-1 sm:flex-initial min-w-[140px]"
-                                        onClick={() => handleNextStage(item.item_id)}
-                                      >
-                                        <CheckCircle className="h-4 w-4 mr-1.5" />
-                                        <span className="text-xs sm:text-sm">Complete {item.current_substage}</span>
-                                      </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Mark {item.current_substage} as complete and move to next</TooltipContent>
-                                  </Tooltip>
-                                )}
-
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm"
-                                      className="flex-1 sm:flex-initial min-w-[140px]"
-                                      onClick={() => openDialogForItem('assignUser', item.item_id)}
-                                    >
-                                      <UserCircle className="h-4 w-4 mr-1.5" />
-                                      <span className="text-xs sm:text-sm">Assign User</span>
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Assign to team member</TooltipContent>
-                                </Tooltip>
-
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm"
-                                      className="flex-1 sm:flex-initial min-w-[140px]"
-                                      onClick={() => openDialogForItem('upload', item.item_id)}
-                                    >
-                                      <Upload className="h-4 w-4 mr-1.5" />
-                                      <span className="text-xs sm:text-sm">Upload</span>
-                                    </Button>
-                                  </TooltipTrigger>
-                                  <TooltipContent>Upload file for this item</TooltipContent>
-                                </Tooltip>
-                              </div>
-                            </div>
-                              )}
-                              
-                              {/* Show message if user cannot edit */}
-                              {!canEditItem(item) && (
-                            <div className="border-t pt-4 sm:pt-5">
-                              <div className="flex items-center gap-2 text-sm text-muted-foreground bg-secondary/50 rounded-lg p-3">
-                                <Lock className="h-4 w-4" />
-                                <p>This item is in <span className="font-medium capitalize">{item.current_stage}</span> stage. Only {item.current_stage} department can make changes.</p>
-                              </div>
-                            </div>
-                          )}
-                            </div>
-                          </div>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    );
+                        );
                       })
                     ) : (
                       <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -1394,7 +1396,7 @@ export default function OrderDetail() {
                 <CardHeader className="flex-shrink-0 pb-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <CollapsibleTrigger asChild>
-                      <div 
+                      <div
                         className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors flex-1 min-w-0"
                       >
                         <CardTitle className="text-base sm:text-lg font-display truncate">Timeline ({timeline.length})</CardTitle>
@@ -1443,8 +1445,8 @@ export default function OrderDetail() {
                         ))}
                       </div>
                     ) : (
-                      <OrderTimeline 
-                        entries={timeline} 
+                      <OrderTimeline
+                        entries={timeline}
                         onEntryClick={(entryId) => {
                           setHighlightedTimelineId(entryId);
                           setTimelineDialogOpen(true);
@@ -1465,7 +1467,7 @@ export default function OrderDetail() {
               <Collapsible open={customerOpen} onOpenChange={setCustomerOpen} defaultOpen={true}>
                 <CardHeader className="flex-shrink-0 pb-3">
                   <CollapsibleTrigger asChild>
-                    <div 
+                    <div
                       className="flex items-center justify-between cursor-pointer hover:bg-muted/50 -mx-4 -my-2 px-4 py-2 rounded-lg transition-colors"
                     >
                       <CardTitle className="text-base sm:text-lg font-display">Customer Details</CardTitle>
@@ -1504,10 +1506,10 @@ export default function OrderDetail() {
                         <TooltipContent>Copy customer details</TooltipContent>
                       </Tooltip>
                     </div>
-                    
+
                     <div className="space-y-2 text-sm">
                       {order.customer.phone && (
-                        <a 
+                        <a
                           href={`tel:${order.customer.phone}`}
                           className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
                         >
@@ -1516,7 +1518,7 @@ export default function OrderDetail() {
                         </a>
                       )}
                       {order.customer.email && (
-                        <a 
+                        <a
                           href={`mailto:${order.customer.email}`}
                           className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors"
                         >
@@ -1546,7 +1548,7 @@ export default function OrderDetail() {
                   <Calendar className="h-5 w-5 text-muted-foreground" />
                   <div>
                     <p className="font-medium">
-                      {order.order_level_delivery_date 
+                      {order.order_level_delivery_date
                         ? format(order.order_level_delivery_date, 'EEEE, MMMM d, yyyy')
                         : 'No date set'
                       }
@@ -1687,8 +1689,8 @@ export default function OrderDetail() {
             <AlertDialogHeader>
               <AlertDialogTitle>Delete Order</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to delete order <strong>{order.order_id}</strong>? 
-                This action cannot be undone and will permanently remove all associated items, 
+                Are you sure you want to delete order <strong>{order.order_id}</strong>?
+                This action cannot be undone and will permanently remove all associated items,
                 files, and timeline entries.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -1796,8 +1798,8 @@ export default function OrderDetail() {
             </DialogHeader>
             <ScrollArea className="flex-1 px-6 py-4">
               <div className="pr-4">
-                <OrderTimeline 
-                  entries={timeline} 
+                <OrderTimeline
+                  entries={timeline}
                   onEntryClick={(entryId) => {
                     setHighlightedTimelineId(entryId);
                   }}
