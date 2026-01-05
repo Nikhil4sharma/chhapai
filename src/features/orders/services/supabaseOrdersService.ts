@@ -189,6 +189,8 @@ function transformOrderItem(itemRow: any, filesData: any[], profilesMap: Map<str
     updated_at: new Date(itemRow.updated_at),
     production_stage_sequence: itemRow.production_stage_sequence || undefined,
     outsource_info: itemRow.outsource_info || undefined,
+    status: itemRow.specifications?.workflow_status || 'new_order',
+    department: itemRow.department || itemRow.assigned_department || 'sales', // Ensure department is present
   };
 }
 

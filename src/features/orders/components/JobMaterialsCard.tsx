@@ -22,16 +22,28 @@ export function JobMaterialsCard({ orderId }: JobMaterialsCardProps) {
     const { data: materials, isLoading } = useQuery({
         queryKey: ['job_materials', orderId],
         queryFn: async () => {
-            const { data, error } = await supabase
+            const { data: materialsData, error: materialsError } = await supabase
                 .from('job_materials')
-                .select(`
-          *,
-          paper_inventory (name, brand, gsm, unit)
-        `)
+                .select('*')
                 .eq('job_id', orderId);
 
-            if (error) throw error;
-            return data;
+            if (materialsError) throw materialsError;
+
+            if (!materialsData || materialsData.length === 0) return [];
+
+            // Fetch paper details manually
+            const paperIds = materialsData.map((m: any) => m.paper_id);
+            const { data: paperData } = await supabase
+                .from('paper_inventory')
+                .select('id, name, brand, gsm, unit')
+                .in('id', paperIds);
+
+            const paperMap = new Map((paperData || []).map((p: any) => [p.id, p]));
+
+            return materialsData.map((m: any) => ({
+                ...m,
+                paper_inventory: paperMap.get(m.paper_id)
+            }));
         }
     });
 

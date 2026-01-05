@@ -13,6 +13,7 @@ import {
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb';
 import { Home } from 'lucide-react';
+import { DepartmentGuard } from '@/components/auth/DepartmentGuard';
 
 const pageTitles: Record<string, string> = {
   '/dashboard': 'Dashboard',
@@ -40,11 +41,11 @@ const pageTitles: Record<string, string> = {
 const getBreadcrumbs = (pathname: string) => {
   const paths = pathname.split('/').filter(Boolean);
   const breadcrumbs = [{ label: 'Home', path: '/dashboard' }];
-  
+
   let currentPath = '';
   paths.forEach((path, index) => {
     currentPath += `/${path}`;
-    
+
     // Handle order detail pages specially
     if (path === 'orders' && paths[index + 1]) {
       const orderId = paths[index + 1];
@@ -52,24 +53,24 @@ const getBreadcrumbs = (pathname: string) => {
       breadcrumbs.push({ label: `Order ${orderId}`, path: currentPath });
       return; // Skip further processing
     }
-    
+
     // Handle /orders path (without orderId) - show Orders page
     if (path === 'orders' && !paths[index + 1]) {
       breadcrumbs.push({ label: 'Orders', path: '/orders' });
       return; // Skip further processing
     }
-    
+
     const title = pageTitles[currentPath] || path.charAt(0).toUpperCase() + path.slice(1);
     breadcrumbs.push({ label: title, path: currentPath });
   });
-  
+
   return breadcrumbs;
 };
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const location = useLocation();
-  
+
   // Normalize pathname - handle root path
   const normalizedPath = location.pathname === '/' ? '/dashboard' : location.pathname;
   const title = pageTitles[normalizedPath] || pageTitles[location.pathname] || 'Chhapai';
@@ -79,18 +80,18 @@ export function AppLayout() {
     <div className="h-screen w-screen overflow-hidden bg-background flex">
       {/* Fixed Sidebar - never scrolls */}
       <AppSidebar isOpen={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} />
-      
+
       {/* Main content area */}
       <div className={cn(
         "flex-1 flex flex-col h-screen overflow-hidden transition-all duration-300",
         sidebarOpen ? "lg:ml-0" : "lg:ml-0"
       )}>
         {/* Fixed Header */}
-        <AppHeader 
-          onMenuClick={() => setSidebarOpen(!sidebarOpen)} 
+        <AppHeader
+          onMenuClick={() => setSidebarOpen(!sidebarOpen)}
           title={title}
         />
-        
+
         {/* Scrollable Content Area with Footer */}
         <div className="flex-1 flex flex-col overflow-hidden min-h-0 relative">
           <main className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar min-h-0 pb-20 sm:pb-24">
@@ -123,10 +124,12 @@ export function AppLayout() {
                   </BreadcrumbList>
                 </Breadcrumb>
               )}
-              <Outlet />
+              <DepartmentGuard>
+                <Outlet />
+              </DepartmentGuard>
             </div>
           </main>
-          
+
           {/* Fixed Footer - Always visible at bottom, mobile safe area support */}
           <div className="flex-shrink-0 relative z-30 bg-background border-t border-border shadow-lg pb-safe-mobile">
             <AppFooter />

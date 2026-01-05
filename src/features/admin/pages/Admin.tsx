@@ -12,7 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth, AppRole } from '@/features/auth/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { WorkflowSettings } from '@/features/admin/components/WorkflowSettings';
+import { WorkflowSettingsTab as WorkflowSettings } from '@/features/settings/components/WorkflowSettingsTab';
 
 interface UserWithRole {
   id: string;

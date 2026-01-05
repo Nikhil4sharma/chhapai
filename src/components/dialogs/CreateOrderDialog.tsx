@@ -941,7 +941,10 @@ export function CreateOrderDialog({
         order_id: item.order_id,
         product_name: item.product_name,
         quantity: Number(item.quantity) || 1,
-        specifications: item.specifications || {},
+        specifications: {
+          ...item.specifications,
+          workflow_status: item.status || 'new_order' // Store dynamic status here
+        } || {},
         priority: computedPriority, // Automatically calculated from delivery date
 
         // Map new fields + legacy fields

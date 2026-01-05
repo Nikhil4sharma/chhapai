@@ -985,21 +985,14 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
 
     // CRITICAL: If neither role nor profile department matches, return empty array
-    // BUT: Also check if user has no role/profile set - in that case, allow access if they're requesting their own department
-    if (!roleMatches && !profileMatches && !isAdmin) { // Admin can access everything
-      // Special case: If user has no role/profile set, but they're requesting a department that matches their current context
-      // This handles edge cases where user data might be incomplete
+    // SILENT FAIL: Do NOT warn here. The UI (DepartmentGuard) will handle the "No Department" state.
+    // We strictly block access if the department doesn't match, to prevent data leaks.
+    if (!roleMatches && !profileMatches && !isAdmin) {
+      // If user is completely unconfigured (no role/dept), just return empty
       if (!role && !profile?.department) {
-        if (!isSalesRole) { // Sales might not havedept set but has role
-          console.warn(`[getOrdersForDepartment] User has no role or profile department set. Denying access to ${department}`);
-        }
         return [];
       }
-      // Only log warning for non-admin/sales users
-      if (!isSalesRole) {
-        console.warn(`[getOrdersForDepartment] User role (${role}) and profile department (${profile?.department}) do not match requested department (${department})`);
-      }
-      return []; // Return empty array if neither role nor profile department matches
+      return [];
     }
 
     const filteredOrders = activeOrders.filter(order => {
