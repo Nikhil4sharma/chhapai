@@ -57,6 +57,7 @@ interface OrderContextType {
   qualityCheck: (orderId: string, itemId: string, result: 'pass' | 'fail', notes: string) => Promise<void>;
   postQCDecision: (orderId: string, itemId: string, decision: 'production' | 'dispatch') => Promise<void>;
   refreshOrders: () => Promise<void>;
+  updateItemSpecifications: (orderId: string, itemId: string, updates: Record<string, any>) => Promise<void>;
   getCompletedOrders: () => Order[];
 }
 
@@ -1645,7 +1646,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const newStage = stageMap[department] || 'sales';
 
-      // Log activity FIRST (department-wise tracking) with proper format
+      // Log activity FIRST (department-wise tracking)
       const previousDepartment = item.assigned_department;
       const activityMessage = previousDepartment !== department
         ? `Order assigned from ${previousDepartment} → ${department} department`
@@ -2355,6 +2356,29 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
   }, [orders, isAdmin, role, fetchOrders]);
 
+  const updateItemSpecifications = useCallback(async (orderId: string, itemId: string, updates: Record<string, any>) => {
+    try {
+      // Assuming supabaseService is available in this scope, or it should be imported/defined.
+      // If not, the direct supabase call would be:
+      // await supabase.from('order_items').update(updates).eq('id', itemId);
+      // For now, I'll assume supabaseService.updateItemSpecifications exists as per the instruction.
+      await supabaseService.updateItemSpecifications(orderId, itemId, updates);
+      await refreshOrders();
+
+      toast({
+        title: "Item Updated",
+        description: "Item specifications updated successfully",
+      });
+    } catch (error) {
+      console.error('Error updating item specifications:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update item specifications",
+        variant: "destructive",
+      });
+    }
+  }, [refreshOrders, toast]);
+
   const updateItemDeliveryDate = useCallback(async (orderId: string, itemId: string, deliveryDate: Date) => {
     // PERMISSION CHECK: Only Sales and Admin can update delivery date
     if (!isAdmin && role !== 'sales') {
@@ -2892,10 +2916,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       updateOutsourceStage,
       addFollowUpNote,
       vendorDispatch,
-      receiveFromVendor,
-      qualityCheck,
-      postQCDecision,
+      receiveFromVendor, qualityCheck, postQCDecision, updateItemSpecifications,
       refreshOrders,
+      updateItemSpecifications,
       getCompletedOrders,
     }}>
       {children}

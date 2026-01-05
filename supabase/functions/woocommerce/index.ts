@@ -31,23 +31,23 @@ let runtimeCredentials: {
 function parseProductMeta(metaData: any[]): { specifications: Record<string, string>; rawMeta: any[] } {
   const specifications: Record<string, string> = {};
   const rawMeta: any[] = [];
-  
+
   if (!Array.isArray(metaData)) {
     return { specifications, rawMeta };
   }
-  
+
   // Keys to skip (internal WooCommerce meta)
   const skipKeys = ['_reduced_stock', '_restock_refunded_items', '_product_addons', '_qty'];
-  
+
   for (const meta of metaData) {
     if (!meta.key || skipKeys.includes(meta.key) || meta.key.startsWith('_')) {
       continue;
     }
-    
+
     // Store both display key and value
     const displayKey = meta.display_key || meta.key;
     const displayValue = meta.display_value || meta.value;
-    
+
     if (displayValue && typeof displayValue === 'string' && displayValue.trim()) {
       specifications[displayKey] = displayValue.trim();
       rawMeta.push({
@@ -58,7 +58,7 @@ function parseProductMeta(metaData: any[]): { specifications: Record<string, str
       });
     }
   }
-  
+
   return { specifications, rawMeta };
 }
 
@@ -76,12 +76,12 @@ function buildFullAddress(addr: any): string {
   return parts.join(', ');
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   // Handle CORS preflight requests FIRST - before any other processing
   // This MUST be the first thing we check
   if (req.method === 'OPTIONS') {
     console.log('[CORS] Handling OPTIONS preflight request');
-    return new Response(null, { 
+    return new Response(null, {
       status: 200, // OK status for CORS preflight
       headers: {
         ...corsHeaders,
@@ -167,10 +167,10 @@ serve(async (req) => {
     // Handle credential update from admin
     if (action === 'update-credentials') {
       const { store_url, consumer_key, consumer_secret } = body;
-      
+
       if (!store_url || !consumer_key || !consumer_secret) {
-        return new Response(JSON.stringify({ 
-          error: 'All credentials are required: store_url, consumer_key, consumer_secret' 
+        return new Response(JSON.stringify({
+          error: 'All credentials are required: store_url, consumer_key, consumer_secret'
         }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -187,10 +187,10 @@ serve(async (req) => {
 
       // Test the credentials before saving
       console.log('Testing new WooCommerce credentials for:', normalizedUrl);
-      
+
       const testAuth = btoa(`${consumer_key}:${consumer_secret}`);
       const testUrl = `${normalizedUrl}/wp-json/wc/v3/system_status`;
-      
+
       try {
         const testResponse = await fetch(testUrl, {
           method: 'GET',
@@ -203,9 +203,9 @@ serve(async (req) => {
         if (!testResponse.ok) {
           const errorText = await testResponse.text();
           console.error('Credential validation failed:', testResponse.status, errorText);
-          return new Response(JSON.stringify({ 
-            success: false, 
-            error: `Invalid credentials or store URL. Status: ${testResponse.status}` 
+          return new Response(JSON.stringify({
+            success: false,
+            error: `Invalid credentials or store URL. Status: ${testResponse.status}`
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
@@ -220,8 +220,8 @@ serve(async (req) => {
         };
 
         console.log('WooCommerce credentials validated and cached');
-        
-        return new Response(JSON.stringify({ 
+
+        return new Response(JSON.stringify({
           success: true,
           message: 'Credentials validated and saved successfully',
           storeUrl: normalizedUrl.replace(/^https?:\/\//, '').split('/')[0],
@@ -232,9 +232,9 @@ serve(async (req) => {
       } catch (error: unknown) {
         console.error('Error testing credentials:', error);
         const errorMessage = error instanceof Error ? error.message : 'Connection failed';
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: `Could not connect to store: ${errorMessage}` 
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Could not connect to store: ${errorMessage}`
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
@@ -245,8 +245,8 @@ serve(async (req) => {
       // Check if credentials are configured
       const isConfigured = !!(storeUrl && consumerKey && consumerSecret);
       console.log('WooCommerce configuration check:', isConfigured ? 'configured' : 'not configured');
-      
-      return new Response(JSON.stringify({ 
+
+      return new Response(JSON.stringify({
         configured: isConfigured,
         storeUrl: storeUrl ? storeUrl.replace(/^https?:\/\//, '').split('/')[0] : null,
         canUpdate: true, // Admin can always update
@@ -257,8 +257,8 @@ serve(async (req) => {
 
     if (!storeUrl || !consumerKey || !consumerSecret) {
       console.error('WooCommerce credentials not configured');
-      return new Response(JSON.stringify({ 
-        error: 'WooCommerce credentials not configured. Please update them in Settings.' 
+      return new Response(JSON.stringify({
+        error: 'WooCommerce credentials not configured. Please update them in Settings.'
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -267,11 +267,11 @@ serve(async (req) => {
 
     if (action === 'test-connection') {
       console.log('Testing WooCommerce connection to:', storeUrl);
-      
+
       // Test connection by fetching store info
       const apiUrl = `${storeUrl}/wp-json/wc/v3/system_status`;
       const auth = btoa(`${consumerKey}:${consumerSecret}`);
-      
+
       const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
@@ -283,9 +283,9 @@ serve(async (req) => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('WooCommerce connection test failed:', response.status, errorText);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: `Connection failed: ${response.status}` 
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Connection failed: ${response.status}`
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
@@ -300,10 +300,10 @@ serve(async (req) => {
     if (action === 'search-orders') {
       // Search WooCommerce orders by order number, email, name, or phone
       const { order_number, customer_email, customer_name, customer_phone } = body;
-      
+
       if (!order_number && !customer_email && !customer_name && !customer_phone) {
-        return new Response(JSON.stringify({ 
-          error: 'At least one search parameter is required' 
+        return new Response(JSON.stringify({
+          error: 'At least one search parameter is required'
         }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -311,21 +311,21 @@ serve(async (req) => {
       }
 
       console.log('Searching WooCommerce orders:', { order_number, customer_email, customer_name, customer_phone });
-      
+
       // Build search query
       let searchParams = new URLSearchParams();
       searchParams.append('per_page', '100'); // Get up to 100 results
-      
+
       if (order_number) {
         searchParams.append('number', order_number.toString());
       }
-      
+
       // WooCommerce API doesn't support direct email/name/phone search in query params
       // We'll fetch all recent orders and filter client-side (or use search endpoint if available)
       // For now, fetch recent orders and filter
       const apiUrl = `${storeUrl}/wp-json/wc/v3/orders?${searchParams.toString()}`;
       const auth = btoa(`${consumerKey}:${consumerSecret}`);
-      
+
       const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
@@ -337,29 +337,29 @@ serve(async (req) => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('WooCommerce search failed:', response.status, errorText);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: `Failed to search orders: ${response.status}` 
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Failed to search orders: ${response.status}`
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
       let wooOrders = await response.json();
-      
+
       // Filter by search criteria if not using order number
       if (!order_number) {
         wooOrders = wooOrders.filter((order: any) => {
-          const emailMatch = !customer_email || 
+          const emailMatch = !customer_email ||
             (order.billing?.email && order.billing.email.toLowerCase().includes(customer_email.toLowerCase()));
-          
-          const nameMatch = !customer_name || 
+
+          const nameMatch = !customer_name ||
             (order.billing?.first_name && `${order.billing.first_name} ${order.billing.last_name || ''}`.toLowerCase().includes(customer_name.toLowerCase())) ||
             (order.billing?.last_name && `${order.billing.first_name || ''} ${order.billing.last_name}`.toLowerCase().includes(customer_name.toLowerCase()));
-          
-          const phoneMatch = !customer_phone || 
+
+          const phoneMatch = !customer_phone ||
             (order.billing?.phone && order.billing.phone.includes(customer_phone));
-          
+
           return emailMatch || nameMatch || phoneMatch;
         });
       }
@@ -384,8 +384,8 @@ serve(async (req) => {
       }));
 
       console.log(`Found ${formattedOrders.length} matching orders`);
-      
-      return new Response(JSON.stringify({ 
+
+      return new Response(JSON.stringify({
         success: true,
         orders: formattedOrders,
         count: formattedOrders.length
@@ -397,11 +397,11 @@ serve(async (req) => {
     if (action === 'order-by-number') {
       // Fetch a single WooCommerce order by order number for autofill
       const { orderNumber } = body;
-      
+
       if (!orderNumber) {
-        return new Response(JSON.stringify({ 
+        return new Response(JSON.stringify({
           found: false,
-          error: 'Order number is required' 
+          error: 'Order number is required'
         }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -409,15 +409,15 @@ serve(async (req) => {
       }
 
       console.log('[WooCommerce] Fetching order by number:', orderNumber);
-      
+
       // Fetch order from WooCommerce by number
       const searchParams = new URLSearchParams();
       searchParams.append('number', orderNumber.toString());
       searchParams.append('per_page', '1');
-      
+
       const apiUrl = `${storeUrl}/wp-json/wc/v3/orders?${searchParams.toString()}`;
       const auth = btoa(`${consumerKey}:${consumerSecret}`);
-      
+
       const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
@@ -429,27 +429,27 @@ serve(async (req) => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('[WooCommerce] Order fetch failed:', response.status, errorText);
-        return new Response(JSON.stringify({ 
+        return new Response(JSON.stringify({
           found: false,
-          error: `Failed to fetch order: ${response.status}` 
+          error: `Failed to fetch order: ${response.status}`
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
       const wooOrders = await response.json();
-      
+
       if (!wooOrders || wooOrders.length === 0) {
         console.log('[WooCommerce] Order not found:', orderNumber);
-        return new Response(JSON.stringify({ 
-          found: false 
+        return new Response(JSON.stringify({
+          found: false
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
       const wooOrder = wooOrders[0];
-      
+
       // Parse product meta for specifications
       const parseProductSpecs = (lineItem: any) => {
         const { specifications } = parseProductMeta(lineItem.meta_data || []);
@@ -469,8 +469,8 @@ serve(async (req) => {
           billing_city: wooOrder.billing?.city || '',
           billing_state: wooOrder.billing?.state || '',
           billing_pincode: wooOrder.billing?.postcode || '',
-          shipping_name: wooOrder.shipping?.first_name 
-            ? `${wooOrder.shipping.first_name} ${wooOrder.shipping.last_name || ''}`.trim() 
+          shipping_name: wooOrder.shipping?.first_name
+            ? `${wooOrder.shipping.first_name} ${wooOrder.shipping.last_name || ''}`.trim()
             : `${wooOrder.billing?.first_name || ''} ${wooOrder.billing?.last_name || ''}`.trim(),
           shipping_address: buildFullAddress(wooOrder.shipping) || buildFullAddress(wooOrder.billing),
           shipping_city: wooOrder.shipping?.city || wooOrder.billing?.city || '',
@@ -495,7 +495,7 @@ serve(async (req) => {
       };
 
       console.log('[WooCommerce] Order found:', formattedOrder.order.order_number);
-      
+
       return new Response(JSON.stringify(formattedOrder), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -504,10 +504,10 @@ serve(async (req) => {
     if (action === 'import-orders') {
       // Import selected WooCommerce orders into Supabase
       const { order_ids } = body; // Array of WooCommerce order IDs to import
-      
+
       if (!Array.isArray(order_ids) || order_ids.length === 0) {
-        return new Response(JSON.stringify({ 
-          error: 'order_ids array is required' 
+        return new Response(JSON.stringify({
+          error: 'order_ids array is required'
         }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -515,7 +515,7 @@ serve(async (req) => {
       }
 
       console.log(`Importing ${order_ids.length} WooCommerce orders for user ${user.id}`);
-      
+
       // Get user's profile to determine department
       const { data: userProfile, error: profileError } = await supabase
         .from('profiles')
@@ -524,20 +524,20 @@ serve(async (req) => {
         .single();
 
       const userDepartment = userProfile?.department || 'sales';
-      
+
       // Fetch orders from WooCommerce
       const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
       const adminSupabase = createClient(supabaseUrl, serviceRoleKey);
-      
+
       const importedOrders: any[] = [];
       const errors: string[] = [];
-      
+
       for (const wooOrderId of order_ids) {
         try {
           // Fetch order from WooCommerce
           const apiUrl = `${storeUrl}/wp-json/wc/v3/orders/${wooOrderId}`;
           const auth = btoa(`${consumerKey}:${consumerSecret}`);
-          
+
           const response = await fetch(apiUrl, {
             method: 'GET',
             headers: {
@@ -552,7 +552,7 @@ serve(async (req) => {
           }
 
           const wooOrder = await response.json();
-          
+
           // Check if order already exists
           const { data: existingOrder } = await adminSupabase
             .from('orders')
@@ -568,20 +568,20 @@ serve(async (req) => {
           // Create order in Supabase
           // FIX: Use numeric order ID only (no WC- prefix) for WooCommerce orders
           const orderId = wooOrderId.toString();
-          
+
           // CRITICAL: Check for existing order by order_id to prevent duplicates
           const { data: existingOrderById } = await adminSupabase
             .from('orders')
             .select('id, source, woo_order_id')
             .eq('order_id', orderId)
             .maybeSingle();
-          
+
           // If order exists, skip (prevent duplicates)
           if (existingOrderById) {
             console.log(`Order ${orderId} already exists (ID: ${existingOrderById.id}), skipping duplicate`);
             continue;
           }
-          
+
           const { data: newOrder, error: orderError } = await adminSupabase
             .from('orders')
             .insert({
@@ -630,10 +630,10 @@ serve(async (req) => {
           for (const lineItem of wooOrder.line_items || []) {
             const itemId = `${orderId}-${lineItem.id}`;
             const { specifications } = parseProductMeta(lineItem.meta_data || []);
-            
+
             const deliveryDate = new Date();
             deliveryDate.setDate(deliveryDate.getDate() + 7);
-            
+
             const { error: itemError } = await adminSupabase
               .from('order_items')
               .insert({
@@ -659,7 +659,7 @@ serve(async (req) => {
                 created_at: new Date(wooOrder.date_created).toISOString(),
                 updated_at: new Date().toISOString(),
               });
-            
+
             if (itemError) {
               console.error(`Error creating order item ${itemId}:`, itemError);
               errors.push(`Order ${wooOrderId} - Item ${lineItem.name}: ${itemError.message || 'Failed to create item'}`);
@@ -690,7 +690,7 @@ serve(async (req) => {
         }
       }
 
-      return new Response(JSON.stringify({ 
+      return new Response(JSON.stringify({
         success: true,
         imported: importedOrders.length,
         errors: errors.length > 0 ? errors : undefined,
@@ -700,13 +700,185 @@ serve(async (req) => {
       });
     }
 
+
+
+    // --- NEW: Search Customers (for Manual Import) ---
+    if (action === 'search_customers') {
+      const { query } = body;
+      if (!query || query.length < 3) {
+        return new Response(JSON.stringify({ customers: [] }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      console.log(`Searching customers for: ${query}`);
+      let storeUrl = runtimeCredentials.storeUrl || Deno.env.get('WOOCOMMERCE_STORE_URL');
+      let consumerKey = runtimeCredentials.consumerKey || Deno.env.get('WOOCOMMERCE_CONSUMER_KEY');
+      let consumerSecret = runtimeCredentials.consumerSecret || Deno.env.get('WOOCOMMERCE_CONSUMER_SECRET');
+
+      const auth = btoa(`${consumerKey}:${consumerSecret}`);
+
+      // Search by generic 'search' param (matches name/email in WC)
+      const searchParams = new URLSearchParams();
+      searchParams.append('search', query);
+      searchParams.append('per_page', '20'); // Limit results
+
+      const apiUrl = `${storeUrl}/wp-json/wc/v3/customers?${searchParams.toString()}`;
+
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' }
+        });
+
+        if (!response.ok) throw new Error(`WC Search Failed: ${response.status}`);
+
+        const customers = await response.json();
+
+        // Map to simpler format for UI
+        const results = customers.map((c: any) => ({
+          id: c.id,
+          name: `${c.first_name} ${c.last_name}`.trim() || c.username,
+          email: c.email,
+          avatar_url: c.avatar_url,
+          phone: c.billing?.phone || c.shipping?.phone,
+          total_spent: c.total_spent,
+          orders_count: c.orders_count,
+          // Helper for UI to show location
+          location: [c.billing?.city, c.billing?.country].filter(Boolean).join(', ')
+        }));
+
+        return new Response(JSON.stringify({ customers: results }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+
+      } catch (err: any) {
+        console.error('Search Error:', err);
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // --- NEW: Import Single Customer (Assign to User) ---
+    if (action === 'import_customer') {
+      const { wc_id } = body;
+      if (!wc_id) return new Response(JSON.stringify({ error: 'wc_id required' }), { status: 400, headers: corsHeaders });
+
+      console.log(`Importing customer ${wc_id} for user ${user.id}`);
+
+      let storeUrl = runtimeCredentials.storeUrl || Deno.env.get('WOOCOMMERCE_STORE_URL');
+      let consumerKey = runtimeCredentials.consumerKey || Deno.env.get('WOOCOMMERCE_CONSUMER_KEY');
+      let consumerSecret = runtimeCredentials.consumerSecret || Deno.env.get('WOOCOMMERCE_CONSUMER_SECRET');
+      const auth = btoa(`${consumerKey}:${consumerSecret}`);
+
+      try {
+        // 1. Fetch from WC
+        const response = await fetch(`${storeUrl}/wp-json/wc/v3/customers/${wc_id}`, {
+          headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch customer from WC');
+        const c = await response.json();
+
+        // 2. Upsert to DB with assigned_to = user.id
+        const upsertData = {
+          wc_id: c.id,
+          email: c.email,
+          first_name: c.first_name,
+          last_name: c.last_name,
+          phone: c.billing?.phone || c.shipping?.phone,
+          billing: c.billing,
+          shipping: c.shipping,
+          avatar_url: c.avatar_url,
+          total_spent: c.total_spent ? parseFloat(c.total_spent) : 0,
+          orders_count: c.orders_count || 0,
+          last_order_date: c.date_last_active_gwt,
+          last_synced_at: new Date().toISOString(),
+          assigned_to: user.id // <--- IMPORTANT: Assign to current user
+        };
+
+        const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const adminSupabase = createClient(supabaseUrl, serviceRoleKey);
+
+        const { error } = await adminSupabase
+          .from('wc_customers')
+          .upsert(upsertData, { onConflict: 'wc_id' });
+
+        if (error) throw error;
+
+        return new Response(JSON.stringify({ success: true, customer: upsertData }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+
+      } catch (err: any) {
+        console.error('Import Error:', err);
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // --- NEW: Get Customer Orders (Moved from broken function) ---
+    if (action === 'get_customer_orders') {
+      const { customer_id } = body; // WC Customer ID
+
+      let storeUrl = runtimeCredentials.storeUrl || Deno.env.get('WOOCOMMERCE_STORE_URL');
+      let consumerKey = runtimeCredentials.consumerKey || Deno.env.get('WOOCOMMERCE_CONSUMER_KEY');
+      let consumerSecret = runtimeCredentials.consumerSecret || Deno.env.get('WOOCOMMERCE_CONSUMER_SECRET');
+      const auth = btoa(`${consumerKey}:${consumerSecret}`);
+
+      try {
+        const response = await fetch(`${storeUrl}/wp-json/wc/v3/orders?customer=${customer_id}&per_page=20`, {
+          headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        if (!response.ok) throw new Error('Failed to fetch orders');
+        const orders = await response.json();
+
+        // Sanitize map
+        const safeOrders = orders.map((o: any) => ({
+          id: o.id,
+          number: o.number,
+          status: o.status,
+          date_created: o.date_created,
+          total: o.total,
+          line_items: o.line_items.map((i: any) => ({
+            name: i.name,
+            quantity: i.quantity,
+            total: i.total,
+            sku: i.sku
+          }))
+        }));
+
+        return new Response(JSON.stringify({ orders: safeOrders }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+
+      } catch (err: any) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // Sync Customers Action
+    if (action === 'sync_customers') {
+      return new Response(JSON.stringify({ message: "Auto-sync is disabled. Please use manual import." }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
     if (action === 'sync-orders') {
       console.log('Syncing orders from WooCommerce with advanced safeguards:', storeUrl);
-      
+
       // Fetch processing orders from WooCommerce
       const apiUrl = `${storeUrl}/wp-json/wc/v3/orders?status=processing&per_page=50`;
       const auth = btoa(`${consumerKey}:${consumerSecret}`);
-      
+
       const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
@@ -718,9 +890,9 @@ serve(async (req) => {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('WooCommerce order sync failed:', response.status, errorText);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: `Failed to fetch orders: ${response.status}` 
+        return new Response(JSON.stringify({
+          success: false,
+          error: `Failed to fetch orders: ${response.status}`
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
@@ -736,10 +908,10 @@ serve(async (req) => {
       // Generate unique sync ID
       const syncId = `sync-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       const syncedAt = new Date().toISOString();
-      
+
       // Extract WooCommerce order IDs from current sync
       const wooOrderIds = wooOrders.map((o: any) => o.id);
-      
+
       let importedCount = 0;
       let updatedCount = 0;
       let restoredCount = 0;
@@ -747,13 +919,14 @@ serve(async (req) => {
       const errors: string[] = [];
 
       // STEP 1: Process all WooCommerce orders (with duplicate prevention by woo_order_id)
+      // STEP 1: Process all WooCommerce orders (with duplicate prevention by woo_order_id)
       for (const wooOrder of wooOrders) {
         try {
           const wooOrderId = wooOrder.id;
-          
+
           // FIX: Use numeric order ID only (no WC- prefix) for WooCommerce orders
           const orderId = wooOrderId.toString();
-          
+
           // SAFEGUARD 8: Duplicate Prevention - Check by both order_id and woo_order_id
           // Check by order_id first (primary check for duplicates)
           const { data: existingByOrderId } = await adminSupabase
@@ -761,7 +934,7 @@ serve(async (req) => {
             .select('id, source, archived_from_wc, woo_order_id')
             .eq('order_id', orderId)
             .maybeSingle();
-          
+
           // Also check by woo_order_id as fallback (in case order_id format changed)
           const { data: existingByWooId } = await adminSupabase
             .from('orders')
@@ -777,30 +950,30 @@ serve(async (req) => {
             console.log(`Skipping manual order with order_id ${orderId} or woo_order_id ${wooOrderId} - manual orders are protected`);
             continue;
           }
-          
+
           // Extract billing details
           const billing = wooOrder.billing || {};
           const customerName = `${billing.first_name || ''} ${billing.last_name || ''}`.trim() || 'Unknown Customer';
           const customerEmail = billing.email || null;
           const customerPhone = billing.phone || null;
           const billingAddress = buildFullAddress(billing);
-          
+
           // Extract shipping details (fallback to billing if empty)
           const shipping = wooOrder.shipping || {};
           const hasShipping = shipping.first_name || shipping.last_name || shipping.address_1;
-          const shippingName = hasShipping 
+          const shippingName = hasShipping
             ? `${shipping.first_name || ''} ${shipping.last_name || ''}`.trim()
             : customerName;
           const shippingAddress = hasShipping ? buildFullAddress(shipping) : billingAddress;
           const shippingCity = shipping.city || billing.city || null;
           const shippingState = shipping.state || billing.state || null;
           const shippingPincode = shipping.postcode || billing.postcode || null;
-          
+
           // Extract order totals and tax
           const orderTotal = parseFloat(wooOrder.total) || 0;
           let taxCgst = 0;
           let taxSgst = 0;
-          
+
           // Parse tax lines for CGST/SGST
           if (Array.isArray(wooOrder.tax_lines)) {
             for (const tax of wooOrder.tax_lines) {
@@ -813,11 +986,11 @@ serve(async (req) => {
               }
             }
           }
-          
+
           // Get delivery date from order meta if available
           let deliveryDate: string | null = null;
           if (Array.isArray(wooOrder.meta_data)) {
-            const deliveryMeta = wooOrder.meta_data.find((m: any) => 
+            const deliveryMeta = wooOrder.meta_data.find((m: any) =>
               m.key === 'delivery_date' || m.key === '_delivery_date' || m.key === 'expected_delivery'
             );
             if (deliveryMeta?.value) {
@@ -827,7 +1000,7 @@ serve(async (req) => {
               }
             }
           }
-          
+
           let orderDbId: string;
           const isRestored = existingOrder && existingOrder.archived_from_wc === true;
 
@@ -869,9 +1042,9 @@ serve(async (req) => {
               errors.push(`Update ${orderId}: ${updateError.message}`);
               continue;
             }
-            
+
             orderDbId = existingOrder.id;
-            
+
             // CRITICAL: If order_id doesn't match, update it to numeric format (migration fix)
             if (existingOrder.order_id && existingOrder.order_id !== orderId && existingOrder.order_id.startsWith('WC-')) {
               console.log(`Updating order_id from ${existingOrder.order_id} to ${orderId} (removing WC- prefix)`);
@@ -880,11 +1053,11 @@ serve(async (req) => {
                 .update({ order_id: orderId })
                 .eq('id', existingOrder.id);
             }
-            
+
             if (isRestored) {
               restoredCount++;
               console.log(`Restored archived order ${orderId} (WC Order #${wooOrderId})`);
-              
+
               // Create timeline entry for restoration
               await adminSupabase
                 .from('timeline')
@@ -909,12 +1082,12 @@ serve(async (req) => {
               .select('id')
               .eq('order_id', orderId)
               .maybeSingle();
-            
+
             if (doubleCheckOrder) {
               console.log(`Order ${orderId} was created by another process, skipping duplicate`);
               continue;
             }
-            
+
             const { data: newOrder, error: orderError } = await adminSupabase
               .from('orders')
               .insert({
@@ -962,9 +1135,9 @@ serve(async (req) => {
 
             orderDbId = newOrder.id;
             importedCount++;
-            
+
             console.log(`Created new order ${orderId} (WC Order #${wooOrderId})`);
-            
+
             // Create timeline entry for new order
             await adminSupabase
               .from('timeline')
@@ -983,13 +1156,13 @@ serve(async (req) => {
           for (const item of wooOrder.line_items || []) {
             const { specifications, rawMeta } = parseProductMeta(item.meta_data || []);
             const lineTotal = parseFloat(item.total) || 0;
-            
+
             // Generate item_id for this line item (consistent with import-orders format)
             const itemId = `${orderId}-${item.id}`;
-            
+
             // Check if this item already exists for this order by item_id (preferred) or SKU (fallback)
             let existingItem: any = null;
-            
+
             // First try to find by item_id
             const { data: itemById } = await adminSupabase
               .from('order_items')
@@ -997,7 +1170,7 @@ serve(async (req) => {
               .eq('order_id', orderDbId)
               .eq('item_id', itemId)
               .maybeSingle();
-            
+
             if (itemById) {
               existingItem = itemById;
             } else {
@@ -1009,7 +1182,7 @@ serve(async (req) => {
                 .eq('order_id', orderDbId)
                 .eq('sku', sku)
                 .maybeSingle();
-              
+
               if (itemBySku) {
                 existingItem = itemBySku;
               }
@@ -1026,23 +1199,23 @@ serve(async (req) => {
                 line_total: lineTotal,
                 updated_at: syncedAt,
               };
-              
+
               // Set item_id if it wasn't set before
               if (!existingItem.item_id) {
                 updateData.item_id = itemId;
               }
-              
+
               await adminSupabase
                 .from('order_items')
                 .update(updateData)
                 .eq('id', existingItem.id);
-                
+
               console.log(`Updated item ${item.name} for order ${orderId}`);
             } else {
               // Create new item with item_id
               const deliveryDate = new Date();
               deliveryDate.setDate(deliveryDate.getDate() + 7);
-              
+
               const { error: itemError } = await adminSupabase
                 .from('order_items')
                 .insert({
@@ -1072,7 +1245,7 @@ serve(async (req) => {
               }
             }
           }
-          
+
         } catch (orderError: unknown) {
           const errorMsg = orderError instanceof Error ? orderError.message : 'Unknown error';
           console.error(`Error processing WooCommerce order ${wooOrder.id}:`, orderError);
@@ -1113,7 +1286,7 @@ serve(async (req) => {
               } else {
                 archivedCount++;
                 console.log(`Archived order ${existingOrder.order_id} (WC Order #${existingOrder.woo_order_id}) - not found in current sync`);
-                
+
                 // Create timeline entry for archiving
                 await adminSupabase
                   .from('timeline')
@@ -1134,7 +1307,7 @@ serve(async (req) => {
 
       // STEP 3: SAFEGUARD 4 - Create sync log entry
       const syncStatus = errors.length > 0 ? (errors.length === wooOrders.length ? 'failed' : 'partial') : 'completed';
-      
+
       const { error: logError } = await adminSupabase
         .from('order_sync_logs')
         .insert({
@@ -1155,9 +1328,9 @@ serve(async (req) => {
       }
 
       console.log(`Sync complete: ${importedCount} imported, ${updatedCount} updated, ${restoredCount} restored, ${archivedCount} archived, ${errors.length} errors`);
-      
-      return new Response(JSON.stringify({ 
-        success: true, 
+
+      return new Response(JSON.stringify({
+        success: true,
         sync_id: syncId,
         imported: importedCount,
         updated: updatedCount,
@@ -1179,13 +1352,13 @@ serve(async (req) => {
     console.error('[Edge Function] Unhandled error:', error);
     const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
     const errorDetails = error instanceof Error ? error.stack : String(error);
-    return new Response(JSON.stringify({ 
-      error: errorMessage, 
-      details: errorDetails || 'No details' 
+    return new Response(JSON.stringify({
+      error: errorMessage,
+      details: errorDetails || 'No details'
     }), {
       status: 500,
-      headers: { 
-        ...corsHeaders, 
+      headers: {
+        ...corsHeaders,
         'Content-Type': 'application/json',
       },
     });

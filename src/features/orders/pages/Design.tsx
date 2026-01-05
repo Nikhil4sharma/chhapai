@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Upload, CheckCircle, Clock, ArrowRight, Send, Building2, Settings, MessageSquare, FileText, RotateCcw, AlertTriangle, Package, User } from 'lucide-react';
-import { ProductCard } from '@/components/products/ProductCard';
+import { ProductCard } from '@/features/orders/components/ProductCard';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -85,12 +85,12 @@ export default function Design() {
   const allDesignItems = useMemo(() => {
     const department = 'design';
     const deptLower = department.toLowerCase().trim();
-    
+
     // Check user's department - use role first, then profile.department
     const userRole = (role || '').toLowerCase().trim();
     const userProfileDept = (profile?.department || '').toLowerCase().trim();
     const isDesignUser = userRole === deptLower || userProfileDept === deptLower || isAdmin;
-    
+
     console.log('[Design] Filtering items:', {
       user_id: user?.id,
       role: role,
@@ -102,40 +102,40 @@ export default function Design() {
       isAdmin: isAdmin,
       totalOrders: orders.length,
     });
-    
+
     const filtered = orders
       .filter(order => !order.is_completed && !order.archived_from_wc)
-      .flatMap(order => 
+      .flatMap(order =>
         order.items
           .filter(item => {
             // Filter by assigned_department (primary check)
             const itemDept = (item.assigned_department || '').toLowerCase().trim();
             const itemStage = (item.current_stage || '').toLowerCase().trim();
-            
+
             // CRITICAL: Item must be assigned to design department
             // Check both assigned_department and current_stage as fallback
             const isDesignItem = itemDept === deptLower || (itemStage === deptLower && !item.assigned_department);
-            
+
             if (!isDesignItem) {
               return false;
             }
-            
+
             // CRITICAL FIX: Visibility logic (CORRECTED)
             // - Admin sees ALL items in design department
             // - Sales sees ALL items in design department
             // - Department users see ALL items in their department (regardless of assigned_to)
             // - assigned_to does NOT control department-level visibility
             // - assigned_to is only used for "Assigned to Me" tab filtering
-            
+
             if (isAdmin || role === 'sales') {
               return true; // Admin and Sales see everything
             }
-            
+
             // CRITICAL: User must be in design department to see any design items
             if (!isDesignUser) {
               return false;
             }
-            
+
             // Department users ALWAYS see items in their department
             // assigned_to does NOT filter out items from department view
             // This ensures department-wide visibility (read-only for assigned items)
@@ -146,14 +146,14 @@ export default function Design() {
             item,
           }))
       );
-    
+
     console.log('[Design] Filtered items count:', filtered.length, {
       totalOrders: orders.length,
       isDesignUser: isDesignUser,
       userRole: role,
       userProfileDept: profile?.department,
     });
-    
+
     return filtered;
   }, [orders, isAdmin, user, role, profile]);
 
@@ -183,30 +183,30 @@ export default function Design() {
   const pendingApprovalItems = useMemo(() => {
     return allDesignItems.filter(({ item, order }) => {
       // Items sent to sales from design (waiting for approval)
-      return item.current_stage === 'sales' && 
-             item.assigned_department === 'sales' &&
-             item.need_design &&
-             item.files && item.files.some(f => f.file_type === 'image' || f.file_type === 'design');
+      return item.current_stage === 'sales' &&
+        item.assigned_department === 'sales' &&
+        item.need_design &&
+        item.files && item.files.some(f => f.file_type === 'image' || f.file_type === 'design');
     });
   }, [allDesignItems]);
 
   const inProgressItems = useMemo(() => {
     return allDesignItems.filter(({ item }) => {
       // Items currently in design department and not completed
-      return item.current_stage === 'design' && 
-             item.assigned_department === 'design' &&
-             item.current_stage !== 'completed';
+      return item.current_stage === 'design' &&
+        item.assigned_department === 'design' &&
+        item.current_stage !== 'completed';
     });
   }, [allDesignItems]);
 
   const completedItems = useMemo(() => {
     return allDesignItems.filter(({ item }) => {
       // Items that moved out of design (completed design work)
-      return (item.current_stage === 'prepress' || 
-              item.current_stage === 'production' || 
-              item.current_stage === 'completed') &&
-             (item.assigned_department === 'prepress' || 
-              item.assigned_department === 'production');
+      return (item.current_stage === 'prepress' ||
+        item.current_stage === 'production' ||
+        item.current_stage === 'completed') &&
+        (item.assigned_department === 'prepress' ||
+          item.assigned_department === 'production');
     });
   }, [allDesignItems]);
 
@@ -250,7 +250,7 @@ export default function Design() {
     console.log('[Design] All Design Items Count:', allDesignItems.length);
     console.log('[Design] Filtered Design Items Count:', designItems.length);
     console.log('[Design] Design Items Count:', designItems.length);
-    
+
     // Show sample items
     if (allDesignItems.length > 0) {
       console.log('[Design] Sample Design Items (first 3):', allDesignItems.slice(0, 3).map(({ item, order }) => ({
@@ -299,7 +299,7 @@ export default function Design() {
     if (!order || !item) return;
 
     const workNotes = getWorkNotesByOrder(order.id || orderId);
-    const designNotes = workNotes.filter(note => 
+    const designNotes = workNotes.filter(note =>
       (note.order_item_id === itemId || note.order_item_id === null) &&
       note.stage === 'design'
     );
@@ -326,7 +326,7 @@ export default function Design() {
     const order = orders.find(o => o.order_id === orderId);
     const item = order?.items.find(i => i.item_id === itemId);
     if (!order || !item) return;
-    
+
     setSelectedItemForProduction({
       orderId,
       itemId,
@@ -524,9 +524,9 @@ export default function Design() {
                 });
 
                 return itemsWithSuffixes.map(({ order, item, suffix }) => (
-                  <ProductCard 
+                  <ProductCard
                     key={`${order.order_id}-${item.item_id}`}
-                    order={order} 
+                    order={order}
                     item={item}
                     productSuffix={suffix}
                   />

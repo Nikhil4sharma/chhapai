@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
-import { ProductCard } from '@/components/products/ProductCard';
+import { ProductCard } from '@/features/orders/components/ProductCard';
 import { PriorityBadge } from '@/features/orders/components/PriorityBadge';
 import { FilePreview } from '@/features/orders/components/FilePreview';
 import { CreateOrderDialog } from '@/components/dialogs/CreateOrderDialog';
@@ -702,3 +702,4 @@ export default function Sales() {
     </TooltipProvider>
   );
 }
+

@@ -11,6 +11,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth, AppRole } from '@/features/auth/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { WorkflowSettings } from '@/features/admin/components/WorkflowSettings';
 
 interface UserWithRole {
   id: string;
@@ -27,7 +29,7 @@ export default function Admin() {
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  
+
   // New user form
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -84,7 +86,7 @@ export default function Admin() {
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!newEmail || !newPassword || !newFullName) {
       toast({
         title: "Error",
@@ -109,7 +111,7 @@ export default function Admin() {
           }
         }
       });
-      
+
       // If user created but email not confirmed, try to confirm via SQL (if trigger exists)
       // Note: Frontend se directly confirm nahi kar sakte, trigger automatically karega
 
@@ -143,7 +145,7 @@ export default function Admin() {
 
       // Note: Email auto-confirm trigger se automatically confirm ho jayega
       // Agar trigger nahi hai, toh FIX_EMAIL_CONFIRMATION_AND_LOGIN.sql run karo
-      
+
       toast({
         title: "Success",
         description: `User ${newEmail} created successfully. Email will be auto-confirmed if trigger is enabled.`,
@@ -225,7 +227,7 @@ export default function Admin() {
         title: "Success",
         description: "User role updated",
       });
-      
+
       fetchUsers();
     } catch (error) {
       console.error('Error updating role:', error);
@@ -253,7 +255,7 @@ export default function Admin() {
         title: "Success",
         description: "Department updated",
       });
-      
+
       fetchUsers();
     } catch (error: any) {
       console.error('Error updating department:', error);
@@ -295,198 +297,214 @@ export default function Admin() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-display font-bold">User Management</h1>
-          <p className="text-muted-foreground">Manage users and their roles</p>
+          <h1 className="text-2xl font-display font-bold">Admin Panel</h1>
+          <p className="text-muted-foreground">Manage users, roles, and system workflows</p>
         </div>
-        
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <UserPlus className="h-4 w-4 mr-2" />
-              Add User
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create New User</DialogTitle>
-              <DialogDescription>
-                Add a new user to the system and assign their role
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleCreateUser} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="newFullName">Full Name</Label>
-                <Input
-                  id="newFullName"
-                  value={newFullName}
-                  onChange={(e) => setNewFullName(e.target.value)}
-                  placeholder="John Doe"
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="newEmail">Email</Label>
-                <Input
-                  id="newEmail"
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="user@company.com"
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="newPassword">Password</Label>
-                <Input
-                  id="newPassword"
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="••••••••"
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="newRole">Role (Permissions)</Label>
-                <Select value={newRole} onValueChange={(v) => setNewRole(v as AppRole)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="admin">Admin</SelectItem>
-                    <SelectItem value="sales">Sales</SelectItem>
-                    <SelectItem value="design">Design</SelectItem>
-                    <SelectItem value="prepress">Prepress</SelectItem>
-                    <SelectItem value="production">Production</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">Controls user permissions</p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="newDepartment">Department</Label>
-                <Select value={newDepartment} onValueChange={setNewDepartment}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sales">Sales</SelectItem>
-                    <SelectItem value="design">Design</SelectItem>
-                    <SelectItem value="prepress">Prepress</SelectItem>
-                    <SelectItem value="production">Production</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">Which orders they can see</p>
-              </div>
-
-
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isCreating}>
-                  {isCreating ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Create User
-                    </>
-                  )}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg font-display flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            All Users ({users.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            </div>
-          ) : (
-            <div className="overflow-x-auto -mx-4 sm:mx-0">
-              <div className="min-w-[600px] px-4 sm:px-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-[180px]">Name</TableHead>
-                      <TableHead className="w-[140px]">Department</TableHead>
-                      <TableHead className="w-[140px]">Role</TableHead>
-                      <TableHead className="text-right w-[80px]">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {users.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell>
-                          <p className="font-medium text-sm truncate max-w-[160px]">{user.full_name || 'Unnamed'}</p>
-                        </TableCell>
-                        <TableCell>
-                          <Select 
-                            value={user.department || 'sales'} 
-                            onValueChange={(v) => handleUpdateDepartment(user.user_id, v)}
-                          >
-                            <SelectTrigger className="w-28 h-8 text-xs">
-                              <SelectValue>{user.department || 'Select'}</SelectValue>
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="sales">Sales</SelectItem>
-                              <SelectItem value="design">Design</SelectItem>
-                              <SelectItem value="prepress">Prepress</SelectItem>
-                              <SelectItem value="production">Production</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell>
-                          <Select 
-                            value={user.role} 
-                            onValueChange={(v) => handleUpdateRole(user.user_id, v as AppRole)}
-                          >
-                            <SelectTrigger className="w-28 h-8 text-xs">
-                              <Badge variant={getRoleBadgeVariant(user.role) as any} className="text-xs">
-                                {user.role}
-                              </Badge>
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="admin">Admin</SelectItem>
-                              <SelectItem value="sales">Sales</SelectItem>
-                              <SelectItem value="design">Design</SelectItem>
-                              <SelectItem value="prepress">Prepress</SelectItem>
-                              <SelectItem value="production">Production</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={() => handleDeleteUser(user.user_id, user.full_name || 'User')}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="users" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="users">User Management</TabsTrigger>
+          <TabsTrigger value="workflow">Workflow Settings</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="users" className="space-y-6">
+          <div className="flex justify-end">
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Add User
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create New User</DialogTitle>
+                  <DialogDescription>
+                    Add a new user to the system and assign their role
+                  </DialogDescription>
+                </DialogHeader>
+                <form onSubmit={handleCreateUser} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="newFullName">Full Name</Label>
+                    <Input
+                      id="newFullName"
+                      value={newFullName}
+                      onChange={(e) => setNewFullName(e.target.value)}
+                      placeholder="John Doe"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="newEmail">Email</Label>
+                    <Input
+                      id="newEmail"
+                      type="email"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder="user@company.com"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="newPassword">Password</Label>
+                    <Input
+                      id="newPassword"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="••••••••"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="newRole">Role (Permissions)</Label>
+                    <Select value={newRole} onValueChange={(v) => setNewRole(v as AppRole)}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="admin">Admin</SelectItem>
+                        <SelectItem value="sales">Sales</SelectItem>
+                        <SelectItem value="design">Design</SelectItem>
+                        <SelectItem value="prepress">Prepress</SelectItem>
+                        <SelectItem value="production">Production</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Controls user permissions</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="newDepartment">Department</Label>
+                    <Select value={newDepartment} onValueChange={setNewDepartment}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sales">Sales</SelectItem>
+                        <SelectItem value="design">Design</SelectItem>
+                        <SelectItem value="prepress">Prepress</SelectItem>
+                        <SelectItem value="production">Production</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">Which orders they can see</p>
+                  </div>
+
+
+                  <div className="flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={isCreating}>
+                      {isCreating ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Creating...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="mr-2 h-4 w-4" />
+                          Create User
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
+            </Dialog>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg font-display flex items-center gap-2">
+                <Users className="h-5 w-5" />
+                All Users ({users.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+              ) : (
+                <div className="overflow-x-auto -mx-4 sm:mx-0">
+                  <div className="min-w-[600px] px-4 sm:px-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[180px]">Name</TableHead>
+                          <TableHead className="w-[140px]">Department</TableHead>
+                          <TableHead className="w-[140px]">Role</TableHead>
+                          <TableHead className="text-right w-[80px]">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {users.map((user) => (
+                          <TableRow key={user.id}>
+                            <TableCell>
+                              <p className="font-medium text-sm truncate max-w-[160px]">{user.full_name || 'Unnamed'}</p>
+                            </TableCell>
+                            <TableCell>
+                              <Select
+                                value={user.department || 'sales'}
+                                onValueChange={(v) => handleUpdateDepartment(user.user_id, v)}
+                              >
+                                <SelectTrigger className="w-28 h-8 text-xs">
+                                  <SelectValue>{user.department || 'Select'}</SelectValue>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="sales">Sales</SelectItem>
+                                  <SelectItem value="design">Design</SelectItem>
+                                  <SelectItem value="prepress">Prepress</SelectItem>
+                                  <SelectItem value="production">Production</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell>
+                              <Select
+                                value={user.role}
+                                onValueChange={(v) => handleUpdateRole(user.user_id, v as AppRole)}
+                              >
+                                <SelectTrigger className="w-28 h-8 text-xs">
+                                  <Badge variant={getRoleBadgeVariant(user.role) as any} className="text-xs">
+                                    {user.role}
+                                  </Badge>
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="admin">Admin</SelectItem>
+                                  <SelectItem value="sales">Sales</SelectItem>
+                                  <SelectItem value="design">Design</SelectItem>
+                                  <SelectItem value="prepress">Prepress</SelectItem>
+                                  <SelectItem value="production">Production</SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => handleDeleteUser(user.user_id, user.full_name || 'User')}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="workflow">
+          <WorkflowSettings />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
+

@@ -21,7 +21,7 @@ export async function fetchAllOrders(): Promise<Order[]> {
       .select('*')
       .order('created_at', { ascending: false })
       .limit(500);
-    
+
     // If migration_date column exists, filter by it
     // Otherwise fetch all (for backward compatibility during migration)
     const { data: ordersData, error: ordersError } = await query;
@@ -202,7 +202,7 @@ function computePriority(deliveryDate: Date | null): Priority {
   const delivery = new Date(deliveryDate);
   delivery.setHours(0, 0, 0, 0);
   const daysUntil = Math.ceil((delivery.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  
+
   if (daysUntil > 5) return 'blue';
   if (daysUntil >= 3) return 'yellow';
   return 'red';
@@ -235,7 +235,7 @@ export async function updateOrderItemStage(
     // Try UUID first, then fallback to item_id field lookup
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     let itemUuid: string | null = null;
-    
+
     if (uuidRegex.test(itemId)) {
       // Already a UUID, use directly
       itemUuid = itemId;
@@ -247,7 +247,7 @@ export async function updateOrderItemStage(
         .eq('item_id', itemId)
         .eq('order_id', orderId)
         .maybeSingle();
-      
+
       if (itemError || !itemData) {
         // If item_id column doesn't exist or item not found, try using itemId as UUID anyway
         itemUuid = itemId;
@@ -255,7 +255,7 @@ export async function updateOrderItemStage(
         itemUuid = itemData.id;
       }
     }
-    
+
     if (!itemUuid) {
       throw new Error(`Could not find order item with id: ${itemId}`);
     }
@@ -300,7 +300,7 @@ export async function assignOrderItemToDepartment(
     // Try UUID first, then fallback to item_id field lookup
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     let itemUuid: string | null = null;
-    
+
     if (uuidRegex.test(itemId)) {
       // Already a UUID, use directly
       itemUuid = itemId;
@@ -312,7 +312,7 @@ export async function assignOrderItemToDepartment(
         .eq('item_id', itemId)
         .eq('order_id', orderId)
         .maybeSingle();
-      
+
       if (itemError || !itemData) {
         // If item_id column doesn't exist or item not found, try using itemId as UUID anyway
         // (for backward compatibility)
@@ -321,11 +321,11 @@ export async function assignOrderItemToDepartment(
         itemUuid = itemData.id;
       }
     }
-    
+
     if (!itemUuid) {
       throw new Error(`Could not find order item with id: ${itemId}`);
     }
-    
+
     const { error } = await supabase
       .from('order_items')
       .update({
@@ -395,7 +395,7 @@ export async function assignOrderItemToUser(
       .eq('user_id', userId)
       .limit(1)
       .maybeSingle();
-    
+
     if (roleData?.role) {
       userDepartment = roleData.role;
     }
@@ -522,7 +522,7 @@ export async function fetchTimelineEntries(orderId: string, itemId?: string): Pr
     // Convert order_id string (e.g., "53509") to UUID if needed
     let orderUuid: string | null = null;
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    
+
     if (uuidRegex.test(orderId)) {
       orderUuid = orderId;
     } else {
@@ -532,7 +532,7 @@ export async function fetchTimelineEntries(orderId: string, itemId?: string): Pr
         .select('id')
         .eq('order_id', orderId)
         .maybeSingle();
-      
+
       if (orderData) {
         orderUuid = orderData.id;
       } else {
@@ -560,12 +560,12 @@ export async function fetchTimelineEntries(orderId: string, itemId?: string): Pr
 
     // Handle table not found error gracefully
     if (error) {
-      if (error.code === 'PGRST205' || 
-          error.code === '42P01' ||
-          error.message?.includes('Could not find the table') ||
-          error.message?.includes('does not exist') ||
-          error.status === 404 ||
-          error.statusCode === 404) {
+      if (error.code === 'PGRST205' ||
+        error.code === '42P01' ||
+        error.message?.includes('Could not find the table') ||
+        error.message?.includes('does not exist') ||
+        error.status === 404 ||
+        error.statusCode === 404) {
         console.warn('Timeline table not found in Supabase, returning empty array');
         return [];
       }
@@ -610,7 +610,7 @@ export async function addActivityLog(params: {
     // Convert order_id string (WC-53522) to UUID (orders.id) if needed
     let orderUuid: string | null = null;
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    
+
     if (uuidRegex.test(params.orderId)) {
       orderUuid = params.orderId;
     } else {
@@ -619,17 +619,17 @@ export async function addActivityLog(params: {
         .select('id')
         .eq('order_id', params.orderId)
         .maybeSingle();
-      
+
       if (orderData) {
         orderUuid = orderData.id;
       }
     }
-    
+
     if (!orderUuid) {
       console.warn('[addActivityLog] Could not find order UUID for:', params.orderId);
       return;
     }
-    
+
     // Convert item_id to UUID if needed
     let itemUuid: string | undefined = undefined;
     if (params.itemId) {
@@ -641,13 +641,13 @@ export async function addActivityLog(params: {
           .select('id')
           .eq('item_id', params.itemId)
           .maybeSingle();
-        
+
         if (itemData) {
           itemUuid = itemData.id;
         }
       }
     }
-    
+
     const { error } = await supabase
       .from('order_activity_logs')
       .insert({
@@ -659,7 +659,7 @@ export async function addActivityLog(params: {
         created_by: params.createdBy,
         metadata: params.metadata || {},
       });
-    
+
     if (error) {
       console.error('[addActivityLog] Error inserting activity log:', error);
       // Don't throw - activity logs are not critical
@@ -678,7 +678,7 @@ export async function fetchActivityLogs(orderId: string): Promise<any[]> {
     // Convert order_id string (WC-53522) to UUID if needed
     let orderUuid: string | null = null;
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    
+
     if (uuidRegex.test(orderId)) {
       orderUuid = orderId;
     } else {
@@ -687,34 +687,34 @@ export async function fetchActivityLogs(orderId: string): Promise<any[]> {
         .select('id')
         .eq('order_id', orderId)
         .maybeSingle();
-      
+
       if (orderData) {
         orderUuid = orderData.id;
       }
     }
-    
+
     if (!orderUuid) {
       // Don't log warning for every order - table might not exist yet
       return [];
     }
-    
+
     const { data, error } = await supabase
       .from('order_activity_logs')
       .select('*')
       .eq('order_id', orderUuid)
       .order('created_at', { ascending: false })
       .limit(200); // Limit to recent 200 logs per order
-    
+
     if (error) {
       // Handle table not found gracefully (table may not exist if migration hasn't run)
-      if (error.code === 'PGRST205' || 
-          error.code === '42P01' || 
-          error.code === 'PGRST116' ||
-          error.status === 404 ||
-          error.statusCode === 404 ||
-          error.message?.includes('relation') ||
-          error.message?.includes('does not exist') ||
-          error.message?.includes('Could not find the table')) {
+      if (error.code === 'PGRST205' ||
+        error.code === '42P01' ||
+        error.code === 'PGRST116' ||
+        error.status === 404 ||
+        error.statusCode === 404 ||
+        error.message?.includes('relation') ||
+        error.message?.includes('does not exist') ||
+        error.message?.includes('Could not find the table')) {
         // Table doesn't exist yet - this is OK during migration
         // Silently return empty array (don't log - expected during migration)
         return [];
@@ -726,24 +726,24 @@ export async function fetchActivityLogs(orderId: string): Promise<any[]> {
       }
       return [];
     }
-    
+
     // Fetch profile names for created_by users
     const userIds = [...new Set((data || []).map((log: any) => log.created_by).filter(Boolean))];
     const profilesMap = new Map<string, string>();
-    
+
     if (userIds.length > 0) {
       const { data: profilesData } = await supabase
         .from('profiles')
         .select('user_id, full_name')
         .in('user_id', userIds);
-      
+
       (profilesData || []).forEach((profile: any) => {
         if (profile.full_name) {
           profilesMap.set(profile.user_id, profile.full_name);
         }
       });
     }
-    
+
     // Map to include profile name if available
     return (data || []).map((log: any) => {
       const userName = log.created_by ? (profilesMap.get(log.created_by) || 'Unknown') : null;
@@ -767,10 +767,10 @@ export async function addTimelineEntry(entry: Omit<TimelineEntry, 'timeline_id' 
     // CRITICAL: Convert order_id string (WC-53522) to UUID (orders.id)
     // Timeline table expects UUID, not the order_id text field
     let orderUuid: string | null = null;
-    
+
     // Check if order_id is already a UUID (format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    
+
     if (uuidRegex.test(entry.order_id)) {
       // Already a UUID, use it directly
       orderUuid = entry.order_id;
@@ -781,14 +781,14 @@ export async function addTimelineEntry(entry: Omit<TimelineEntry, 'timeline_id' 
         .select('id')
         .eq('order_id', entry.order_id)
         .single();
-      
+
       if (orderError || !orderData) {
         console.error('Error finding order UUID for timeline entry:', orderError);
         console.error('Order ID:', entry.order_id);
         // Don't throw - just skip timeline entry if order not found
         return;
       }
-      
+
       orderUuid = orderData.id;
     }
 
@@ -805,16 +805,16 @@ export async function addTimelineEntry(entry: Omit<TimelineEntry, 'timeline_id' 
             .select('id')
             .eq('item_id', entry.item_id)
             .single();
-          
+
           // Handle 400 Bad Request errors gracefully
           if (itemError) {
-            const isBadRequest = itemError.status === 400 || 
+            const isBadRequest = itemError.status === 400 ||
               itemError.statusCode === 400 ||
               itemError.code === 'PGRST204' ||
               itemError.message?.includes('item_id') ||
               itemError.message?.includes('column') ||
               itemError.message?.includes('does not exist');
-            
+
             if (isBadRequest) {
               // item_id column might not exist or query format issue
               // Skip item_id lookup, use null
@@ -890,12 +890,12 @@ export async function addTimelineEntry(entry: Omit<TimelineEntry, 'timeline_id' 
         performedByUuid,
       });
 
-      if (error.code === 'PGRST205' || 
-          error.code === '42P01' ||
-          error.message?.includes('Could not find the table') ||
-          error.message?.includes('does not exist') ||
-          error.status === 404 ||
-          error.statusCode === 404) {
+      if (error.code === 'PGRST205' ||
+        error.code === '42P01' ||
+        error.message?.includes('Could not find the table') ||
+        error.message?.includes('does not exist') ||
+        error.status === 404 ||
+        error.statusCode === 404) {
         console.warn('Timeline table not found in Supabase, skipping timeline entry');
         return; // Silently skip if table doesn't exist
       }
@@ -979,3 +979,65 @@ export function subscribeToOrderItemsChanges(
   };
 }
 
+
+/**
+ * Update item specifications (for storing design status, etc.)
+ */
+export async function updateItemSpecifications(
+  orderId: string,
+  itemId: string,
+  updates: Record<string, any>
+): Promise<void> {
+  try {
+    // itemId can be either UUID (id) or string (item_id field)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let itemUuid: string | null = null;
+
+    if (uuidRegex.test(itemId)) {
+      itemUuid = itemId;
+    } else {
+      const { data: itemData, error: itemError } = await supabase
+        .from('order_items')
+        .select('id')
+        .eq('item_id', itemId)
+        .eq('order_id', orderId)
+        .maybeSingle();
+
+      if (itemError || !itemData) {
+        itemUuid = itemId;
+      } else {
+        itemUuid = itemData.id;
+      }
+    }
+
+    if (!itemUuid) {
+      throw new Error(`Could not find order item with id: ${itemId}`);
+    }
+
+    // First get current specifications to merge
+    const { data: currentItem, error: fetchError } = await supabase
+      .from('order_items')
+      .select('specifications')
+      .eq('id', itemUuid)
+      .single();
+
+    if (fetchError) throw fetchError;
+
+    const currentSpecs = currentItem.specifications || {};
+    const newSpecs = { ...currentSpecs, ...updates };
+
+    const { error } = await supabase
+      .from('order_items')
+      .update({
+        specifications: newSpecs,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', itemUuid);
+
+    if (error) throw error;
+
+  } catch (error) {
+    console.error('Error in updateItemSpecifications:', error);
+    throw error;
+  }
+}

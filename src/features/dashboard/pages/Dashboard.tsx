@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatsCard } from '@/components/dashboard/StatsCard';
 import { StageProgress } from '@/components/dashboard/StageProgress';
 import { OrderCard } from '@/features/orders/components/OrderCard';
-import { ProductCard } from '@/components/products/ProductCard';
+import { ProductCard } from '@/features/orders/components/ProductCard';
 import { useOrders } from '@/features/orders/context/OrderContext';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import { useNavigate } from 'react-router-dom';

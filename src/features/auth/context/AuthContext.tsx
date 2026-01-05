@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { supabase } from '@/integrations/supabase/client';
 import type { User as SupabaseUser, Session } from '@supabase/supabase-js';
 
-export type AppRole = 'admin' | 'sales' | 'design' | 'prepress' | 'production';
+export type AppRole = 'admin' | 'sales' | 'design' | 'prepress' | 'production' | 'dispatch' | 'super_admin' | 'hr_admin';
 
 interface Profile {
   id: string;
@@ -53,19 +53,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.log('[Auth] Already fetching user data for:', userId, '- skipping');
       return;
     }
-    
+
     // CRITICAL: If we've already fetched for this user, skip
     if (lastFetchedUserIdRef.current === userId && profile && profile.user_id === userId) {
       console.log('[Auth] Already fetched user data for:', userId, '- skipping');
       return;
     }
-    
+
     isFetchingRef.current = true;
     lastFetchedUserIdRef.current = userId;
-    
+
     try {
       console.log('[Auth] Fetching user data for:', userId);
-      
+
       // Fetch profile and role in parallel for better performance
       // Use select('*') to avoid column name issues, then map to our interface
       const [profileResult, roleResult] = await Promise.allSettled([
@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Handle profile result
       if (profileResult.status === 'fulfilled') {
         const { data: profileData, error: profileError } = profileResult.value;
-        
+
         if (profileError) {
           // Log full error details for debugging
           console.error('[Auth] Error fetching profile:', {
@@ -94,7 +94,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             hint: profileError.hint,
             status: profileError.status,
           });
-          
+
           if (profileError.code === 'PGRST116') {
             console.warn('[Auth] Profile not found for user:', userId);
             setProfile(null);
@@ -107,7 +107,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               .select('id, user_id, full_name')
               .eq('user_id', userId)
               .maybeSingle();
-            
+
             if (!fallbackError && fallbackData) {
               console.log('[Auth] Fallback query succeeded, using minimal profile data');
               setProfile({
@@ -154,7 +154,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Handle role result
       if (roleResult.status === 'fulfilled') {
         const { data: roleData, error: roleError } = roleResult.value;
-        
+
         if (roleError) {
           // Log full error details for debugging
           if (roleError.code !== 'PGRST116') {
@@ -202,17 +202,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initializeAuth = async () => {
       // CRITICAL: Mark as initialized immediately to prevent re-runs
       hasInitializedRef.current = true;
-      
+
       try {
         console.log('[BOOTSTRAP] Starting auth initialization...');
         const { data: { session: initialSession }, error } = await supabase.auth.getSession();
-        
+
         if (!mounted) {
           console.log('[BOOTSTRAP] Component unmounted during init, setting authReady');
           setAuthReady(true);
           return;
         }
-        
+
         if (error) {
           console.error('[BOOTSTRAP] Error getting initial session:', error);
           // CRITICAL: ALWAYS set authReady = true, even on error
@@ -222,11 +222,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         console.log('[BOOTSTRAP] Session restored:', initialSession?.user?.email || 'No session');
-        
+
         // Set initial session state
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
-        
+
         // CRITICAL: Set authReady BEFORE fetching profile/role
         // This allows UI to render while profile/role loads in background
         setAuthReady(true);
@@ -263,13 +263,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       data: { subscription: authSubscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted) return;
-      
+
       // CRITICAL: Ignore INITIAL_SESSION event - we already handled it in initializeAuth
       if (event === 'INITIAL_SESSION' && hasInitializedRef.current) {
         console.log('[BOOTSTRAP] Ignoring INITIAL_SESSION event - already initialized');
         return;
       }
-      
+
       // CRITICAL: Ignore TOKEN_REFRESHED events that happen on tab focus
       // These don't require re-fetching profile data
       if (event === 'TOKEN_REFRESHED' && session?.user && lastFetchedUserIdRef.current === session.user.id) {
@@ -278,7 +278,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session);
         return;
       }
-      
+
       // Suppress "Invalid Refresh Token" errors when user is not authenticated (expected behavior)
       if (event === 'SIGNED_OUT' || (!session && event === 'TOKEN_REFRESHED')) {
         // This is expected when user is not logged in, don't log as error
@@ -286,11 +286,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         console.log('[BOOTSTRAP] Auth state changed:', event, session?.user?.email);
       }
-      
+
       // Update session and user state
       setSession(session);
       setUser(session?.user ?? null);
-      
+
       // CRITICAL: ALWAYS ensure authReady is true after auth state changes
       if (!authReady) {
         setAuthReady(true);
@@ -300,10 +300,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (session?.user) {
         // CRITICAL: Only fetch if profile is not already loaded for this user
         // AND we haven't already fetched for this user
-        const shouldFetch = !profile || 
-                           profile.user_id !== session.user.id ||
-                           lastFetchedUserIdRef.current !== session.user.id;
-        
+        const shouldFetch = !profile ||
+          profile.user_id !== session.user.id ||
+          lastFetchedUserIdRef.current !== session.user.id;
+
         if (shouldFetch) {
           console.log('[BOOTSTRAP] Fetching user profile and role (state change)...');
           // Don't await - non-blocking background fetch
@@ -338,33 +338,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         email,
         password,
       });
-      
+
       if (error) {
         console.error('[Auth] Sign in error:', error);
-        
+
         // Handle specific error cases with better messages
         if (error.message?.includes('Email not confirmed') || error.message?.includes('email_not_confirmed')) {
-          return { 
-            error: new Error('Email not confirmed. Please contact admin or run CONFIRM_EXISTING_USERS_EMAIL.sql in Supabase.') 
+          return {
+            error: new Error('Email not confirmed. Please contact admin or run CONFIRM_EXISTING_USERS_EMAIL.sql in Supabase.')
           };
         }
-        
+
         // Handle invalid credentials - most common case
-        if (error.message?.includes('Invalid login credentials') || 
-            error.message?.includes('Invalid email or password') ||
-            error.status === 400 ||
-            error.status === 401) {
-          return { 
-            error: new Error('Invalid email or password. Please check your credentials.') 
+        if (error.message?.includes('Invalid login credentials') ||
+          error.message?.includes('Invalid email or password') ||
+          error.status === 400 ||
+          error.status === 401) {
+          return {
+            error: new Error('Invalid email or password. Please check your credentials.')
           };
         }
-        
+
         // Generic error
         return {
           error: new Error(error.message || 'Login failed. Please try again.')
         };
       }
-      
+
       // Success - session will be handled by onAuthStateChange
       console.log('[Auth] Sign in successful:', data.user?.email);
       return { error: null };
@@ -420,19 +420,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = useCallback(async () => {
     try {
       console.log('[BOOTSTRAP] Signing out...');
-      
+
       // Clear local state first
       setUser(null);
       setSession(null);
       setProfile(null);
       setRole(null);
       lastFetchedUserIdRef.current = null;
-      
+
       // Then sign out from Supabase
       const { error } = await supabase.auth.signOut({
         scope: 'global' // Sign out from all sessions
       });
-      
+
       if (error) {
         console.error('[BOOTSTRAP] Error signing out:', error);
         // Even if error, clear local state
@@ -443,9 +443,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         lastFetchedUserIdRef.current = null;
         throw error;
       }
-      
+
       console.log('[BOOTSTRAP] Signed out successfully');
-      
+
       // Clear localStorage to ensure session is removed
       if (typeof window !== 'undefined') {
         localStorage.removeItem('sb-hswgdeldouyclpeqbbgq-auth-token');

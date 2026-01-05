@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Calendar, Package, User, Trash2, X, AlertTriangle, CheckCircle2, Phone, Mail, MapPin } from 'lucide-react';
+import { Plus, Calendar, Package, User, Trash2, X, AlertTriangle, CheckCircle2, Phone, Mail, MapPin, Search } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -8,6 +8,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command"
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -47,20 +55,17 @@ const computePriority = (deliveryDate: Date | null | undefined): Priority => {
   const delivery = new Date(deliveryDate);
   delivery.setHours(0, 0, 0, 0);
   const daysUntil = Math.ceil((delivery.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  
+
   if (daysUntil > 5) return 'blue';
   if (daysUntil >= 3) return 'yellow';
   return 'red';
 };
 
 // Helper to normalize order numbers for comparison
-// Removes prefixes (WC-, MAN-) and compares just the numeric part
 const normalizeOrderNumberForComparison = (orderNum: string | number | null | undefined): string => {
   if (!orderNum) return '';
   const str = orderNum.toString().trim();
-  // Remove WC- or MAN- prefix if present
   const withoutPrefix = str.replace(/^(WC|MAN)-/i, '');
-  // Return just the numeric part (in case there are other characters)
   return withoutPrefix.replace(/\D/g, '');
 };
 
@@ -79,17 +84,15 @@ interface CreateOrderDialogProps {
 
 const DEFAULT_SPEC_KEYS = ['Size', 'Material', 'Finish', 'Color', 'Printing', 'Quantity Details'];
 
-// Helper function to generate unique ID with fallback
 const generateId = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
-  // Fallback for browsers that don't support crypto.randomUUID
   return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}-${Math.random().toString(36).substring(2, 9)}`;
 };
 
-export function CreateOrderDialog({ 
-  open, 
+export function CreateOrderDialog({
+  open,
   onOpenChange,
   onOrderCreated
 }: CreateOrderDialogProps) {
@@ -107,12 +110,19 @@ export function CreateOrderDialog({
   const [wooCommerceCached, setWooCommerceCached] = useState(false);
   const [wooCommerceImportedAt, setWooCommerceImportedAt] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(undefined);
-  
+
+  // Customer Search State
+  const [customerSearchOpen, setCustomerSearchOpen] = useState(false);
+  const [customerSearchQuery, setCustomerSearchQuery] = useState('');
+  const [customerSearchResults, setCustomerSearchResults] = useState<any[]>([]);
+  const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
+
+
   // CRITICAL FIX: Track the order number that was used for the current WooCommerce fetch
   // This prevents race conditions where a slow fetch for order A completes after user
   // has already changed to order B, causing stale data to be imported
   const wooCommerceFetchOrderNumberRef = useRef<string | null>(null);
-  
+
   const [customerData, setCustomerData] = useState({
     name: '',
     phone: '',
@@ -157,31 +167,75 @@ export function CreateOrderDialog({
     setShowPreviewCard(false);
     setWooCommerceCached(false);
     setWooCommerceImportedAt(null);
+    setCustomerSearchOpen(false);
+    setCustomerSearchQuery('');
+    setCustomerSearchResults([]);
+  };
+
+  const handleCustomerSearch = async () => {
+    if (!customerSearchQuery || customerSearchQuery.length < 3) return;
+    setIsSearchingCustomers(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('woocommerce', {
+        body: { action: 'search_customers', query: customerSearchQuery }
+      });
+      if (error) throw error;
+      setCustomerSearchResults(data.customers || []);
+    } catch (err) {
+      console.error('Customer Search Error', err);
+      toast({ title: "Search Failed", description: "Could not fetch customers", variant: "destructive" });
+    } finally {
+      setIsSearchingCustomers(false);
+    }
+  };
+
+  const selectCustomer = (c: any) => {
+    setCustomerData({
+      ...customerData,
+      name: c.name,
+      email: c.email || '',
+      phone: c.phone || '',
+      address: c.location || '', // Approximate, since location is just string in search result
+      // We might want to fetch full details here if needed, but this is a good start
+    });
+    setCustomerSearchOpen(false);
+    toast({ title: "Customer Selected", description: "Details autofilled." });
+
+    // Optional: Also Trigger Import in background? 
+    // The user requirement said "import kr ske". 
+    // Let's do a quick background import to assign it to this user.
+    if (c.id) {
+      supabase.functions.invoke('woocommerce', {
+        body: { action: 'import_customer', wc_id: c.id }
+      }).then(({ error }) => {
+        if (!error) console.log("Customer automatically assigned/imported.");
+      });
+    }
   };
 
   // Check if order number already exists - enhanced to check both order_id and woo_order_id
   const checkOrderNumberDuplicate = useCallback(async (orderNum: string, wooOrderId?: number): Promise<{ isDuplicate: boolean; message?: string }> => {
     if (!orderNum.trim()) return { isDuplicate: false };
-    
+
     try {
       setIsCheckingDuplicate(true);
-      
+
       // Check by order_id
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
         .select('id, order_id')
         .eq('order_id', orderNum.trim())
         .maybeSingle();
-      
+
       if (orderError && orderError.code !== 'PGRST116') {
         console.error('Error checking order number:', orderError);
         return { isDuplicate: false }; // On error, allow creation (fail-safe)
       }
-      
+
       if (orderData) {
         return { isDuplicate: true, message: 'Order number already exists in Order Flow' };
       }
-      
+
       // If we have woo_order_id, also check by that
       if (wooOrderId) {
         const { data: wooOrderData, error: wooError } = await supabase
@@ -189,17 +243,17 @@ export function CreateOrderDialog({
           .select('id, order_id, woo_order_id')
           .eq('woo_order_id', wooOrderId.toString())
           .maybeSingle();
-        
+
         if (wooError && wooError.code !== 'PGRST116') {
           console.error('Error checking woo_order_id:', wooError);
           return { isDuplicate: false };
         }
-        
+
         if (wooOrderData) {
           return { isDuplicate: true, message: `This WooCommerce order already exists in Order Flow (Order ID: ${wooOrderData.order_id})` };
         }
       }
-      
+
       return { isDuplicate: false };
     } catch (error) {
       console.error('Error checking order number:', error);
@@ -232,20 +286,20 @@ export function CreateOrderDialog({
     }
 
     const trimmedOrderNumber = orderNumber.trim();
-    
+
     try {
       setIsFetchingWooCommerce(true);
       setWooCommerceCheckStatus('checking');
       setWooCommerceError(null);
-      
+
       // CRITICAL FIX: Track which order number we're fetching for
       // This prevents stale responses from overwriting data for a different order
       wooCommerceFetchOrderNumberRef.current = trimmedOrderNumber;
-      
+
       // CRITICAL: Clear any previous WooCommerce data before fetching new one
       setWooOrderData(null);
       setIsWooCommerceOrder(false);
-      
+
       console.log('[CreateOrderDialog] Manually checking WooCommerce order:', trimmedOrderNumber, 'tracked ref:', wooCommerceFetchOrderNumberRef.current);
 
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -256,7 +310,7 @@ export function CreateOrderDialog({
       const requestBody = {
         order_number: trimmedOrderNumber,
       };
-      
+
       console.log('[CreateOrderDialog] Sending request with order_number:', requestBody.order_number);
 
       const response = await fetch(`${supabaseUrl}/functions/v1/woocommerce-fetch`, {
@@ -273,7 +327,7 @@ export function CreateOrderDialog({
         const errorData = await response.json().catch(() => ({}));
         const errorCode = errorData.error;
         const errorMessage = errorData.message || 'An error occurred';
-        
+
         // Handle standardized error codes
         if (errorCode === 'UNAUTHORIZED' || response.status === 401 || response.status === 403) {
           setWooCommerceError('You are not authorized to check WooCommerce orders');
@@ -320,7 +374,7 @@ export function CreateOrderDialog({
       }
 
       const data = await response.json();
-      
+
       // CRITICAL FIX: Verify this response is still valid for the current order number
       // If user changed order number while fetch was in progress, discard this stale response
       const currentOrderNumber = orderNumber.trim();
@@ -328,18 +382,18 @@ export function CreateOrderDialog({
         console.warn('[CreateOrderDialog] STALE RESPONSE IGNORED: Fetch was for', wooCommerceFetchOrderNumberRef.current, 'but current order is', currentOrderNumber);
         return; // Discard stale response
       }
-      
+
       if (data.found && data.order) {
         console.log('[CreateOrderDialog] WooCommerce order found for order_number:', trimmedOrderNumber);
         console.log('[CreateOrderDialog] Received order data - order_number:', data.order.order_number);
-        
+
         // CRITICAL FIX: Normalize both order numbers before comparison
         // WooCommerce might return order number in different format (e.g., "53534" vs "WC-53534")
         // We compare the numeric part only to handle format differences
         const requestedNormalized = normalizeOrderNumberForComparison(trimmedOrderNumber);
         const receivedOrderNumber = data.order.order_number?.toString().trim();
         const receivedNormalized = normalizeOrderNumberForComparison(receivedOrderNumber);
-        
+
         console.log('[CreateOrderDialog] Order number comparison:', {
           requested: trimmedOrderNumber,
           requestedNormalized,
@@ -347,7 +401,7 @@ export function CreateOrderDialog({
           receivedNormalized,
           match: requestedNormalized === receivedNormalized
         });
-        
+
         // CRITICAL FIX: Compare normalized order numbers (numeric part only)
         // This handles cases where WooCommerce returns "53534" but we requested "WC-53534" or vice versa
         if (receivedNormalized && requestedNormalized && receivedNormalized !== requestedNormalized) {
@@ -362,10 +416,10 @@ export function CreateOrderDialog({
           setWooOrderData(null);
           return;
         }
-        
+
         // If normalized numbers match, proceed (even if format differs)
         console.log('[CreateOrderDialog] Order number verified - normalized match:', requestedNormalized);
-        
+
         setWooCommerceCheckStatus('found');
         setWooCommerceError(null);
         // CRITICAL: Only set data if it matches the current order number
@@ -381,7 +435,7 @@ export function CreateOrderDialog({
           console.warn('[CreateOrderDialog] STALE RESPONSE IGNORED: Fetch was for', wooCommerceFetchOrderNumberRef.current, 'but current order is', currentOrderNumber);
           return; // Discard stale response
         }
-        
+
         console.log('[CreateOrderDialog] WooCommerce order not found for order_number:', trimmedOrderNumber);
         setWooCommerceCheckStatus('not_found');
         setWooCommerceError(null);
@@ -391,7 +445,7 @@ export function CreateOrderDialog({
     } catch (error: any) {
       console.error('[CreateOrderDialog] Error checking WooCommerce order:', error);
       setWooCommerceCheckStatus('error');
-      
+
       // Network error
       if (error.message?.includes('fetch') || error.message?.includes('network')) {
         setWooCommerceError('Unable to connect to WooCommerce');
@@ -422,11 +476,11 @@ export function CreateOrderDialog({
     // CRITICAL FIX: Verify wooOrderData belongs to the current order number
     const currentOrderNumber = orderNumber.trim();
     const wooOrderNumber = wooOrderData.order_number?.toString().trim();
-    
+
     // Normalize both for comparison
     const currentNormalized = normalizeOrderNumberForComparison(currentOrderNumber);
     const wooNormalized = normalizeOrderNumberForComparison(wooOrderNumber);
-    
+
     if (wooNormalized && currentNormalized && wooNormalized !== currentNormalized) {
       console.error('[CreateOrderDialog] IMPORT BLOCKED: Order mismatch');
       toast({
@@ -548,23 +602,23 @@ export function CreateOrderDialog({
   const handleOrderNumberChange = useCallback((value: string) => {
     // Immediately update the input value
     setOrderNumber(value);
-    
+
     // Clear existing timer
     if (duplicateCheckTimerRef.current) {
       clearTimeout(duplicateCheckTimerRef.current);
     }
-    
+
     // Clear error and WooCommerce data when order number changes
     setOrderNumberError(null);
     setWooOrderData(null);
     setIsWooCommerceOrder(false);
     setWooCommerceCheckStatus('idle');
     setWooCommerceError(null);
-    
+
     // CRITICAL FIX: Invalidate the fetch ref when order number changes
     // This ensures any in-flight fetches will be discarded as stale
     wooCommerceFetchOrderNumberRef.current = null;
-    
+
     // IMPORTANT: Clear all imported form data when order number changes
     // This prevents showing data from previous order (e.g., 53534)
     setCustomerData({
@@ -579,12 +633,12 @@ export function CreateOrderDialog({
     setProducts([{ id: generateId(), name: '', quantity: 1, specifications: {} }]);
     setDeliveryDate(undefined);
     setGlobalNotes('');
-    
+
     if (!value.trim()) {
       setOrderNumberError('Order number is required');
       return;
     }
-    
+
     // Debounce the duplicate check - wait 500ms after user stops typing
     duplicateCheckTimerRef.current = setTimeout(async () => {
       const result = await checkOrderNumberDuplicate(value);
@@ -650,7 +704,7 @@ export function CreateOrderDialog({
     if (!orderNumber.trim()) {
       return "Order number is required";
     }
-    
+
     if (orderNumberError) {
       return orderNumberError;
     }
@@ -692,7 +746,7 @@ export function CreateOrderDialog({
 
     // Final duplicate check before creating (with woo_order_id if available)
     const finalCheck = await checkOrderNumberDuplicate(
-      orderNumber.trim(), 
+      orderNumber.trim(),
       wooOrderData?.id
     );
     if (finalCheck.isDuplicate) {
@@ -707,21 +761,21 @@ export function CreateOrderDialog({
     setIsCreating(true);
     try {
       if (!user) throw new Error('User not authenticated');
-      
+
       // Get user profile for name
       const { data: profileData } = await supabase
         .from('profiles')
         .select('full_name')
         .eq('user_id', user.id)
         .single();
-      
+
       const userName = profileData?.full_name || user.email || 'Unknown';
-      
+
       // Determine source and set WooCommerce fields if applicable
       const isWooCommerceSource = isWooCommerceOrder && wooOrderData;
       const orderSource = isWooCommerceSource ? 'woocommerce' : 'manual';
       const wooOrderId = isWooCommerceSource ? Number(wooOrderData.id) : null;
-      
+
       // Use shipping data from WooCommerce if available, otherwise use billing
       const shippingName = isWooCommerceSource && wooOrderData.shipping_name
         ? wooOrderData.shipping_name
@@ -741,7 +795,7 @@ export function CreateOrderDialog({
 
       // Calculate priority automatically based on delivery date
       const computedPriority = computePriority(deliveryDate);
-      
+
       // Create order
       const { data: orderData, error: orderError } = await supabase
         .from('orders')
@@ -789,8 +843,8 @@ export function CreateOrderDialog({
         }
 
         // Get WooCommerce line item data if available
-        const wooLineItem = isWooCommerceSource && wooOrderData.line_items 
-          ? wooOrderData.line_items[index] 
+        const wooLineItem = isWooCommerceSource && wooOrderData.line_items
+          ? wooOrderData.line_items[index]
           : null;
 
         return {
@@ -798,8 +852,8 @@ export function CreateOrderDialog({
           product_name: product.name.trim(),
           quantity: Number(product.quantity), // Ensure it's a number
           // Ensure specifications is a valid JSONB object (empty object if null/undefined)
-          specifications: product.specifications && typeof product.specifications === 'object' 
-            ? product.specifications 
+          specifications: product.specifications && typeof product.specifications === 'object'
+            ? product.specifications
             : {},
           // Store WooCommerce meta data if available
           woo_meta: wooLineItem?.meta_data || null,
@@ -848,7 +902,7 @@ export function CreateOrderDialog({
           statusCode: itemsError.statusCode,
         });
         console.error('Items being inserted:', JSON.stringify(cleanedOrderItems, null, 2));
-        
+
         // Provide more specific error message
         const errorMessage = itemsError.message || itemsError.details || JSON.stringify(itemsError);
         throw new Error(`Failed to create order items: ${errorMessage}. Please check that all required fields are provided and you have permission to create items.`);
@@ -860,7 +914,7 @@ export function CreateOrderDialog({
       const timelineNotes = isWooCommerceSource
         ? `Order imported from WooCommerce (Order #${wooOrderData.order_number}) with ${products.length} product(s)`
         : `Order created manually with ${products.length} product(s)`;
-      
+
       const { error: timelineError } = await supabase
         .from('timeline')
         .insert({
@@ -884,7 +938,7 @@ export function CreateOrderDialog({
       const workSummary = isWooCommerceSource
         ? `Imported order from WooCommerce (Order #${wooOrderData.order_number}) with ${products.length} product(s)`
         : `Created manual order with ${products.length} product(s)`;
-      
+
       await autoLogWorkAction(
         user.id,
         userName,
@@ -929,6 +983,7 @@ export function CreateOrderDialog({
       onOpenChange(value);
     }}>
       <DialogContent className="sm:max-w-3xl max-h-[90vh] p-0 gap-0 overflow-hidden">
+        <DialogTitle className="sr-only">Create New Order</DialogTitle>
         <DialogHeader className="px-6 py-4 border-b">
           <DialogTitle className="flex items-center gap-2">
             <Plus className="h-5 w-5" />
@@ -947,7 +1002,7 @@ export function CreateOrderDialog({
                 <Package className="h-4 w-4" />
                 Order Information
               </div>
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="order_number">Order Number *</Label>
@@ -1006,7 +1061,7 @@ export function CreateOrderDialog({
                             Review all details below to ensure this is the correct order.
                           </AlertDescription>
                         </Alert>
-                        
+
                         {wooCommerceCached && wooCommerceImportedAt && (
                           <Alert className="border-blue-500 bg-blue-50 dark:bg-blue-950">
                             <AlertDescription className="text-blue-700 dark:text-blue-300">
@@ -1173,19 +1228,74 @@ export function CreateOrderDialog({
                 <User className="h-4 w-4" />
                 Customer Details
               </div>
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="customer_name">Customer Name *</Label>
-                  <Input
-                    id="customer_name"
-                    name="customer_name"
-                    placeholder="Enter customer name"
-                    value={customerData.name}
-                    onChange={(e) => setCustomerData({...customerData, name: e.target.value})}
-                    disabled={isWooCommerceOrder}
-                    className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
-                  />
+                <div className="grid gap-2">
+                  <Label htmlFor="customer_name" className="after:content-['*'] after:ml-0.5 after:text-red-500">
+                    Customer Name
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="customer_name"
+                      placeholder="Enter customer name"
+                      value={customerData.name}
+                      onChange={(e) => setCustomerData(prev => ({ ...prev, name: e.target.value }))}
+                      disabled={isWooCommerceOrder}
+                      className={cn(!customerData.name && "text-muted-foreground")}
+                    />
+                    <Popover open={customerSearchOpen} onOpenChange={setCustomerSearchOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="icon" disabled={isWooCommerceOrder} title="Search WooCommerce Customer">
+                          <Search className="h-4 w-4" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[300px] p-0" align="end">
+                        <div className="p-3 border-b">
+                          <div className="flex items-center gap-2">
+                            <Search className="h-4 w-4 text-muted-foreground" />
+                            <Input
+                              placeholder="Search WC customers..."
+                              className="h-8 border-none focus-visible:ring-0 px-0 shadow-none bg-transparent"
+                              value={customerSearchQuery}
+                              onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                              onKeyDown={(e) => e.key === 'Enter' && handleCustomerSearch()}
+                              autoFocus
+                            />
+                          </div>
+                        </div>
+                        <ScrollArea className="h-[200px]">
+                          {isSearchingCustomers ? (
+                            <div className="flex items-center justify-center h-20">
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            </div>
+                          ) : customerSearchResults.length > 0 ? (
+                            <div className="p-1">
+                              {customerSearchResults.map(c => (
+                                <div
+                                  key={c.id}
+                                  className="flex flex-col p-2 hover:bg-slate-100 rounded cursor-pointer transition-colors"
+                                  onClick={() => selectCustomer(c)}
+                                >
+                                  <span className="font-medium text-sm">{c.name}</span>
+                                  <div className="flex items-center justify-between mt-1">
+                                    <span className="text-xs text-muted-foreground">{c.email}</span>
+                                    <Badge variant="secondary" className="text-[10px] h-4">#{c.id}</Badge>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="p-4 text-center text-xs text-muted-foreground">
+                              {customerSearchQuery.length < 3 ? "Type 3+ chars & press Enter" : "No results found"}
+                              {customerSearchQuery.length >= 3 && (
+                                <Button size="sm" variant="link" onClick={handleCustomerSearch} className="h-auto p-0 ml-1">Search</Button>
+                              )}
+                            </div>
+                          )}
+                        </ScrollArea>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="customer_phone">Phone</Label>
@@ -1194,7 +1304,7 @@ export function CreateOrderDialog({
                     name="customer_phone"
                     placeholder="Enter phone number"
                     value={customerData.phone}
-                    onChange={(e) => setCustomerData({...customerData, phone: e.target.value})}
+                    onChange={(e) => setCustomerData({ ...customerData, phone: e.target.value })}
                     disabled={isWooCommerceOrder}
                     className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                   />
@@ -1209,7 +1319,7 @@ export function CreateOrderDialog({
                   type="email"
                   placeholder="Enter email address"
                   value={customerData.email}
-                  onChange={(e) => setCustomerData({...customerData, email: e.target.value})}
+                  onChange={(e) => setCustomerData({ ...customerData, email: e.target.value })}
                   disabled={isWooCommerceOrder}
                   className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                 />
@@ -1222,7 +1332,7 @@ export function CreateOrderDialog({
                   name="customer_address"
                   placeholder="Enter full address"
                   value={customerData.address}
-                  onChange={(e) => setCustomerData({...customerData, address: e.target.value})}
+                  onChange={(e) => setCustomerData({ ...customerData, address: e.target.value })}
                   disabled={isWooCommerceOrder}
                   className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                 />
@@ -1236,7 +1346,7 @@ export function CreateOrderDialog({
                     name="city"
                     placeholder="City"
                     value={customerData.city}
-                    onChange={(e) => setCustomerData({...customerData, city: e.target.value})}
+                    onChange={(e) => setCustomerData({ ...customerData, city: e.target.value })}
                     disabled={isWooCommerceOrder}
                     className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                   />
@@ -1248,7 +1358,7 @@ export function CreateOrderDialog({
                     name="state"
                     placeholder="State"
                     value={customerData.state}
-                    onChange={(e) => setCustomerData({...customerData, state: e.target.value})}
+                    onChange={(e) => setCustomerData({ ...customerData, state: e.target.value })}
                     disabled={isWooCommerceOrder}
                     className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                   />
@@ -1260,7 +1370,7 @@ export function CreateOrderDialog({
                     name="pincode"
                     placeholder="Pincode"
                     value={customerData.pincode}
-                    onChange={(e) => setCustomerData({...customerData, pincode: e.target.value})}
+                    onChange={(e) => setCustomerData({ ...customerData, pincode: e.target.value })}
                     disabled={isWooCommerceOrder}
                     className={isWooCommerceOrder ? "bg-muted cursor-not-allowed" : ""}
                   />
@@ -1386,7 +1496,7 @@ export function CreateOrderDialog({
                       {/* Specifications */}
                       <div className="space-y-2">
                         <Label className="text-sm">Specifications * (at least 1 required)</Label>
-                        
+
                         {/* Existing specs */}
                         {Object.keys(product.specifications).length > 0 && (
                           <div className="flex flex-wrap gap-2 mb-2">
@@ -1473,7 +1583,7 @@ export function CreateOrderDialog({
                               const valueInput = document.getElementById(`spec_value_${index}`) as HTMLInputElement;
                               const key = keyInput?.value.trim() || (activeProductIndex === index ? newSpecKey.trim() : '');
                               const value = valueInput?.value.trim() || (activeProductIndex === index ? newSpecValue.trim() : '');
-                              
+
                               if (key && value) {
                                 addSpecification(index, key, value);
                                 // Clear inputs after adding
@@ -1523,8 +1633,8 @@ export function CreateOrderDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isCreating || isCheckingDuplicate}>
             Cancel
           </Button>
-          <Button 
-            onClick={handleCreate} 
+          <Button
+            onClick={handleCreate}
             disabled={isCreating || isCheckingDuplicate || !!orderNumberError || !orderNumber.trim()}
           >
             {isCreating ? (

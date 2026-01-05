@@ -33,7 +33,7 @@ import { OutsourceAssignmentDialog } from '@/components/dialogs/OutsourceAssignm
 import { VendorDetails, OutsourceJobDetails, Order, OrderItem } from '@/types/order';
 import { supabase } from '@/integrations/supabase/client';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ProductCard } from '@/components/products/ProductCard';
+import { ProductCard } from '@/features/orders/components/ProductCard';
 
 interface PrepressUser {
   user_id: string;
@@ -508,3 +508,4 @@ export default function Prepress() {
     </TooltipProvider>
   );
 }
+
