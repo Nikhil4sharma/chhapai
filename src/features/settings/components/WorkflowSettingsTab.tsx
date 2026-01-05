@@ -420,7 +420,26 @@ export function WorkflowSettingsTab() {
                         ) : (
                             <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg bg-muted/20">
                                 <p className="mb-2">No statuses defined for {selectedDept}.</p>
-                                <Button variant="outline" size="sm" onClick={() => updateDepartmentLabel(localConfig[selectedDept]?.label || selectedDept)}>
+                                <Button variant="outline" size="sm" onClick={() => {
+                                    // Copy default config for this department
+                                    const defaultConfig = DEPARTMENTS.reduce((acc, dept) => {
+                                        // Import DEFAULT_WORKFLOW somehow? We don't have it imported explicitly in the component scope easily unless passed.
+                                        // Check imports.
+                                        // We see `import { Department, ... } from '@/types/workflow';`
+                                        // We need `DEFAULT_WORKFLOW` or `WORKFLOW_CONFIG` import.
+                                        return acc;
+                                    }, {});
+
+                                    // BETTER: Just use the initial state logic if we can.
+                                    // Actually, we should import DEFAULT_WORKFLOW at the top of the file.
+                                    // Let's assume we will add the import.
+                                    import('@/types/workflow').then(({ WORKFLOW_CONFIG }) => {
+                                        setLocalConfig(prev => ({
+                                            ...prev,
+                                            [selectedDept]: WORKFLOW_CONFIG[selectedDept]
+                                        }));
+                                    });
+                                }}>
                                     Initialize Defaults
                                 </Button>
                             </div>

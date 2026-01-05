@@ -64,7 +64,8 @@ export const WORKFLOW_CONFIG: Record<Department, DepartmentConfig> = {
                 value: 'new_order',
                 label: 'New Order',
                 allowedActions: [
-                    { id: 'assign_design', label: 'Assign to Design', targetDepartment: 'design', targetStatus: 'design_in_progress', style: 'primary' },
+                    { id: 'process_order', label: 'Process Order', targetDepartment: 'design', targetStatus: 'design_in_progress', style: 'primary' },
+                    { id: 'assign_design', label: 'Assign to Design', targetDepartment: 'design', targetStatus: 'design_in_progress', style: 'secondary' },
                     { id: 'assign_prepress', label: 'Assign to Prepress', targetDepartment: 'prepress', targetStatus: 'proofread_in_progress', style: 'secondary' },
                     { id: 'assign_outsource', label: 'Assign to Outsource', targetDepartment: 'outsource', targetStatus: 'sent_to_vendor', style: 'secondary' }
                 ],
