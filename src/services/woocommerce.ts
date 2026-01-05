@@ -52,6 +52,11 @@ export interface WCOrder {
         total: string;
         sku: string;
     }>;
+    meta_data: Array<{
+        id: number;
+        key: string;
+        value: any;
+    }>;
 }
 
 // Helper to invoke the Edge Function

@@ -2918,7 +2918,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       vendorDispatch,
       receiveFromVendor, qualityCheck, postQCDecision, updateItemSpecifications,
       refreshOrders,
-      updateItemSpecifications,
       getCompletedOrders,
     }}>
       {children}

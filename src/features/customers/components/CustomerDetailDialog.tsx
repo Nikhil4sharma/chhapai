@@ -51,10 +51,16 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
         toast.success(`${label} copied!`);
     };
 
-    // Derived Stats
-    const totalOrders = orders.length || customer.orders_count || 0;
-    const totalSpent = customer.total_spent ? Number(customer.total_spent) : 0;
-    const avgOrderValue = totalOrders > 0 ? (totalSpent / totalOrders).toFixed(2) : 0;
+    // Derived Stats (Real-time from fetched orders)
+    const realtimeTotalOrders = orders.length;
+    const realtimeTotalSpent = orders.reduce((sum, order) => sum + (parseFloat(order.total) || 0), 0);
+
+    // Fallback to customer string data if orders haven't loaded yet, or strictly use orders if loaded
+    const displayTotalOrders = realtimeTotalOrders > 0 ? realtimeTotalOrders : (customer.orders_count || 0);
+    const displayTotalSpent = realtimeTotalOrders > 0 ? realtimeTotalSpent : (customer.total_spent ? Number(customer.total_spent) : 0);
+
+    // Calculate Average
+    const avgOrderValue = displayTotalOrders > 0 ? (displayTotalSpent / displayTotalOrders).toFixed(2) : "0.00";
 
     // Display Name Logic
     const displayName = (customer.first_name || customer.last_name)
@@ -77,7 +83,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                             <div className="flex gap-5 items-center">
                                 <Avatar className="h-20 w-20 border-4 border-slate-50 dark:border-slate-800 shadow-md">
                                     <AvatarImage src={customer.avatar_url} />
-                                    <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white text-2xl font-bold">
+                                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-sky-600 text-white text-2xl font-bold">
                                         {(customer.first_name?.[0] || customer.email?.[0] || '?').toUpperCase()}
                                     </AvatarFallback>
                                 </Avatar>
@@ -90,13 +96,13 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                     </div>
                                     <div className="flex items-center gap-3 mt-3">
                                         {customer.email && (
-                                            <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/50 px-2 py-1 rounded cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors" onClick={() => copyToClipboard(customer.email, "Email")}>
-                                                <Mail className="h-3 w-3" /> {customer.email} <Copy className="h-2.5 w-2.5 ml-1 opacity-50" />
+                                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-md cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700" onClick={() => copyToClipboard(customer.email, "Email")}>
+                                                <Mail className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" /> {customer.email} <Copy className="h-3 w-3 ml-1 opacity-50" />
                                             </div>
                                         )}
                                         {customer.phone && (
-                                            <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800/50 px-2 py-1 rounded cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors" onClick={() => copyToClipboard(customer.phone, "Phone")}>
-                                                <Phone className="h-3 w-3" /> {customer.phone} <Copy className="h-2.5 w-2.5 ml-1 opacity-50" />
+                                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-md cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700" onClick={() => copyToClipboard(customer.phone, "Phone")}>
+                                                <Phone className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" /> {customer.phone} <Copy className="h-3 w-3 ml-1 opacity-50" />
                                             </div>
                                         )}
                                     </div>
@@ -106,13 +112,13 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                             {/* Quick Stats in Header */}
                             <div className="flex gap-4">
                                 <div className="text-right">
-                                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Total Spent</p>
-                                    <p className="text-xl font-bold text-slate-900 dark:text-slate-100">₹{totalSpent.toLocaleString()}</p>
+                                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Total Revenue</p>
+                                    <p className="text-xl font-bold text-slate-900 dark:text-slate-100">₹{displayTotalSpent.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</p>
                                 </div>
                                 <div className="w-px bg-slate-200 dark:bg-slate-800 h-10 self-center"></div>
                                 <div className="text-right">
                                     <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Orders</p>
-                                    <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{totalOrders}</p>
+                                    <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{displayTotalOrders}</p>
                                 </div>
                             </div>
                         </div>
@@ -123,8 +129,8 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                 <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden">
                     <div className="px-6 bg-white dark:bg-slate-900 border-b">
                         <TabsList className="w-full justify-start h-auto p-0 bg-transparent space-x-6">
-                            <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none px-1 py-3 text-slate-500 data-[state=active]:text-indigo-600 font-medium transition-all">Overview</TabsTrigger>
-                            <TabsTrigger value="orders" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-indigo-600 rounded-none px-1 py-3 text-slate-500 data-[state=active]:text-indigo-600 font-medium transition-all">Order History</TabsTrigger>
+                            <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-1 py-3 text-slate-500 data-[state=active]:text-blue-600 font-medium transition-all">Overview</TabsTrigger>
+                            <TabsTrigger value="orders" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-1 py-3 text-slate-500 data-[state=active]:text-blue-600 font-medium transition-all">Order History</TabsTrigger>
                         </TabsList>
                     </div>
 
@@ -188,19 +194,19 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                             {/* Recent Activity / Insights */}
                             <Card className="shadow-sm border-slate-200 dark:border-slate-800">
                                 <CardHeader>
-                                    <CardTitle className="text-base font-semibold flex items-center gap-2"><TrendingUp className="h-4 w-4 text-indigo-500" /> Customer Insights</CardTitle>
+                                    <CardTitle className="text-base font-semibold flex items-center gap-2"><TrendingUp className="h-4 w-4 text-blue-500" /> Customer Insights</CardTitle>
                                 </CardHeader>
                                 <CardContent>
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <div className="bg-indigo-50 dark:bg-indigo-950/20 p-4 rounded-lg">
-                                            <p className="text-xs text-indigo-600 dark:text-indigo-400 font-semibold uppercase mb-1">Avg Order Value</p>
-                                            <p className="text-2xl font-bold text-indigo-900 dark:text-indigo-100">₹{avgOrderValue}</p>
+                                        <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg">
+                                            <p className="text-xs text-blue-600 dark:text-blue-400 font-semibold uppercase mb-1">Avg Order Value</p>
+                                            <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">₹{avgOrderValue}</p>
                                         </div>
                                         <div className="bg-emerald-50 dark:bg-emerald-950/20 p-4 rounded-lg">
                                             <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold uppercase mb-1">Status</p>
                                             <p className="text-lg font-bold text-emerald-900 dark:text-emerald-100 flex items-center gap-2">
-                                                {totalOrders > 2 ? 'Repeat Customer' : 'New Customer'}
-                                                {totalOrders > 5 && <Badge className="bg-emerald-500 hover:bg-emerald-600">VIP</Badge>}
+                                                {displayTotalOrders > 2 ? 'Repeat Customer' : 'New Customer'}
+                                                {displayTotalOrders > 5 && <Badge className="bg-emerald-500 hover:bg-emerald-600">VIP</Badge>}
                                             </p>
                                         </div>
                                         <div className="bg-purple-50 dark:bg-purple-950/20 p-4 rounded-lg">
@@ -278,21 +284,48 @@ function CollapsibleOrderCard({ order }: { order: WCOrder }) {
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                     <div className="bg-slate-50 dark:bg-slate-950/50 p-4 border-t border-slate-200 dark:border-slate-800">
-                        <div className="space-y-3">
-                            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Order Items</p>
-                            {order.line_items.map((item, idx) => (
-                                <div key={idx} className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded border border-slate-100 dark:border-slate-800">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 bg-slate-100 dark:bg-slate-800 rounded flex items-center justify-center text-xs font-bold text-slate-500">
-                                            {item.quantity}x
+                        <div className="space-y-4">
+                            <div className="space-y-3">
+                                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Order Items</p>
+                                {order.line_items.map((item, idx) => (
+                                    <div key={idx} className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded border border-slate-100 dark:border-slate-800">
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-8 w-8 bg-slate-100 dark:bg-slate-800 rounded flex items-center justify-center text-xs font-bold text-slate-500">
+                                                {item.quantity}x
+                                            </div>
+                                            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{item.name}</span>
                                         </div>
-                                        <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{item.name}</span>
+                                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
+                                            ₹{item.total}
+                                        </div>
                                     </div>
-                                    <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                        ₹{item.total}
+                                ))}
+                            </div>
+
+                            {/* Meta Data & GST Section */}
+                            {order.meta_data && order.meta_data.length > 0 && (
+                                <div className="space-y-3">
+                                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Additional Details</p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        {order.meta_data
+                                            .filter(meta => !meta.key.startsWith('_') || meta.key.toLowerCase().includes('gst')) // Filter internal keys unless it's GST
+                                            .map((meta) => (
+                                                <div key={meta.id} className="bg-white dark:bg-slate-900 p-3 rounded border border-slate-100 dark:border-slate-800">
+                                                    <p className="text-xs text-slate-500 mb-1 font-medium bg-slate-100 dark:bg-slate-800 inline-block px-1.5 py-0.5 rounded">
+                                                        {meta.key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                                    </p>
+                                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200 break-words">
+                                                        {typeof meta.value === 'string' ? meta.value : JSON.stringify(meta.value)}
+                                                    </p>
+                                                </div>
+                                            ))}
                                     </div>
+                                    {/* Fallback if all keys were hidden but meta_data existed */}
+                                    {order.meta_data.filter(meta => !meta.key.startsWith('_') || meta.key.toLowerCase().includes('gst')).length === 0 && (
+                                        <p className="text-sm text-muted-foreground italic">No additional public details.</p>
+                                    )}
                                 </div>
-                            ))}
+                            )}
                         </div>
                     </div>
                 </CollapsibleContent>

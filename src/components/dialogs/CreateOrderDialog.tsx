@@ -43,6 +43,7 @@ import { useAuth } from '@/features/auth/context/AuthContext';
 import { toast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Loader2 } from 'lucide-react';
 import { autoLogWorkAction } from '@/utils/workLogHelper';
 import { Priority } from '@/types/order';
@@ -1245,50 +1246,91 @@ export function CreateOrderDialog({
                     />
                     <Popover open={customerSearchOpen} onOpenChange={setCustomerSearchOpen}>
                       <PopoverTrigger asChild>
-                        <Button variant="outline" size="icon" disabled={isWooCommerceOrder} title="Search WooCommerce Customer">
+                        <Button variant="outline" size="icon" disabled={isWooCommerceOrder} title="Search WooCommerce Customer" className="shrink-0 border-dashed hover:border-blue-500 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-all">
                           <Search className="h-4 w-4" />
                         </Button>
                       </PopoverTrigger>
-                      <PopoverContent className="w-[300px] p-0" align="end">
-                        <div className="p-3 border-b">
-                          <div className="flex items-center gap-2">
-                            <Search className="h-4 w-4 text-muted-foreground" />
+                      <PopoverContent className="w-[380px] p-0 overflow-hidden shadow-xl border-slate-200 dark:border-slate-800" align="end">
+                        <div className="p-3 border-b bg-slate-50/50 dark:bg-slate-900/50 backdrop-blur-sm sticky top-0 z-10">
+                          <div className="flex items-center gap-3 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-md px-3 h-10 shadow-sm focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-all">
+                            <Search className="h-4 w-4 text-slate-400" />
                             <Input
-                              placeholder="Search WC customers..."
-                              className="h-8 border-none focus-visible:ring-0 px-0 shadow-none bg-transparent"
+                              placeholder="Search by name, email, or phone..."
+                              className="h-full border-none focus-visible:ring-0 px-0 shadow-none bg-transparent text-sm placeholder:text-slate-400"
                               value={customerSearchQuery}
                               onChange={(e) => setCustomerSearchQuery(e.target.value)}
                               onKeyDown={(e) => e.key === 'Enter' && handleCustomerSearch()}
                               autoFocus
                             />
+                            {isSearchingCustomers && <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600" />}
                           </div>
                         </div>
-                        <ScrollArea className="h-[200px]">
-                          {isSearchingCustomers ? (
-                            <div className="flex items-center justify-center h-20">
-                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                            </div>
-                          ) : customerSearchResults.length > 0 ? (
-                            <div className="p-1">
+                        <ScrollArea className="h-[280px] bg-slate-50/30 dark:bg-slate-950/30">
+                          {customerSearchResults.length > 0 ? (
+                            <div className="p-1.5 space-y-1">
                               {customerSearchResults.map(c => (
                                 <div
                                   key={c.id}
-                                  className="flex flex-col p-2 hover:bg-slate-100 rounded cursor-pointer transition-colors"
+                                  className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20 cursor-pointer transition-colors group border border-transparent hover:border-blue-100 dark:hover:border-blue-800/50"
                                   onClick={() => selectCustomer(c)}
                                 >
-                                  <span className="font-medium text-sm">{c.name}</span>
-                                  <div className="flex items-center justify-between mt-1">
-                                    <span className="text-xs text-muted-foreground">{c.email}</span>
-                                    <Badge variant="secondary" className="text-[10px] h-4">#{c.id}</Badge>
+                                  <Avatar className="h-9 w-9 border border-slate-200 dark:border-slate-700 bg-white">
+                                    <AvatarImage src={c.avatar_url} />
+                                    <AvatarFallback className="bg-blue-50 text-blue-600 text-xs font-bold dark:bg-blue-900/50 dark:text-blue-300">
+                                      {(c.name?.[0] || '?').toUpperCase()}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors">
+                                        {c.name}
+                                      </span>
+                                      <Badge variant="outline" className="text-[10px] h-4 bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-700 ml-2 shrink-0">
+                                        #{c.id}
+                                      </Badge>
+                                    </div>
+                                    <div className="flex flex-col gap-0.5 mt-0.5">
+                                      {c.email && (
+                                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 truncate">
+                                          <Mail className="h-3 w-3 opacity-70" /> {c.email}
+                                        </div>
+                                      )}
+                                      {c.location && (
+                                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 truncate">
+                                          <MapPin className="h-3 w-3 opacity-70" /> {c.location}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <div className="p-4 text-center text-xs text-muted-foreground">
-                              {customerSearchQuery.length < 3 ? "Type 3+ chars & press Enter" : "No results found"}
-                              {customerSearchQuery.length >= 3 && (
-                                <Button size="sm" variant="link" onClick={handleCustomerSearch} className="h-auto p-0 ml-1">Search</Button>
+                            <div className="flex flex-col items-center justify-center h-[200px] text-center px-6">
+                              {isSearchingCustomers ? (
+                                <div className="flex flex-col items-center gap-2">
+                                  <Loader2 className="h-8 w-8 animate-spin text-blue-500 opacity-50" />
+                                  <p className="text-xs text-slate-500 font-medium">Searching...</p>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="h-12 w-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mb-3">
+                                    <Search className="h-5 w-5 text-slate-400" />
+                                  </div>
+                                  <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                                    {customerSearchQuery.length < 3 ? "Start typing to search" : "No customers found"}
+                                  </p>
+                                  <p className="text-xs text-slate-500 mt-1 max-w-[180px]">
+                                    {customerSearchQuery.length < 3
+                                      ? "Enter at least 3 characters to search by name or email."
+                                      : `We couldn't find any customers matching "${customerSearchQuery}".`}
+                                  </p>
+                                  {customerSearchQuery.length >= 3 && (
+                                    <Button variant="link" size="sm" onClick={handleCustomerSearch} className="mt-2 text-blue-600 h-auto p-0">
+                                      Try searching again
+                                    </Button>
+                                  )}
+                                </>
                               )}
                             </div>
                           )}

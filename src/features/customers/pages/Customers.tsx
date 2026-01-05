@@ -161,7 +161,7 @@ export default function Customers() {
                         )}
                         <Button
                             onClick={() => setImportOpen(true)}
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200/50 dark:shadow-none transition-all hover:scale-[1.02] active:scale-[0.98]"
+                            className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200/50 dark:shadow-none transition-all hover:scale-[1.02] active:scale-[0.98]"
                         >
                             <UserPlus className="h-4 w-4 mr-2" />
                             Import Customer
@@ -194,7 +194,7 @@ export default function Customers() {
             {/* Controls Bar */}
             <div className="flex flex-col lg:flex-row gap-4 justify-between items-center bg-white dark:bg-slate-900 p-2 rounded-xl border border-slate-200/60 dark:border-slate-800 shadow-sm">
                 <div className="relative w-full lg:w-[400px] group">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
                     <Input
                         placeholder="Search by name, email, phone, or address..."
                         value={searchTerm}
@@ -308,23 +308,23 @@ export default function Customers() {
                                         <div className="flex items-center gap-4">
                                             <Avatar className="h-10 w-10 border-2 border-white dark:border-slate-800 shadow-sm group-hover:scale-105 transition-transform duration-200">
                                                 <AvatarImage src={customer.avatar_url} />
-                                                <AvatarFallback className="text-xs font-bold bg-gradient-to-br from-indigo-50 to-blue-50 text-indigo-600 dark:from-indigo-950 dark:to-blue-950 dark:text-indigo-400">
+                                                <AvatarFallback className="text-xs font-bold bg-gradient-to-br from-blue-50 to-sky-50 text-blue-600 dark:from-blue-950 dark:to-sky-950 dark:text-blue-400">
                                                     {(customer.first_name?.[0] || customer.email?.[0] || 'C').toUpperCase()}
                                                 </AvatarFallback>
                                             </Avatar>
                                             <div className="flex flex-col">
-                                                <span className="font-semibold text-sm text-slate-900 dark:text-slate-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                                <span className="font-semibold text-sm text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                                                     {(customer.first_name || customer.last_name)
                                                         ? `${customer.first_name} ${customer.last_name}`.trim()
                                                         : (customer.email.split('@')[0] || 'Guest').substring(0, 20)}
                                                 </span>
-                                                <span className="text-xs text-slate-500 font-medium">{customer.email}</span>
+                                                <span className="text-sm text-slate-600 dark:text-slate-200 font-medium mt-0.5">{customer.email}</span>
                                             </div>
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="text-sm font-medium text-slate-600 dark:text-slate-400">
-                                            {[customer.billing?.city, customer.billing?.country].filter(Boolean).join(', ') || <span className="text-slate-300 italic">No Location</span>}
+                                        <div className="text-sm font-medium text-slate-600 dark:text-slate-200">
+                                            {[customer.billing?.city, customer.billing?.country].filter(Boolean).join(', ') || <span className="text-slate-400 italic">No Location</span>}
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right">
