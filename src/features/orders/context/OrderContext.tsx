@@ -2203,6 +2203,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       await addTimelineEntry({
         order_id: order.id!,
+        // Don't include item_id for order-level notes
         stage: 'sales',
         action: 'note_added',
         performed_by: user?.id || '',

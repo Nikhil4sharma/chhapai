@@ -83,7 +83,7 @@ export interface OrderItem {
   current_substage: SubStage;
 
   // New Workflow Fields
-  department: Department;
+  department?: Department; // Optional: Not in DB schema, use assigned_department instead
   status: ProductStatus;
   previous_department?: Department;
   previous_status?: ProductStatus;

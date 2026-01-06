@@ -24,7 +24,7 @@ export const workflowService = {
     getAvailableActions: (product: OrderItem, userRole: UserRole, config: WorkflowConfig = WORKFLOW_CONFIG): WorkflowAction[] => {
         // 1. Identify current Department and Status
         // Fallback to 'sales' and 'new_order' if undefined (migration support)
-        const currentDeptId = product.department || 'sales';
+        const currentDeptId = product.assigned_department || product.current_stage || 'sales';
         const currentStatusId = product.status || 'new_order';
 
         // 2. Get Department Config
@@ -53,7 +53,7 @@ export const workflowService = {
      * Get the display configuration for the current status
      */
     getStatusConfig: (product: OrderItem, config: WorkflowConfig = WORKFLOW_CONFIG): StatusConfig | undefined => {
-        const currentDeptId = product.department || 'sales';
+        const currentDeptId = product.assigned_department || product.current_stage || 'sales';
         const currentStatusId = product.status || 'new_order';
         return config[currentDeptId]?.statuses.find(s => s.value === currentStatusId);
     },
@@ -103,7 +103,7 @@ export const workflowService = {
         if (fetchError || !item) throw new Error('Item not found');
 
         const product = item as unknown as OrderItem; // Cast to use our types
-        const currentDept = product.department || 'sales';
+        const currentDept = product.assigned_department || product.current_stage || 'sales';
         const currentStatus = product.status || 'new_order';
 
         // 2. Find the action definition
@@ -123,11 +123,8 @@ export const workflowService = {
 
         // 4. Update the Order Item
         const updateData = {
-            department: targetDept,
             status: targetStatus,
-            previous_department: currentDept,
-            previous_status: currentStatus,
-            // Also update legacy fields for compatibility
+            // Update department fields (both current_stage and assigned_department for compatibility)
             current_stage: targetDept === 'sales' ? 'sales' :
                 targetDept === 'design' ? 'design' :
                     targetDept === 'prepress' ? 'prepress' :
@@ -140,6 +137,7 @@ export const workflowService = {
                             targetDept === 'outsource' ? 'outsource' : 'sales',
             updated_at: new Date().toISOString()
         };
+
 
         const { error: updateError } = await supabase
             .from('order_items')

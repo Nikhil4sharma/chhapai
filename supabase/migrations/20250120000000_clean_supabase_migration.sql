@@ -112,7 +112,7 @@ ALTER TABLE public.order_activity ENABLE ROW LEVEL SECURITY;
 -- Step 5: Create helper functions for RLS (update existing if needed)
 
 -- Function to check if user is admin
-CREATE OR REPLACE FUNCTION public.is_admin(user_id UUID)
+CREATE OR REPLACE FUNCTION public.is_admin(_user_id UUID)
 RETURNS BOOLEAN
 LANGUAGE sql
 STABLE
@@ -122,13 +122,13 @@ AS $$
   SELECT EXISTS (
     SELECT 1
     FROM public.user_roles
-    WHERE user_roles.user_id = is_admin.user_id
+    WHERE user_roles.user_id = is_admin._user_id
       AND user_roles.role = 'admin'::app_role
   );
 $$;
 
 -- Function to get user's primary department/role
-CREATE OR REPLACE FUNCTION public.get_user_department(user_id UUID)
+CREATE OR REPLACE FUNCTION public.get_user_department(_user_id UUID)
 RETURNS TEXT
 LANGUAGE sql
 STABLE
@@ -137,7 +137,7 @@ SET search_path = public
 AS $$
   SELECT role::TEXT
   FROM public.user_roles
-  WHERE user_roles.user_id = get_user_department.user_id
+  WHERE user_roles.user_id = get_user_department._user_id
   ORDER BY 
     CASE role
       WHEN 'admin'::app_role THEN 1
