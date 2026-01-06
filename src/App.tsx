@@ -6,6 +6,7 @@ import { AIAssistant } from "./components/ai/AIAssistant";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 import { AuthProvider } from "@/features/auth/context/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { OrderProvider } from "@/features/orders/context/OrderContext";
@@ -290,6 +291,7 @@ const App = () => (
                     <Toaster />
                     <Sonner />
                     <AIAssistant />
+                    <SpeedInsights />
                   </BrowserRouter>
                 </TooltipProvider>
               </WorkflowProvider>
