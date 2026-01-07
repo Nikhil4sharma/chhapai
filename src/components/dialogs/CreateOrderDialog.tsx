@@ -837,7 +837,7 @@ export function CreateOrderDialog({
       // Determine Initial Status based on Department
       let initialStatus = 'new_order'; // Default for sales
       if (finalDept === 'design') initialStatus = 'design_in_progress';
-      else if (finalDept === 'prepress') initialStatus = 'proofread_in_progress';
+      else if (finalDept === 'prepress') initialStatus = 'prepress_in_progress';
       else if (finalDept === 'production') initialStatus = 'in_production';
       else if (finalDept === 'outsource') initialStatus = 'sent_to_vendor';
 

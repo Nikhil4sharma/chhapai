@@ -26,9 +26,16 @@ export async function fetchWorkflowConfig(): Promise<WorkflowConfig> {
         }
 
         if (data && data.value) {
-            // Merge with default to ensure structural integrity? 
-            // For now, just return what's in DB or default if empty
-            return (data.value as unknown as WorkflowConfig) || DEFAULT_WORKFLOW;
+            // Merge with default to ensure structural integrity
+            // This prevents "missing departments" if the DB has partial data
+            const dbConfig = data.value as unknown as WorkflowConfig;
+            return {
+                ...DEFAULT_WORKFLOW,
+                ...dbConfig,
+                // Ensure individual departments are merged correctly if needed?
+                // For now, top-level keys (departments) from DB override default,
+                // but any missing top-level keys from DB will be filled by default.
+            };
         }
 
         return DEFAULT_WORKFLOW;

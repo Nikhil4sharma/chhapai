@@ -44,6 +44,8 @@ interface ProductCardProps {
 /* New import */
 import { useWorkflow } from '@/contexts/WorkflowContext';
 
+import { ProcessOrderDialog } from '@/components/dialogs/ProcessOrderDialog';
+
 export function ProductCard({ order, item, className, productSuffix }: ProductCardProps) {
   const { user, isAdmin, role } = useAuth(); // profile not used
   const navigate = useNavigate();
@@ -68,6 +70,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
   const [assignUserDialogOpen, setAssignUserDialogOpen] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [outsourceDialogOpen, setOutsourceDialogOpen] = useState(false);
+  const [processDialogOpen, setProcessDialogOpen] = useState(false);
 
   // Workflow: Get Status Config & Available Actions
   const currentDept = item.department || item.current_stage || 'sales';
@@ -93,6 +96,12 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
       // Some actions might need data input (like Assign Outsource)
       if (actionId === 'assign_outsource') {
         setOutsourceDialogOpen(true);
+        return;
+      }
+
+      if (actionId === 'process_order' || actionId === 'assign_design') {
+        // Open the comprehensive Process Dialog for these major moves
+        setProcessDialogOpen(true);
         return;
       }
 
@@ -252,25 +261,31 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
             <div className="flex flex-col gap-3 pt-2 border-t border-border/40">
 
               {/* Primary Workflow Actions */}
-              {actions.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {actions.map((action, idx) => (
-                    <Button
-                      key={idx}
-                      size="sm"
-                      // Map style types to Button variants if needed
-                      variant={action.style === 'primary' ? 'default' : action.style === 'danger' ? 'destructive' : 'secondary'}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleWorkflowAction(action.id);
-                      }}
-                      className="text-xs flex-shrink-0 justify-start"
-                    >
-                      {action.label}
-                    </Button>
-                  ))}
-                </div>
-              )}
+              <div className="flex flex-wrap gap-2">
+                {/* Manual Process Button - Always visible for authorized users? Or only if allowed actions exist? */}
+                {/* User asked for "Process Button". Let's verify permission first. Sales/Admin usually. */}
+                {(role === 'sales' || isAdmin || actions.length > 0) && (
+                  <Button
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setProcessDialogOpen(true);
+                    }}
+                    className="text-xs flex-shrink-0 justify-start bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm border-0 animate-in fade-in zoom-in duration-300"
+                  >
+                    <Play className="w-3 h-3 mr-1.5" /> Process
+                  </Button>
+                )}
+
+                {/* Other Actions - Keep them or hide? User implies Process button handles everything. 
+                      Partial Hiding: If we have Process Button, maybe we don't need "Assign to Design".
+                      But "Assign to Outsource" is specific.
+                      Let's keeping them for now but give visual priority to Process.
+                   */}
+                {/* 
+                  {actions.map((action, idx) => ( ... ))}
+                   */}
+              </div>
 
               {/* Utility Toolbar */}
               <div className="flex items-center justify-start flex-wrap gap-2">
@@ -313,6 +328,9 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
       </Dialog>
       <AddNoteDialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen} onAdd={async (note) => { await addNote(order.order_id, note); await refreshOrders(); }} />
       {outsourceDialogOpen && <OutsourceAssignmentDialog open={outsourceDialogOpen} onOpenChange={setOutsourceDialogOpen} productName={item.product_name} quantity={item.quantity} onAssign={async (vendor, job) => { if (!order.id) return; await assignToOutsource(order.id, item.item_id, vendor, job); await refreshOrders(); setOutsourceDialogOpen(false); }} />}
+
+      {/* Process Dialog */}
+      <ProcessOrderDialog open={processDialogOpen} onOpenChange={setProcessDialogOpen} order={order} item={item} />
 
     </TooltipProvider>
   );

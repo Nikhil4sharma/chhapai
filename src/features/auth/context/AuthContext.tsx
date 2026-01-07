@@ -227,22 +227,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
 
-        // CRITICAL: Set authReady BEFORE fetching profile/role
-        // This allows UI to render while profile/role loads in background
-        setAuthReady(true);
-        console.log('[BOOTSTRAP] Auth ready');
-
-        // If session exists, fetch user data in background (non-blocking)
+        // If session exists, fetch user data BEFORE setting authReady
+        // This ensures the requested route has access to the user's role/profile
         if (initialSession?.user) {
           console.log('[BOOTSTRAP] Fetching user profile and role...');
-          // Don't await - let it load in background
-          fetchUserData(initialSession.user.id).catch(err => {
-            console.error('[BOOTSTRAP] Background profile fetch failed:', err);
-            // Non-blocking - app continues to render
-          });
+          try {
+            await fetchUserData(initialSession.user.id);
+          } catch (err) {
+            console.error('[BOOTSTRAP] Initial profile fetch failed:', err);
+            // Proceed anyway, role will be null
+          }
         } else {
           console.log('[BOOTSTRAP] No session - auth ready');
         }
+
+        // CRITICAL: Set authReady AFTER attempting to fetch profile/role
+        setAuthReady(true);
+        console.log('[BOOTSTRAP] Auth ready');
+
       } catch (error) {
         console.error('[BOOTSTRAP] Error initializing auth:', error);
         // CRITICAL: ALWAYS set authReady = true, even on error

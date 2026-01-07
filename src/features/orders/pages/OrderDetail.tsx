@@ -9,12 +9,14 @@ import { OrderHeader } from '@/features/orders/components/OrderHeader';
 import { OrderStatusCard } from '@/features/orders/components/OrderStatusCard';
 import { ProductItemCard } from '@/features/orders/components/ProductItemCard';
 import { TimelineCard } from '@/features/orders/components/TimelineCard';
+import { NotesCard } from '@/features/orders/components/NotesCard';
 import { PaymentCard } from '@/features/orders/components/PaymentCard';
 import { EditOrderDialog } from '@/components/dialogs/EditOrderDialog';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
 import { AssignUserDialog } from '@/components/dialogs/AssignUserDialog';
 import { AssignDepartmentDialog } from '@/components/dialogs/AssignDepartmentDialog';
 import { AddNoteDialog } from '@/components/dialogs/AddNoteDialog';
+import { ProcessOrderDialog } from '@/components/dialogs/ProcessOrderDialog';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -25,6 +27,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+
+// ... (existing imports preserved by replacement context usually, but here I am modifying the file content)
 
 export default function OrderDetailNew() {
     const { orderId } = useParams();
@@ -56,6 +60,7 @@ export default function OrderDetailNew() {
     const [assignUserDialogOpen, setAssignUserDialogOpen] = useState(false);
     const [assignDepartmentDialogOpen, setAssignDepartmentDialogOpen] = useState(false);
     const [noteDialogOpen, setNoteDialogOpen] = useState(false);
+    const [processDialogOpen, setProcessDialogOpen] = useState(false);
     const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
     // Filter items based on user role
@@ -114,6 +119,18 @@ export default function OrderDetailNew() {
         setAssignUserDialogOpen(false);
     }, [orderId, selectedItemId, assignToUser, refreshOrders]);
 
+    const handleAssignDepartment = useCallback(async (department: string) => {
+        if (!selectedItemId || !orderId) return;
+        await assignToDepartment(orderId, selectedItemId, department);
+        // Refresh handled by assignToDepartment or realtime, but good to ensure
+        await refreshOrders();
+        setAssignDepartmentDialogOpen(false);
+        toast({
+            title: "Department Assigned",
+            description: `Item assigned to ${department} department`,
+        });
+    }, [selectedItemId, orderId, assignToDepartment, refreshOrders]);
+
     const handleAddNote = useCallback((note: string) => {
         if (!orderId) return;
         addNote(orderId, note);
@@ -140,8 +157,20 @@ export default function OrderDetailNew() {
         setAssignDepartmentDialogOpen(true);
     }, []);
 
+    const openProcessForItem = useCallback((itemId: string) => {
+        setSelectedItemId(itemId);
+        setProcessDialogOpen(true);
+    }, []);
+
+
     const handleWorkflowAction = useCallback(async (itemId: string, action: string) => {
         if (!orderId) return;
+
+        // If action is process_order or assign_design, use the new Dialog
+        if (action === 'process_order' || action === 'assign_design') {
+            openProcessForItem(itemId);
+            return;
+        }
 
         try {
             // Get current item to determine next stage
@@ -150,7 +179,7 @@ export default function OrderDetailNew() {
 
             const currentStage = item.current_stage;
 
-            // Simple workflow progression logic
+            // Legacy fallbacks for other actions
             const stageProgression: Record<string, string> = {
                 'sales': 'design',
                 'design': 'prepress',
@@ -168,25 +197,14 @@ export default function OrderDetailNew() {
                 return;
             }
 
-            // Assign to next department
             await assignToDepartment(orderId, itemId, nextStage);
-
-            toast({
-                title: "Status Updated",
-                description: `Moved from ${currentStage} to ${nextStage}`,
-            });
-
-            // Refresh to show updates
+            toast({ title: "Status Updated", description: `Moved from ${currentStage} to ${nextStage}` });
             await refreshOrders();
         } catch (error) {
             console.error('Workflow action failed:', error);
-            toast({
-                title: "Action Failed",
-                description: "Could not update status. Please try again.",
-                variant: "destructive",
-            });
+            toast({ title: "Action Failed", description: "Could not update status.", variant: "destructive" });
         }
-    }, [orderId, filteredItems, assignToDepartment, refreshOrders]);
+    }, [orderId, filteredItems, assignToDepartment, refreshOrders, openProcessForItem]);
 
     const canEditItem = useCallback((itemId: string) => {
         if (isAdmin || role === 'sales') return true;
@@ -314,6 +332,10 @@ export default function OrderDetailNew() {
 
                     {/* Right Column - Sidebar (1/3 width on desktop) */}
                     <div className="space-y-4">
+                        <NotesCard
+                            notes={timeline}
+                            globalNotes={order.global_notes}
+                        />
                         <TimelineCard timeline={timeline} />
                         <PaymentCard
                             order={order}
@@ -375,6 +397,13 @@ export default function OrderDetailNew() {
                                     onOpenChange={setAssignDepartmentDialogOpen}
                                     currentDepartment={selectedItem.current_stage}
                                     onAssign={handleAssignDepartment}
+                                />
+
+                                <ProcessOrderDialog
+                                    open={processDialogOpen}
+                                    onOpenChange={setProcessDialogOpen}
+                                    order={order}
+                                    item={selectedItem}
                                 />
                             </>
                         )}
