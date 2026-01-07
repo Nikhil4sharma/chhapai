@@ -59,6 +59,7 @@ interface OrderContextType {
   postQCDecision: (orderId: string, itemId: string, decision: 'production' | 'dispatch') => Promise<void>;
   refreshOrders: () => Promise<void>;
   updateItemSpecifications: (orderId: string, itemId: string, updates: Record<string, any>) => Promise<void>;
+  assignOrderToUser: (orderId: string, userId: string) => Promise<void>;
   getCompletedOrders: () => Order[];
 }
 
@@ -2876,42 +2877,85 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
   }, [orders, user, profile, addTimelineEntry, fetchOrders]);
 
+  const assignOrderToUser = useCallback(async (
+    orderId: string,
+    userId: string
+  ) => {
+    try {
+      // Optimistic update
+      setOrders(prev => prev.map(o => {
+        if (o.id === orderId) {
+          return { ...o, assigned_user: userId };
+        }
+        return o;
+      }));
+
+      // Call Supabase service
+      await supabaseAssignOrderToUser(orderId, userId);
+
+      // We don't need to refresh entire orders list, optimistic update is enough
+      // But we should probably log activity
+      if (user?.id) {
+        await logActivity(
+          orderId, // We assume orderId passed is UUID
+          undefined,
+          'sales',
+          'assigned',
+          `Order assigned to ${userId}`, // Ideally we want name here, but let's keep it simple or fetch profile
+          { assigned_to: userId }
+        );
+      }
+
+      toast({ title: "Success", description: "Order assigned successfully" });
+    } catch (error) {
+      console.error('Error assigning order:', error);
+      toast({ title: "Error", description: "Failed to assign order", variant: "destructive" });
+      // Revert optimistic update
+      await fetchOrders(false, true); // Refresh to get true state
+    }
+  }, [fetchOrders, logActivity, user?.id]);
+
+  const value = {
+    orders,
+    timeline,
+    isLoading,
+    lastSyncTime,
+    getOrderById,
+    getOrdersByDepartment,
+    getOrdersForUser,
+    getOrdersForDepartment,
+    getUrgentOrdersForAdmin,
+    getUrgentOrdersForDepartment,
+    getTimelineForOrder,
+    updateItemStage,
+    updateItemSubstage,
+    assignToDepartment,
+    assignToOutsource,
+    assignToUser,
+    assignOrderToUser,
+    addTimelineEntry,
+    uploadFile,
+    addNote,
+    updateOrder,
+    deleteOrder,
+    completeSubstage,
+    startSubstage,
+    markAsDispatched,
+    sendToProduction,
+    setProductionStageSequence,
+    updateItemDeliveryDate,
+    updateOutsourceStage,
+    addFollowUpNote,
+    vendorDispatch,
+    receiveFromVendor,
+    qualityCheck,
+    postQCDecision,
+    refreshOrders,
+    updateItemSpecifications,
+    getCompletedOrders,
+  };
   return (
-    <OrderContext.Provider value={{
-      orders,
-      timeline,
-      isLoading,
-      lastSyncTime,
-      getOrderById,
-      getOrdersByDepartment,
-      getOrdersForUser,
-      getOrdersForDepartment,
-      getUrgentOrdersForAdmin,
-      getUrgentOrdersForDepartment,
-      getTimelineForOrder,
-      updateItemStage,
-      updateItemSubstage,
-      assignToDepartment,
-      assignToOutsource,
-      assignToUser,
-      addTimelineEntry,
-      uploadFile,
-      addNote,
-      updateOrder,
-      deleteOrder,
-      completeSubstage,
-      startSubstage,
-      markAsDispatched,
-      sendToProduction,
-      setProductionStageSequence,
-      updateItemDeliveryDate,
-      updateOutsourceStage,
-      addFollowUpNote,
-      vendorDispatch,
-      receiveFromVendor, qualityCheck, postQCDecision, updateItemSpecifications,
-      refreshOrders,
-      getCompletedOrders,
-    }}>
+    <OrderContext.Provider value={value}>
       {children}
     </OrderContext.Provider>
   );

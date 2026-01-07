@@ -73,7 +73,7 @@ interface SalesUser {
 }
 
 export default function Sales() {
-  const { orders, updateItemStage, sendToProduction, assignToOutsource, deleteOrder, isLoading, refreshOrders, updateItemDeliveryDate, getOrdersForDepartment, assignToDepartment } = useOrders();
+  const { orders, updateItemStage, sendToProduction, assignToOutsource, deleteOrder, isLoading, refreshOrders, updateItemDeliveryDate, getOrdersForDepartment, assignToDepartment, assignOrderToUser } = useOrders();
   const { isAdmin, role, user } = useAuth();
   const { canViewFinancials } = useFinancialAccess();
   const navigate = useNavigate();
@@ -147,12 +147,18 @@ export default function Sales() {
   // Fetch Payment Statuses
   useEffect(() => {
     const fetchPaymentStatuses = async () => {
-      const uniqueOrders = new Map<string, { order_id: string; total: number }>();
+      const uniqueOrders = new Map<string, { order_id: string; total: number; customer_id?: string }>();
 
       filteredSalesProducts.forEach(({ order }) => {
         if (!uniqueOrders.has(order.order_id)) {
           const total = order.financials?.total || order.items.reduce((sum, item) => sum + (Number(item.line_total) || 0), 0);
-          uniqueOrders.set(order.order_id, { order_id: order.id || order.order_id, total });
+          // Safely get customer ID
+          const customerId = order.customer?.id || order.customer_id;
+          uniqueOrders.set(order.order_id, {
+            order_id: order.id || order.order_id,
+            total,
+            customer_id: customerId
+          });
         }
       });
 
@@ -160,7 +166,8 @@ export default function Sales() {
         try {
           const payload = Array.from(uniqueOrders.values()).map(o => ({
             order_id: o.order_id, // This is UUID (ideally)
-            total: o.total
+            total: o.total,
+            customer_id: o.customer_id
           }));
 
           const stats = await financeService.getBatchOrderPaymentStatus(payload);
@@ -407,6 +414,41 @@ export default function Sales() {
                       <IndianRupee className="h-3 w-3" />
                       Add Payment
                     </Button>
+
+                    {/* Order Assignment Dropdown */}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2 border border-dashed border-slate-300 dark:border-slate-700">
+                          <UserCircle className="h-3 w-3" />
+                          {order.assigned_user_name ? (
+                            <span className="font-medium">{order.assigned_user_name}</span>
+                          ) : (
+                            <span className="text-muted-foreground italic">Unassigned</span>
+                          )}
+                          <ChevronDown className="h-3 w-3 opacity-50" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem disabled className="text-xs font-semibold opacity-70">
+                          Assign Order To
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        {salesUsers.map(user => (
+                          <DropdownMenuItem
+                            key={user.user_id}
+                            onClick={() => {
+                              if (order.id) {
+                                assignOrderToUser(order.id, user.user_id);
+                              }
+                            }}
+                            className={order.assigned_user === user.user_id ? "bg-slate-100 dark:bg-slate-800" : ""}
+                          >
+                            {user.full_name}
+                            {order.assigned_user === user.user_id && <CheckCircle className="ml-2 h-3 w-3 text-green-500" />}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </div>
 

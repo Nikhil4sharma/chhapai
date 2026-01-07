@@ -577,32 +577,70 @@ serve(async (req: Request) => {
 
           // Auto-Import Customer
           let customerUuid: string | null = null;
-          if (wooOrder.customer_id && wooOrder.customer_id > 0) {
-            try {
-              const customerData = {
-                wc_id: wooOrder.customer_id,
-                email: wooOrder.billing?.email,
-                first_name: wooOrder.billing?.first_name,
-                last_name: wooOrder.billing?.last_name,
-                phone: wooOrder.billing?.phone,
-                billing: wooOrder.billing,
-                shipping: wooOrder.shipping,
-                assigned_to: user.id,
-                updated_at: new Date().toISOString(),
-                last_synced_at: new Date().toISOString()
-              };
+          // Auto-Import Customer Logic (Robust Deduplication)
+          // 1. Try to find by wc_id (Official ID)
+          let customerRecord = null;
+          const { data: byWcId } = await adminSupabase
+            .from('wc_customers')
+            .select('id')
+            .eq('wc_id', wooOrder.customer_id)
+            .maybeSingle();
 
-              const { data: custData, error: custError } = await adminSupabase
-                .from('wc_customers')
-                .upsert(customerData, { onConflict: 'wc_id' })
-                .select('id')
-                .single();
+          if (byWcId) {
+            customerRecord = byWcId;
+          } else if (wooOrder.billing?.email) {
+            // 2. Try to find by Email (Shadow/Duplicate check)
+            const { data: byEmail } = await adminSupabase
+              .from('wc_customers')
+              .select('id')
+              .ilike('email', wooOrder.billing.email) // Case insensitive check
+              .maybeSingle();
 
-              if (custData) customerUuid = custData.id;
-            } catch (err) {
-              console.error(`Error processing customer ${wooOrder.customer_id}:`, err);
+            if (byEmail) {
+              customerRecord = byEmail;
+              console.log(`Matched customer by email: ${wooOrder.billing.email} (ID: ${byEmail.id})`);
             }
           }
+
+          const customerData = {
+            wc_id: wooOrder.customer_id,
+            email: wooOrder.billing?.email,
+            first_name: wooOrder.billing?.first_name,
+            last_name: wooOrder.billing?.last_name,
+            phone: wooOrder.billing?.phone,
+            billing: wooOrder.billing,
+            shipping: wooOrder.shipping,
+            assigned_to: user.id, // Or keep existing? For now override to current importer
+            updated_at: new Date().toISOString(),
+            last_synced_at: new Date().toISOString()
+          };
+
+          let custData;
+          let custError;
+
+          if (customerRecord) {
+            // Update existing
+            const { data, error } = await adminSupabase
+              .from('wc_customers')
+              .update(customerData)
+              .eq('id', customerRecord.id)
+              .select('id')
+              .single();
+            custData = data;
+            custError = error;
+          } else {
+            // Insert new
+            const { data, error } = await adminSupabase
+              .from('wc_customers')
+              .insert(customerData)
+              .select('id')
+              .single();
+            custData = data;
+            custError = error;
+          }
+
+          if (custData) customerUuid = custData.id;
+          if (custError) console.error(`Error processing customer ${wooOrder.customer_id}:`, custError);
 
           // Check distinct order_id again (double check)
           const { data: existingOrderById } = await adminSupabase

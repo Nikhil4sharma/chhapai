@@ -7,14 +7,18 @@ export const financeService = {
      * Add a payment (CREDIT) to the customer's wallet.
      * Optionally link to an order immediately (which means we also create a DEBIT).
      */
+    /**
+     * Add a payment (CREDIT) to the customer's ledger.
+     * With new logic, this is just recording money in. The allocation is calculated dynamically.
+     */
     async addPayment(
         customerId: string,
         amount: number,
         method: PaymentMethod,
         note: string,
-        linkedOrderId?: string // If provided, we do Credit AND Debit
+        linkedOrderId?: string
     ) {
-        // 1. Create CREDIT entry
+        // Create CREDIT entry
         const { data: creditData, error: creditError } = await supabase
             .from('payment_ledger')
             .insert({
@@ -23,29 +27,17 @@ export const financeService = {
                 transaction_type: 'CREDIT',
                 payment_method: method,
                 reference_note: note,
-                // order_id is usually NULL for pure credit, but if linked immediately, 
-                // we might want to just record it as a credit that IS about that order?
-                // The prompt says: "Multiple orders -> one payment". 
-                // It also says: "CREDIT = money received... DEBIT = money applied".
-                // So strictly, CREDIT increases balance. DEBIT reduces balance and links to order.
-                // If I receive 50k for Order A, I should probably CREDIT 50k (Balance 50k), then DEBIT 50k (Order A, Balance 0).
-                order_id: null // Credits are usually general, but we could link for reference. Let's keep null to be safe per strict double entry logic.
+                order_id: linkedOrderId || null // Reference only, allocation is dynamic
             })
             .select()
             .single();
 
         if (creditError) throw creditError;
-
-        // 2. If blocked for an order, auto-apply DEBIT
-        if (linkedOrderId) {
-            await this.applyPaymentToOrder(customerId, linkedOrderId, amount, `Auto-applied from payment ${creditData.id}`);
-        }
-
         return creditData;
     },
 
     /**
-     * Apply money from customer balance to an order (DEBIT).
+     * @deprecated Dynamic allocation is now used. This function is kept for compatibility but does nothing or simple log.
      */
     async applyPaymentToOrder(
         customerId: string,
@@ -53,26 +45,8 @@ export const financeService = {
         amount: number,
         note: string = 'Applied to order'
     ) {
-        // Check balance first? Prompt says "Prevent negative balances unless admin override".
-        // Let's implement check logic in UI or here. 
-        // For now, let's allow it but we should ideally check.
-        // Doing strict check requires fetching balance first.
-
-        const { data, error } = await supabase
-            .from('payment_ledger')
-            .insert({
-                customer_id: customerId,
-                order_id: orderId,
-                amount: amount,
-                transaction_type: 'DEBIT',
-                payment_method: 'online', // Method doesn't matter for application, effectively 'internal transfer' or keep original? Let's say 'online' or add 'balance'
-                reference_note: note
-            })
-            .select()
-            .single();
-
-        if (error) throw error;
-        return data;
+        console.warn('applyPaymentToOrder is deprecated. Allocation is automatic.');
+        return null;
     },
 
     /**
@@ -90,88 +64,140 @@ export const financeService = {
     },
 
     /**
-     * Calculate Customer Stats (Real-time aggregation)
+     * Calculate Customer Stats (Global Pool)
      */
     async getCustomerBalance(customerId: string): Promise<CustomerBalance> {
-        const { data, error } = await supabase
+        // Fetch all credits (Payments)
+        const { data: payments, error: payError } = await supabase
             .from('payment_ledger')
-            .select('amount, transaction_type')
-            .eq('customer_id', customerId);
+            .select('amount')
+            .eq('customer_id', customerId)
+            .eq('transaction_type', 'CREDIT');
 
-        if (error) throw error;
+        if (payError) throw payError;
 
-        let total_paid = 0;
-        let total_used = 0;
+        // Fetch all debits (Orders)
+        const { data: orders, error: ordError } = await supabase
+            .from('orders')
+            .select('order_total')
+            .eq('customer_id', customerId)
+            .neq('order_status', 'cancelled'); // Exclude cancelled?
 
-        data.forEach(row => {
-            if (row.transaction_type === 'CREDIT') total_paid += Number(row.amount);
-            if (row.transaction_type === 'DEBIT') total_used += Number(row.amount);
-        });
+        if (ordError) throw ordError;
+
+        const total_paid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
+        const total_used = orders.reduce((sum, o) => sum + (o.order_total || 0), 0);
 
         return {
             total_paid,
             total_used,
-            balance: total_paid - total_used
+            balance: total_paid - total_used // If positive, it's advance. If negative, it's due.
         };
     },
 
     /**
-     * Get Order Payment Status
+     * Get Order Payment Status - Calculated via FIFO
      */
     async getOrderPaymentStatus(orderId: string, orderTotal: number): Promise<OrderPaymentStatus> {
-        const { data, error } = await supabase
-            .from('payment_ledger')
-            .select('amount')
-            .eq('order_id', orderId)
-            .eq('transaction_type', 'DEBIT');
+        // This is inefficient for single order if we strictly follow FIFO over all history.
+        // We need to know the order's context.
+        // For simplicity/performance, let's fetch the batch version for just this order's customer?
+        // Or getting the customer ID is needed.
+        // To avoid complexity, we can just return a placeholder or refactor caller to use batch.
+        // Assuming caller has customerId, but here we just have orderId.
 
-        if (error) throw error;
+        // Let's resolve customerId first
+        const { data: order } = await supabase
+            .from('orders')
+            .select('customer_id')
+            .eq('id', orderId)
+            .single();
 
-        const paid_amount = data.reduce((sum, row) => sum + Number(row.amount), 0);
+        if (!order || !order.customer_id) {
+            return { order_total: orderTotal, paid_amount: 0, pending_amount: orderTotal };
+        }
 
-        return {
-            order_total: orderTotal,
-            paid_amount,
-            pending_amount: orderTotal - paid_amount
-        };
+        const map = await this.getBatchOrderPaymentStatus([{ order_id: orderId, total: orderTotal, customer_id: order.customer_id }]);
+        return map[orderId];
     },
 
     /**
-     * Batch fetch payment status for multiple orders
+     * Batch fetch payment status with FIFO Allocation
      */
-    async getBatchOrderPaymentStatus(orders: { order_id: string; total: number }[]): Promise<Record<string, OrderPaymentStatus>> {
+    async getBatchOrderPaymentStatus(orders: { order_id: string; total: number; customer_id?: string }[]): Promise<Record<string, OrderPaymentStatus>> {
         if (orders.length === 0) return {};
 
-        const orderIds = orders.map(o => o.order_id);
-        const { data, error } = await supabase
+        // 1. Identify distinct customers
+        const customerIds = [...new Set(orders.map(o => o.customer_id).filter(Boolean))] as string[];
+
+        if (customerIds.length === 0) return {}; // Need customer IDs to calculate
+
+        // 2. Fetch ALL Orders and ALL Payments for these customers
+        // We need to order them by date created to perform FIFO
+        const { data: allOrders, error: ordError } = await supabase
+            .from('orders')
+            .select('id, customer_id, order_total, created_at')
+            .in('customer_id', customerIds)
+            .neq('order_status', 'cancelled')
+            .order('created_at', { ascending: true }); // Oldest first
+
+        if (ordError) throw ordError;
+
+        const { data: allPayments, error: payError } = await supabase
             .from('payment_ledger')
-            .select('order_id, amount')
-            .in('order_id', orderIds)
-            .eq('transaction_type', 'DEBIT');
+            .select('id, customer_id, amount, created_at')
+            .in('customer_id', customerIds)
+            .eq('transaction_type', 'CREDIT')
+            .order('created_at', { ascending: true });
 
-        if (error) throw error;
+        if (payError) throw payError;
 
+        // 3. Perform FIFO Allocation per customer
         const statusMap: Record<string, OrderPaymentStatus> = {};
 
-        // Initialize
+        // Initialize requested orders map
         orders.forEach(o => {
             statusMap[o.order_id] = {
                 order_total: o.total,
                 paid_amount: 0,
-                pending_amount: o.total
+                pending_amount: o.total,
+                is_advance_covered: false
             };
         });
 
-        // Aggregate
-        data.forEach(row => {
-            if (row.order_id && statusMap[row.order_id]) {
-                statusMap[row.order_id].paid_amount += Number(row.amount);
-            }
-        });
+        customerIds.forEach(custId => {
+            const custOrders = allOrders.filter(o => o.customer_id === custId);
+            const custPayments = allPayments.filter(p => p.customer_id === custId);
 
-        // Recalculate pending
-        Object.values(statusMap).forEach(s => {
-            s.pending_amount = s.order_total - s.paid_amount;
+            let availableCredit = custPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+
+            // Allocate credit to orders (Oldest First)
+            custOrders.forEach((order) => {
+                const orderTotal = Number(order.order_total || 0);
+                let allocated = 0;
+
+                if (availableCredit > 0) {
+                    if (availableCredit >= orderTotal) {
+                        allocated = orderTotal;
+                        availableCredit -= orderTotal;
+                    } else {
+                        allocated = availableCredit;
+                        availableCredit = 0;
+                    }
+                }
+
+                // If this order is in our requested batch, update its status
+                if (statusMap[order.id]) {
+                    statusMap[order.id].paid_amount = allocated;
+                    statusMap[order.id].pending_amount = orderTotal - allocated;
+
+                    // Logic check: floating point precision?
+                    if (statusMap[order.id].pending_amount < 0.01) statusMap[order.id].pending_amount = 0;
+                }
+            });
+
+            // Note: availableCredit remaining is the "Advance Balance" for the customer
+            // We could store/return this if needed for UI
         });
 
         return statusMap;

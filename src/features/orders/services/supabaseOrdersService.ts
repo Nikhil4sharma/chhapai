@@ -52,6 +52,10 @@ export async function fetchAllOrders(): Promise<Order[]> {
     (itemsData || []).forEach(item => {
       if (item.assigned_to) userIds.add(item.assigned_to);
     });
+    // Add logic to include order owners in the profile fetch
+    (ordersData || []).forEach(order => {
+      if (order.assigned_user) userIds.add(order.assigned_user);
+    });
     (filesData || []).forEach(file => {
       if (file.uploaded_by) userIds.add(file.uploaded_by);
     });
@@ -137,6 +141,8 @@ function transformOrdersToAppFormat(
         imported: !!orderRow.imported_by,
         imported_by: orderRow.imported_by || undefined,
       },
+      assigned_user: orderRow.assigned_user || undefined,
+      assigned_user_name: orderRow.assigned_user ? profilesMap.get(orderRow.assigned_user) : undefined,
     };
   });
 }

@@ -19,13 +19,14 @@ export interface PaymentTransaction {
 }
 
 export interface CustomerBalance {
-    total_paid: number; // Sum of CREDITS
-    total_used: number; // Sum of DEBITS
-    balance: number;    // Paid - Used
+    total_paid: number; // Sum of CREDITS (Payments)
+    total_used: number; // Sum of Order Totals (Debits)
+    balance: number;    // Paid - Used (Positive = Advance, Negative = Due)
 }
 
 export interface OrderPaymentStatus {
     order_total: number;
-    paid_amount: number; // Sum of DEBITS linked to this order
+    paid_amount: number; // Allocated from customer payments
     pending_amount: number;
+    is_advance_covered?: boolean; // If paid purely by advance
 }

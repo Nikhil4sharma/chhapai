@@ -128,6 +128,8 @@ export interface Order {
     wp_order_id?: number;
     imported?: boolean;
   };
+  assigned_user?: string;
+  assigned_user_name?: string;
 }
 
 export interface TimelineEntry {
