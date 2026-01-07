@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, ShoppingCart, CheckCircle, X, Loader2, AlertCircle, Download, User, Mail, Phone, Calendar, DollarSign, Package } from 'lucide-react';
+import { Search, ShoppingCart, CheckCircle, X, Loader2, AlertCircle, Download, User, Mail, Phone, Calendar, Package } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -51,14 +51,14 @@ export function FetchOrdersPanel({
 }: FetchOrdersPanelProps) {
   const { user, profile } = useAuth();
   const { refreshOrders } = useOrders();
-  
+
   const [searchParams, setSearchParams] = useState({
     order_number: '',
     customer_email: '',
     customer_name: '',
     customer_phone: '',
   });
-  
+
   const [searchResults, setSearchResults] = useState<WooCommerceOrder[]>([]);
   const [selectedOrders, setSelectedOrders] = useState<Set<number>>(new Set());
   const [isSearching, setIsSearching] = useState(false);
@@ -99,8 +99,8 @@ export function FetchOrdersPanel({
 
   const handleSearch = useCallback(async () => {
     // Validate: at least one search parameter required
-    if (!searchParams.order_number && !searchParams.customer_email && 
-        !searchParams.customer_name && !searchParams.customer_phone) {
+    if (!searchParams.order_number && !searchParams.customer_email &&
+      !searchParams.customer_name && !searchParams.customer_phone) {
       toast({
         title: "Search Required",
         description: "Please enter at least one search parameter",
@@ -151,7 +151,7 @@ export function FetchOrdersPanel({
       }
 
       const data = await response.json();
-      
+
       if (data.success && data.orders) {
         setSearchResults(data.orders);
         if (data.orders.length === 0) {
@@ -170,7 +170,7 @@ export function FetchOrdersPanel({
       }
     } catch (error: any) {
       console.error('Search error:', error);
-      
+
       // Better error messages
       let errorMessage = "Could not search WooCommerce orders";
       if (error.message?.includes('Failed to fetch') || error.message?.includes('CORS')) {
@@ -180,7 +180,7 @@ export function FetchOrdersPanel({
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       toast({
         title: "Search Failed",
         description: errorMessage,
@@ -211,7 +211,7 @@ export function FetchOrdersPanel({
       }
 
       const orderIds = Array.from(selectedOrders);
-      
+
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/woocommerce`, {
         method: 'POST',
         headers: {
@@ -231,10 +231,10 @@ export function FetchOrdersPanel({
       }
 
       const data = await response.json();
-      
+
       if (data.success) {
         setImportedCount(data.imported || 0);
-        
+
         if (data.errors && data.errors.length > 0) {
           toast({
             title: "Import Completed with Errors",
@@ -252,13 +252,13 @@ export function FetchOrdersPanel({
         // Refresh orders list - wait a bit for database to update
         await new Promise(resolve => setTimeout(resolve, 1000));
         await refreshOrders();
-        
+
         // Show success message with order count
         toast({
           title: "Orders Imported Successfully",
           description: `${data.imported} order(s) have been added. Page will refresh to show new orders.`,
         });
-        
+
         // Reset selection and close dialog after delay
         setSelectedOrders(new Set());
         setTimeout(() => {
@@ -306,15 +306,15 @@ export function FetchOrdersPanel({
   // Auto-search on input change (debounced) - only if dialog is open and has search params
   useEffect(() => {
     if (!open) return;
-    
-    const hasSearchParams = searchParams.order_number || searchParams.customer_email || 
-                            searchParams.customer_name || searchParams.customer_phone;
-    
+
+    const hasSearchParams = searchParams.order_number || searchParams.customer_email ||
+      searchParams.customer_name || searchParams.customer_phone;
+
     if (!hasSearchParams) {
       setSearchResults([]);
       return;
     }
-    
+
     const timer = setTimeout(() => {
       handleSearch();
     }, 500);
@@ -421,9 +421,8 @@ export function FetchOrdersPanel({
                       return (
                         <Card
                           key={order.id}
-                          className={`cursor-pointer transition-colors ${
-                            isSelected ? 'border-primary bg-primary/5' : ''
-                          } ${isAlreadyImported ? 'opacity-60' : ''}`}
+                          className={`cursor-pointer transition-colors ${isSelected ? 'border-primary bg-primary/5' : ''
+                            } ${isAlreadyImported ? 'opacity-60' : ''}`}
                           onClick={() => !isAlreadyImported && toggleOrderSelection(order.id)}
                         >
                           <CardContent className="pt-4">

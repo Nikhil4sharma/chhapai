@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, Download, ArrowRight, Send, CheckCircle, Trash2, UserCircle, Loader2, Search, ChevronDown, ChevronUp, ChevronRight, Package, Calendar, Building2, Settings, AlertTriangle, Clock, DollarSign, CheckCircle2, Flame } from 'lucide-react';
+import { Plus, Download, ArrowRight, Send, CheckCircle, Trash2, UserCircle, Loader2, Search, ChevronDown, ChevronUp, ChevronRight, Package, Calendar, Building2, Settings, AlertTriangle, Clock, IndianRupee, CheckCircle2, Flame } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -62,6 +62,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { AddPaymentDialog } from '@/components/dialogs/AddPaymentDialog';
+import { financeService } from '@/services/financeService';
+import { OrderPaymentStatus } from '@/types/finance';
 
 interface SalesUser {
   user_id: string;
@@ -92,6 +95,118 @@ export default function Sales() {
   const [selectedUserTab, setSelectedUserTab] = useState<string>('all'); // 'all' or user_id
   const [salesUsers, setSalesUsers] = useState<SalesUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+
+  // Payment States
+  const [paymentStatuses, setPaymentStatuses] = useState<Record<string, OrderPaymentStatus>>({});
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [selectedOrderForPayment, setSelectedOrderForPayment] = useState<{
+    orderId: string;
+    customerId: string;
+    customerName: string;
+  } | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  // PRODUCT-CENTRIC: Get products (items) in sales stage
+  const salesProducts = useMemo(() => {
+    const deptOrders = getOrdersForDepartment('sales');
+    return deptOrders
+      .filter(order => !order.is_completed && !order.archived_from_wc)
+      .flatMap(order =>
+        order.items
+          .filter(item => {
+            const dept = (item.assigned_department || item.current_stage)?.toLowerCase();
+            return dept === 'sales';
+          })
+          .map(item => ({ order, item }))
+      );
+  }, [orders, getOrdersForDepartment]);
+
+  // Filter by selected user tab (for admin)
+  const userFilteredSalesProducts = useMemo(() => {
+    if (!isAdmin || selectedUserTab === 'all') {
+      return salesProducts;
+    }
+    return salesProducts.filter(({ item }) => item.assigned_to === selectedUserTab);
+  }, [salesProducts, isAdmin, selectedUserTab]);
+
+  // Filter products based on search and priority
+  const filteredSalesProducts = useMemo(() => {
+    return userFilteredSalesProducts.filter(({ order, item }) => {
+      const matchesSearch = searchTerm === '' ||
+        order.order_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        order.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        item.product_name.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesPriority = priorityFilter === 'all' ||
+        item.priority_computed === priorityFilter;
+
+      return matchesSearch && matchesPriority;
+    });
+  }, [userFilteredSalesProducts, searchTerm, priorityFilter]);
+
+  // Fetch Payment Statuses
+  useEffect(() => {
+    const fetchPaymentStatuses = async () => {
+      const uniqueOrders = new Map<string, { order_id: string; total: number }>();
+
+      filteredSalesProducts.forEach(({ order }) => {
+        if (!uniqueOrders.has(order.order_id)) {
+          const total = order.financials?.total || order.items.reduce((sum, item) => sum + (Number(item.line_total) || 0), 0);
+          uniqueOrders.set(order.order_id, { order_id: order.id || order.order_id, total });
+        }
+      });
+
+      if (uniqueOrders.size > 0) {
+        try {
+          const payload = Array.from(uniqueOrders.values()).map(o => ({
+            order_id: o.order_id, // This is UUID (ideally)
+            total: o.total
+          }));
+
+          const stats = await financeService.getBatchOrderPaymentStatus(payload);
+
+          const remappedStats: Record<string, OrderPaymentStatus> = {};
+          uniqueOrders.forEach((val, key) => {
+            if (stats[val.order_id]) {
+              remappedStats[key] = stats[val.order_id];
+            }
+          });
+
+          setPaymentStatuses(remappedStats);
+        } catch (err) {
+          console.error("Failed to fetch payment stats", err);
+        }
+      }
+    };
+
+    if (filteredSalesProducts.length > 0) {
+      fetchPaymentStatuses();
+    }
+  }, [filteredSalesProducts, refreshKey]); // Added refreshKey dependency
+
+  // Handle Payment Click
+  const handleAddPayment = (order: Order) => {
+    // Check if order has ID
+    if (!order.id) {
+      // Try fallback if order.id missing but logic permits
+      console.warn("Order missing internal ID", order);
+    }
+
+    // Safely get customer ID
+    // @ts-ignore - 'customer' in Order type might lack 'id' definition but it exists in runtime
+    const customerId = order.customer?.id || order.customer_id;
+
+    if (customerId) {
+      setSelectedOrderForPayment({
+        orderId: order.id!, // Assuming UUID exists if we got here
+        customerId: customerId,
+        customerName: order.customer.name || 'Customer'
+      });
+      setPaymentDialogOpen(true);
+    } else {
+      toast({ title: "Error", description: "Missing customer association for this order", variant: "destructive" });
+    }
+  };
 
   const canDelete = isAdmin || role === 'sales';
 
@@ -124,185 +239,227 @@ export default function Sales() {
     }
   }, [isAdmin]);
 
-  // PRODUCT-CENTRIC: Get products (items) in sales stage, not grouped by orders
-  const salesProducts = useMemo(() => {
-    const deptOrders = getOrdersForDepartment('sales');
-    return deptOrders
-      .filter(order => !order.is_completed && !order.archived_from_wc)
-      .flatMap(order => 
-        order.items
-          .filter(item => {
-            const dept = (item.assigned_department || item.current_stage)?.toLowerCase();
-            return dept === 'sales';
-          })
-          .map(item => ({ order, item }))
-      );
-  }, [orders, getOrdersForDepartment]);
-
-  // Filter by selected user tab (for admin)
-  const userFilteredSalesProducts = useMemo(() => {
-    if (!isAdmin || selectedUserTab === 'all') {
-      return salesProducts;
-    }
-    // Filter products assigned to selected user
-    return salesProducts.filter(({ item }) => item.assigned_to === selectedUserTab);
-  }, [salesProducts, isAdmin, selectedUserTab]);
-
-  // Filter products based on search and priority
-  const filteredSalesProducts = useMemo(() => {
-    return userFilteredSalesProducts.filter(({ order, item }) => {
-      // Check if product matches search
-      const matchesSearch = searchTerm === '' || 
-        order.order_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        item.product_name.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      // Check if product matches priority filter
-      const matchesPriority = priorityFilter === 'all' || 
-        item.priority_computed === priorityFilter;
-      
-      return matchesSearch && matchesPriority;
-    });
-  }, [userFilteredSalesProducts, searchTerm, priorityFilter]);
-
-  // Calculate total products count
+  // Calculate total products count for All tab
   const totalSalesItems = useMemo(() => {
     return filteredSalesProducts.length;
   }, [filteredSalesProducts]);
+
+  // My Orders: Created by me OR assigned to me
+  const mySalesItems = useMemo(() => {
+    if (!user) return [];
+    return filteredSalesProducts.filter(({ order, item }) =>
+      order.created_by === user.id || item.assigned_to === user.id
+    );
+  }, [filteredSalesProducts, user]);
+
+  // Pending Approval: Items in Sales stage but waiting for approval
+  const pendingApprovalItems = useMemo(() => {
+    return filteredSalesProducts.filter(({ item }) =>
+      item.status === 'pending_for_customer_approval'
+    );
+  }, [filteredSalesProducts]);
+
+  // Completed Orders: Order is completed or item is completed/dispatched
+  const completedSalesItems = useMemo(() => {
+    const completedOrders = orders.filter(o => o.is_completed);
+    const completedProductList = completedOrders.flatMap(o => o.items.map(i => ({ order: o, item: i })));
+
+    const activeOrderCompletedItems = orders
+      .filter(o => !o.is_completed)
+      .flatMap(o => o.items.filter(i => i.current_stage === 'completed' || i.is_dispatched)
+        .map(i => ({ order: o, item: i })));
+
+    return [...completedProductList, ...activeOrderCompletedItems];
+  }, [orders]);
 
   // Urgent products
   const urgentProducts = useMemo(() => {
     return filteredSalesProducts.filter(({ item }) => item.priority_computed === 'red');
   }, [filteredSalesProducts]);
 
-  // Delivery Risk products - delivery date < 3 days and stuck in next department
+  // Delivery Risk products
   const deliveryRiskProducts = useMemo(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     return filteredSalesProducts.filter(({ item }) => {
       const deliveryDate = new Date(item.delivery_date);
       deliveryDate.setHours(0, 0, 0, 0);
       const daysUntil = differenceInDays(deliveryDate, today);
-      
-      // Delivery date < 3 days and item is not in sales stage (stuck in next department)
       return daysUntil < 3 && daysUntil >= 0 && item.current_stage !== 'sales';
     });
   }, [filteredSalesProducts]);
 
-  // Products awaiting customer approval (items in design/prepress that need customer approval)
-  const awaitingCustomerApproval = useMemo(() => {
-    return filteredSalesProducts.filter(({ item }) => 
-      (item.current_stage === 'design' || item.current_stage === 'prepress') &&
-      item.files && item.files.length > 0 &&
-      item.files.some(f => f.type === 'proof')
-    );
-  }, [filteredSalesProducts]);
-
-  const wpPendingOrders = orders.filter(o => 
+  // Pending WP Orders
+  const wpPendingOrders = orders.filter(o =>
     o.source === 'wordpress' && o.items.some(i => i.current_stage === 'sales')
   );
 
-  const handleSendToDesign = async (orderId: string, itemId: string) => {
-    await updateItemStage(orderId, itemId, 'design');
+  const [activeTab, setActiveTab] = useState('all');
+
+  // Helper to render product list
+  const renderProductList = (productList: { order: Order; item: OrderItem }[], emptyMessage: string) => {
+    if (productList.length === 0) {
+      return (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
+            <h3 className="font-semibold text-lg mb-2">No products found</h3>
+            <p className="text-muted-foreground">{emptyMessage}</p>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Group items by order
+    const itemsByOrder = new Map<string, Array<{ order: Order; item: OrderItem }>>();
+    productList.forEach(({ order, item }) => {
+      const orderKey = order.order_id;
+      if (!itemsByOrder.has(orderKey)) itemsByOrder.set(orderKey, []);
+      itemsByOrder.get(orderKey)!.push({ order, item });
+    });
+
+    const orderGroups = Array.from(itemsByOrder.entries());
+
+    return (
+      <div className="space-y-6 pb-6">
+        {orderGroups.map(([orderId, items]) => {
+          // Prepare items with suffixes
+          const itemsWithSuffixes = items.map(({ order, item }, index) => ({
+            order,
+            item,
+            suffix: items.length > 1 ? String.fromCharCode(65 + index) : ''
+          }));
+
+          const order = items[0].order;
+          // Determine Customer UUID safely
+          const customerId = order.customer?.id || order.customer_id;
+
+          const paymentStat = paymentStatuses[orderId];
+          const isPaid = paymentStat && paymentStat.pending_amount <= 0;
+          const pendingAmount = paymentStat ? paymentStat.pending_amount : (order.financials?.total || 0);
+
+          // Determine priority color
+          const isUrgent = items.some(({ item }) => item.priority_computed === 'red');
+          const isMedium = !isUrgent && items.some(({ item }) => item.priority_computed === 'yellow');
+
+          let spineColor = 'bg-slate-100 border-slate-200 dark:bg-slate-800 dark:border-slate-700'; // Default
+          let textColor = 'text-slate-500 dark:text-slate-400';
+
+          if (isUrgent) {
+            spineColor = 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-900/50';
+            textColor = 'text-red-600 dark:text-red-400';
+          } else if (isMedium) {
+            spineColor = 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-900/50';
+            textColor = 'text-yellow-600 dark:text-yellow-400';
+          }
+
+          return (
+            <div key={orderId} className="flex h-auto min-h-[250px] border rounded-lg shadow-sm bg-card overflow-hidden transition-all hover:shadow-md">
+
+              {/* Left Spine: Vertical Order ID */}
+              <div
+                className={`w-10 sm:w-12 flex flex-col items-center justify-center py-4 border-r ${spineColor} flex-shrink-0 cursor-pointer transition-colors hover:bg-opacity-80`}
+                onClick={() => {
+                  navigator.clipboard.writeText(orderId);
+                  toast({ title: "Copied", description: `Order #${orderId} copied to clipboard` });
+                }}
+              >
+                <div className="flex-1" />
+                <span
+                  className={`text-sm font-bold tracking-widest whitespace-nowrap ${textColor}`}
+                  style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                >
+                  #{orderId}
+                </span>
+                <div className="flex-1" />
+              </div>
+
+              {/* Right Content */}
+              <div className="flex-1 overflow-hidden flex flex-col min-w-0">
+                {/* Financial Header */}
+                <div className="px-4 py-2 border-b bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold text-sm">{order.customer.name}</span>
+                    <Badge variant={isPaid ? "default" : "destructive"} className={isPaid ? "bg-emerald-500 hover:bg-emerald-600" : ""}>
+                      {isPaid ? "Paid" : `Pending: ₹${pendingAmount ? pendingAmount.toLocaleString() : '0'}`}
+                    </Badge>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs gap-1"
+                      onClick={() => {
+                        if (customerId) {
+                          setSelectedOrderForPayment({
+                            orderId: order.id!, // UUID
+                            customerId: customerId,
+                            customerName: order.customer.name
+                          });
+                          setPaymentDialogOpen(true);
+                        } else {
+                          toast({ title: "Error", description: "Missing customer association", variant: "destructive" });
+                        }
+                      }}
+                    >
+                      <IndianRupee className="h-3 w-3" />
+                      Add Payment
+                    </Button>
+                  </div>
+                </div>
+
+                <div className={`p-4 h-full overflow-x-auto overflow-y-hidden custom-scrollbar bg-slate-50/30 dark:bg-slate-900/10`}>
+                  <div className={`flex gap-4 h-full items-start ${itemsWithSuffixes.length === 1 ? 'w-full' : ''}`}>
+                    {itemsWithSuffixes.map(({ order, item, suffix }) => (
+                      <div
+                        key={`${order.order_id}-${item.item_id}`}
+                        className={`
+                               flex-shrink-0 transition-all duration-300
+                               ${itemsWithSuffixes.length === 1 ? 'w-full max-w-2xl' : 'w-[320px]'}
+                             `}
+                      >
+                        <ProductCard
+                          order={order}
+                          item={item}
+                          productSuffix={suffix}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
-  const handleSendToPrepress = async (orderId: string, itemId: string) => {
-    await updateItemStage(orderId, itemId, 'prepress');
-  };
-
+  const handleSendToDesign = async (orderId: string, itemId: string) => { await updateItemStage(orderId, itemId, 'design'); };
+  const handleSendToPrepress = async (orderId: string, itemId: string) => { await updateItemStage(orderId, itemId, 'prepress'); };
   const handleSendToProduction = (orderId: string, itemId: string) => {
     const order = orders.find(o => o.order_id === orderId);
     const item = order?.items.find(i => i.item_id === itemId);
     if (!order || !item) return;
-    
-    // If item already has production stage sequence, assign directly
-    // Otherwise, show dialog to set sequence
     if ((item as any).production_stage_sequence && (item as any).production_stage_sequence.length > 0) {
-      // Direct assignment to production
       sendToProduction(orderId, itemId, (item as any).production_stage_sequence);
     } else {
-      // Show dialog to set production stages
-      setSelectedItemForProduction({
-        orderId,
-        itemId,
-        productName: item.product_name,
-        currentSequence: (item as any).production_stage_sequence
-      });
+      setSelectedItemForProduction({ orderId, itemId, productName: item.product_name, currentSequence: (item as any).production_stage_sequence });
       setProductionStageDialogOpen(true);
     }
   };
+  const handleDirectAssignToProduction = async (orderId: string, itemId: string) => { await assignToDepartment(orderId, itemId, 'production'); toast({ title: "Assigned to Production", description: "Item assigned to production department" }); };
+  const handleOutsourceClick = (orderId: string, itemId: string, productName: string, quantity: number) => { setSelectedItemForOutsource({ orderId, itemId, productName, quantity }); setOutsourceDialogOpen(true); };
+  const handleOutsourceAssign = async (vendor: any, jobDetails: any) => { if (selectedItemForOutsource) { await assignToOutsource(selectedItemForOutsource.orderId, selectedItemForOutsource.itemId, vendor, jobDetails); setOutsourceDialogOpen(false); setSelectedItemForOutsource(null); } };
+  const handleUpdateDeliveryDate = (orderId: string, itemId: string, productName: string, currentDate: Date) => { setSelectedItemForDeliveryDate({ orderId, itemId, productName, currentDate }); setDeliveryDateDialogOpen(true); };
+  const handleSaveDeliveryDate = async (date: Date) => { if (selectedItemForDeliveryDate) { await updateItemDeliveryDate(selectedItemForDeliveryDate.orderId, selectedItemForDeliveryDate.itemId, date); setDeliveryDateDialogOpen(false); setSelectedItemForDeliveryDate(null); } };
+  const handleSetPriority = (orderId: string, itemId: string, productName: string, currentPriority: 'blue' | 'yellow' | 'red') => { setSelectedItemForPriority({ orderId, itemId, productName, currentPriority }); setPriorityDialogOpen(true); };
+  const handleDeleteOrder = async () => { if (orderToDelete) { await deleteOrder(orderToDelete); setOrderToDelete(null); setDeleteDialogOpen(false); } };
+  const confirmDelete = (orderId: string) => { setOrderToDelete(orderId); setDeleteDialogOpen(true); };
 
-  const handleDirectAssignToProduction = async (orderId: string, itemId: string) => {
-    // Direct assignment to production department (will use default stages)
-    await assignToDepartment(orderId, itemId, 'production');
-    toast({
-      title: "Assigned to Production",
-      description: "Item assigned to production department",
-    });
-  };
-
-  const handleOutsourceClick = (orderId: string, itemId: string, productName: string, quantity: number) => {
-    setSelectedItemForOutsource({ orderId, itemId, productName, quantity });
-    setOutsourceDialogOpen(true);
-  };
-
-  const handleOutsourceAssign = async (vendor: any, jobDetails: any) => {
-    if (selectedItemForOutsource) {
-      await assignToOutsource(selectedItemForOutsource.orderId, selectedItemForOutsource.itemId, vendor, jobDetails);
-      setOutsourceDialogOpen(false);
-      setSelectedItemForOutsource(null);
-    }
-  };
-
-  const handleUpdateDeliveryDate = (orderId: string, itemId: string, productName: string, currentDate: Date) => {
-    setSelectedItemForDeliveryDate({ orderId, itemId, productName, currentDate });
-    setDeliveryDateDialogOpen(true);
-  };
-
-  const handleSaveDeliveryDate = async (date: Date) => {
-    if (selectedItemForDeliveryDate) {
-      await updateItemDeliveryDate(selectedItemForDeliveryDate.orderId, selectedItemForDeliveryDate.itemId, date);
-      setDeliveryDateDialogOpen(false);
-      setSelectedItemForDeliveryDate(null);
-    }
-  };
-
-  const handleSetPriority = (orderId: string, itemId: string, productName: string, currentPriority: 'blue' | 'yellow' | 'red') => {
-    setSelectedItemForPriority({ orderId, itemId, productName, currentPriority });
-    setPriorityDialogOpen(true);
-  };
-
-  const handleMarkCXApproved = async (orderId: string, itemId: string) => {
-    // Move to next stage after customer approval
-    const order = orders.find(o => o.order_id === orderId);
-    const item = order?.items.find(i => i.item_id === itemId);
-    if (!order || !item) return;
-
-    if (item.current_stage === 'design') {
-      await updateItemStage(orderId, itemId, 'prepress');
-      toast({
-        title: "Customer Approved",
-        description: "Item moved to Prepress",
-      });
-    } else if (item.current_stage === 'prepress') {
-      // If prepress, can go to production
-      handleSendToProduction(orderId, itemId);
-    }
-  };
-
-  const handleDeleteOrder = async () => {
-    if (orderToDelete) {
-      await deleteOrder(orderToDelete);
-      setOrderToDelete(null);
-      setDeleteDialogOpen(false);
-    }
-  };
-
-  const confirmDelete = (orderId: string) => {
-    setOrderToDelete(orderId);
-    setDeleteDialogOpen(true);
-  };
 
   if (isLoading) {
     return (
@@ -313,6 +470,9 @@ export default function Sales() {
     );
   }
 
+  // Calculate unique customers count (from all orders)
+  const uniqueCustomersCount = new Set(orders.map(o => o.customer.email || o.customer.phone)).size;
+
   return (
     <TooltipProvider>
       <div className="h-full flex flex-col gap-4">
@@ -321,29 +481,92 @@ export default function Sales() {
           <div>
             <h1 className="text-2xl font-display font-bold text-foreground">Sales Dashboard</h1>
             <p className="text-muted-foreground">
-              {totalSalesItems} product{totalSalesItems !== 1 ? 's' : ''} in sales stage
+              Overview of sales orders and customer status
             </p>
           </div>
           <div className="flex gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={() => refreshOrders()}>
-                  <Download className="h-4 w-4 mr-2" />
-                  Refresh
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Refresh orders</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button size="sm" onClick={() => setCreateOrderOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Order
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Create a new order</TooltipContent>
-            </Tooltip>
+            <div className="flex gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="gap-2">
+                    <Settings className="h-4 w-4" />
+                    Quick Actions
+                    <ChevronDown className="h-4 w-4 opacity-50" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => toast({ title: "Coming Soon", description: "Performa Invoice generation will be available soon." })}>
+                    <IndianRupee className="h-4 w-4 mr-2 text-muted-foreground" />
+                    Generate Performa Invoice
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => toast({ title: "Coming Soon", description: "More actions coming soon." })}>
+                    <Package className="h-4 w-4 mr-2 text-muted-foreground" />
+                    Bulk Export Orders
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           </div>
+        </div>
+
+        {/* Dashboard Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* My Customers Card */}
+          <Card
+            className="cursor-pointer hover:shadow-md transition-all border-l-4 border-l-blue-500"
+            onClick={() => navigate('/customers?filter=my')}
+          >
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Customers</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <UserCircle className="h-8 w-8 text-blue-500" />
+                <span className="text-2xl font-bold">{uniqueCustomersCount}</span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Click to view all customers</p>
+            </CardContent>
+          </Card>
+
+          {/* Total Sales Items */}
+          <Card className="border-l-4 border-l-purple-500">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Active Orders</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Package className="h-8 w-8 text-purple-500" />
+                <span className="text-2xl font-bold">{totalSalesItems}</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Urgent Items */}
+          <Card className="border-l-4 border-l-red-500">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Urgent Orders</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-8 w-8 text-red-500" />
+                <span className="text-2xl font-bold">{urgentProducts.length}</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Pending Approval */}
+          <Card className="border-l-4 border-l-yellow-500">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Pending Approval</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-2">
+                <Clock className="h-8 w-8 text-yellow-500" />
+                <span className="text-2xl font-bold">{pendingApprovalItems.length}</span>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Filters */}
@@ -376,218 +599,67 @@ export default function Sales() {
             <span className="text-sm font-medium text-muted-foreground">Filter by User:</span>
             <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
               <TabsList className="flex-wrap h-auto">
-                <TabsTrigger value="all" className="text-sm">
-                  All Users
-                  <Badge variant="secondary" className="ml-2">
-                    {salesProducts.length}
-                  </Badge>
-                </TabsTrigger>
-                {salesUsers.map((salesUser) => {
-                  const userProductCount = salesProducts.filter(({ item }) => item.assigned_to === salesUser.user_id).length;
-                  return (
-                    <TabsTrigger key={salesUser.user_id} value={salesUser.user_id} className="text-sm">
-                      {salesUser.full_name}
-                      <Badge variant="secondary" className="ml-2">{userProductCount}</Badge>
-                    </TabsTrigger>
-                  );
-                })}
+                <TabsTrigger value="all" className="text-sm">All Users</TabsTrigger>
+                {salesUsers.map((salesUser) => (
+                  <TabsTrigger key={salesUser.user_id} value={salesUser.user_id} className="text-sm">
+                    {salesUser.full_name}
+                  </TabsTrigger>
+                ))}
               </TabsList>
             </Tabs>
           </div>
         )}
 
-        {/* Delivery Risk Card */}
-        {deliveryRiskProducts.length > 0 && (
-          <Card className="border-priority-red/50 bg-priority-red/5">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-display flex items-center gap-2">
-                <Flame className="h-5 w-5 text-priority-red" />
-                <Badge variant="priority-red">{deliveryRiskProducts.length}</Badge>
-                🔥 Delivery Risk
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-2">
-                Products with delivery date &lt; 3 days and stuck in next department
-              </p>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => {
-                  const urgentTab = document.querySelector('[value="urgent"]') as HTMLElement;
-                  if (urgentTab) urgentTab.click();
-                }}
-              >
-                View Urgent Products
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Pending WP Orders Alert */}
-        {wpPendingOrders.length > 0 && (
-          <Card className="border-priority-yellow/50 bg-priority-yellow/5">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-display flex items-center gap-2">
-                <Badge variant="priority-yellow">{wpPendingOrders.length}</Badge>
-                Pending WooCommerce Orders
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-4">
-                These orders were imported from WordPress and need to be assigned to departments.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Orders Tabs - Scrollable content area */}
+        {/* Main Tabs */}
         <div className="flex-1 min-h-0">
-          <Tabs defaultValue="pending" className="h-full flex flex-col">
-            <TabsList className="flex-shrink-0">
-              <TabsTrigger value="pending">
-                In Sales
-                <Badge variant="secondary" className="ml-2">{filteredSalesProducts.length}</Badge>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
+            <TabsList className="flex-shrink-0 w-full justify-start overflow-x-auto">
+              <TabsTrigger value="all" className="flex gap-2">
+                Show All Orders
+                <Badge variant="secondary">{totalSalesItems}</Badge>
               </TabsTrigger>
-              <TabsTrigger value="urgent">
-                Urgent
-                <Badge variant="priority-red" className="ml-2">{urgentProducts.length}</Badge>
+              <TabsTrigger value="my_orders" className="flex gap-2">
+                My Orders
+                <Badge variant="secondary">{mySalesItems.length}</Badge>
               </TabsTrigger>
-              <TabsTrigger value="all">All Products</TabsTrigger>
+              <TabsTrigger value="pending_approval" className="flex gap-2">
+                Pending Approval
+                <Badge variant={pendingApprovalItems.length > 0 ? "destructive" : "secondary"}>
+                  {pendingApprovalItems.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="completed" className="flex gap-2">
+                Completed Orders
+                <Badge variant="secondary">{completedSalesItems.length}</Badge>
+              </TabsTrigger>
             </TabsList>
-
-            <TabsContent value="pending" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-              {filteredSalesProducts.length === 0 ? (
-                <Card>
-                  <CardContent className="py-12 text-center">
-                    <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                    <h3 className="font-semibold text-lg mb-2">No products in Sales</h3>
-                    <p className="text-muted-foreground">All products have been assigned to departments.</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-3">
-                  {(() => {
-                    // Group items by order_id to assign suffixes (A, B, C, etc.)
-                    const itemsByOrder = new Map<string, Array<{ order: Order; item: OrderItem }>>();
-                    filteredSalesProducts.forEach(({ order, item }) => {
-                      const orderKey = order.order_id;
-                      if (!itemsByOrder.has(orderKey)) {
-                        itemsByOrder.set(orderKey, []);
-                      }
-                      itemsByOrder.get(orderKey)!.push({ order, item });
-                    });
-
-                    // Flatten with suffixes
-                    const itemsWithSuffixes: Array<{ order: Order; item: OrderItem; suffix: string }> = [];
-                    itemsByOrder.forEach((items, orderKey) => {
-                      items.forEach(({ order, item }, index) => {
-                        const suffix = items.length > 1 ? String.fromCharCode(65 + index) : ''; // A, B, C, etc.
-                        itemsWithSuffixes.push({ order, item, suffix });
-                      });
-                    });
-
-                    return itemsWithSuffixes.map(({ order, item, suffix }) => (
-                      <ProductCard 
-                        key={`${order.order_id}-${item.item_id}`}
-                        order={order} 
-                        item={item}
-                        productSuffix={suffix}
-                      />
-                    ));
-                  })()}
-                </div>
-              )}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="urgent" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                {urgentProducts.length === 0 ? (
-                  <Card>
-                    <CardContent className="py-12 text-center">
-                      <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                      <h3 className="font-semibold text-lg mb-2">No urgent products</h3>
-                      <p className="text-muted-foreground">All products are on schedule.</p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <div className="flex gap-4 overflow-x-auto pb-4 scroll-smooth snap-x snap-mandatory scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
-                    {(() => {
-                      // Group items by order_id to assign suffixes (A, B, C, etc.)
-                      const itemsByOrder = new Map<string, Array<{ order: Order; item: OrderItem }>>();
-                      urgentProducts.forEach(({ order, item }) => {
-                        const orderKey = order.order_id;
-                        if (!itemsByOrder.has(orderKey)) {
-                          itemsByOrder.set(orderKey, []);
-                        }
-                        itemsByOrder.get(orderKey)!.push({ order, item });
-                      });
-
-                      // Flatten with suffixes
-                      const itemsWithSuffixes: Array<{ order: Order; item: OrderItem; suffix: string }> = [];
-                      itemsByOrder.forEach((items, orderKey) => {
-                        items.forEach(({ order, item }, index) => {
-                          const suffix = items.length > 1 ? String.fromCharCode(65 + index) : ''; // A, B, C, etc.
-                          itemsWithSuffixes.push({ order, item, suffix });
-                        });
-                      });
-
-                      return itemsWithSuffixes.map(({ order, item, suffix }) => (
-                        <div key={`${order.order_id}-${item.item_id}`} className="flex-shrink-0 w-80 snap-start">
-                          <ProductCard 
-                            order={order} 
-                            item={item}
-                            productSuffix={suffix}
-                          />
-                        </div>
-                      ));
-                    })()}
-                  </div>
-                )}
-              </div>
-            </TabsContent>
 
             <TabsContent value="all" className="flex-1 mt-4 overflow-hidden">
               <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                <div className="flex gap-4 overflow-x-auto pb-4 scroll-smooth snap-x snap-mandatory scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
-                  {(() => {
-                    // Group items by order_id to assign suffixes (A, B, C, etc.)
-                    const itemsByOrder = new Map<string, Array<{ order: Order; item: OrderItem }>>();
-                    filteredSalesProducts.forEach(({ order, item }) => {
-                      const orderKey = order.order_id;
-                      if (!itemsByOrder.has(orderKey)) {
-                        itemsByOrder.set(orderKey, []);
-                      }
-                      itemsByOrder.get(orderKey)!.push({ order, item });
-                    });
+                {renderProductList(filteredSalesProducts, "No products found in Sales")}
+              </div>
+            </TabsContent>
 
-                    // Flatten with suffixes
-                    const itemsWithSuffixes: Array<{ order: Order; item: OrderItem; suffix: string }> = [];
-                    itemsByOrder.forEach((items, orderKey) => {
-                      items.forEach(({ order, item }, index) => {
-                        const suffix = items.length > 1 ? String.fromCharCode(65 + index) : ''; // A, B, C, etc.
-                        itemsWithSuffixes.push({ order, item, suffix });
-                      });
-                    });
+            <TabsContent value="my_orders" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
+                {renderProductList(mySalesItems, "You have no active orders")}
+              </div>
+            </TabsContent>
 
-                    return itemsWithSuffixes.map(({ order, item, suffix }) => (
-                      <div key={`${order.order_id}-${item.item_id}`} className="flex-shrink-0 w-80 snap-start">
-                        <ProductCard 
-                          order={order} 
-                          item={item}
-                          productSuffix={suffix}
-                        />
-                      </div>
-                    ));
-                  })()}
-                </div>
+            <TabsContent value="pending_approval" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
+                {renderProductList(pendingApprovalItems, "No orders awaiting approval")}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="completed" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
+                {renderProductList(completedSalesItems, "No completed orders found")}
               </div>
             </TabsContent>
           </Tabs>
         </div>
+
 
         {/* Delete Confirmation Dialog */}
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
@@ -611,8 +683,8 @@ export default function Sales() {
         </AlertDialog>
 
         {/* Create Order Dialog */}
-        <CreateOrderDialog 
-          open={createOrderOpen} 
+        <CreateOrderDialog
+          open={createOrderOpen}
           onOpenChange={setCreateOrderOpen}
           onOrderCreated={() => refreshOrders()}
         />
@@ -669,7 +741,7 @@ export default function Sales() {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
-                <Select 
+                <Select
                   defaultValue={selectedItemForPriority.currentPriority}
                   onValueChange={async (value: 'blue' | 'yellow' | 'red') => {
                     // Priority is computed from delivery date, so we need to update delivery date
@@ -698,8 +770,21 @@ export default function Sales() {
             </DialogContent>
           </Dialog>
         )}
+
+        {/* Add Payment Dialog */}
+        {selectedOrderForPayment && (
+          <AddPaymentDialog
+            open={paymentDialogOpen}
+            onOpenChange={setPaymentDialogOpen}
+            customerId={selectedOrderForPayment.customerId}
+            customerName={selectedOrderForPayment.customerName}
+            linkedOrderId={selectedOrderForPayment.orderId}
+            onSuccess={() => {
+              setRefreshKey(prev => prev + 1);
+            }}
+          />
+        )}
       </div>
     </TooltipProvider>
   );
 }
-

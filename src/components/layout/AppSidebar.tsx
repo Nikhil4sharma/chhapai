@@ -164,7 +164,9 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           label: 'Sales',
           path: '/sales',
           icon: ShoppingCart,
-          roles: ['admin', 'sales', 'super_admin']
+          roles: ['admin', 'sales', 'super_admin'],
+          badge: badges.counts.sales,
+          badgeVariant: badges.urgentCounts.sales > 0 ? 'priority-red' : 'default'
         },
         {
           label: 'Design',

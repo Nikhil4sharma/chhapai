@@ -318,6 +318,13 @@ serve(async (req: Request) => {
 
       if (order_number) {
         searchParams.append('number', order_number.toString());
+      } else {
+        // Optimization: Use WC 'search' param for other fields
+        // This matches matching ID, title, content excerpt, and customer info (name, email, phone)
+        const query = customer_email || customer_name || customer_phone;
+        if (query) {
+          searchParams.append('search', query);
+        }
       }
 
       // WooCommerce API doesn't support direct email/name/phone search in query params
@@ -347,20 +354,19 @@ serve(async (req: Request) => {
 
       let wooOrders = await response.json();
 
-      // Filter by search criteria if not using order number
+      // Additional client-side filtering might be needed if multiple params provided, 
+      // but 'search' is usually sufficient.
+      // If we used strict filtering, we'd need to keep the filter logic, but for general "Search",
+      // the API result is good enough.
+      // We keep the filter ONLY if 'search' wasn't used or if we need exact match?
+      // Actually, let's keep the filter as a fast secondary check, 
+      // but since we used 'search', the dataset is small.
       if (!order_number) {
         wooOrders = wooOrders.filter((order: any) => {
-          const emailMatch = !customer_email ||
-            (order.billing?.email && order.billing.email.toLowerCase().includes(customer_email.toLowerCase()));
-
-          const nameMatch = !customer_name ||
-            (order.billing?.first_name && `${order.billing.first_name} ${order.billing.last_name || ''}`.toLowerCase().includes(customer_name.toLowerCase())) ||
-            (order.billing?.last_name && `${order.billing.first_name || ''} ${order.billing.last_name}`.toLowerCase().includes(customer_name.toLowerCase()));
-
-          const phoneMatch = !customer_phone ||
-            (order.billing?.phone && order.billing.phone.includes(customer_phone));
-
-          return emailMatch || nameMatch || phoneMatch;
+          // If we searched by specific field, ensure it matches (API search is broad)
+          if (customer_email && (!order.billing?.email || !order.billing.email.toLowerCase().includes(customer_email.toLowerCase()))) return false;
+          if (customer_phone && (!order.billing?.phone || !order.billing.phone.includes(customer_phone))) return false;
+          return true;
         });
       }
 
@@ -532,10 +538,12 @@ serve(async (req: Request) => {
       const importedOrders: any[] = [];
       const errors: string[] = [];
 
-      for (const wooOrderId of order_ids) {
+      // Helper function to process a single order
+      const processOrder = async (wooOrderId: string | number) => {
         try {
+          const idStr = wooOrderId.toString();
           // Fetch order from WooCommerce
-          const apiUrl = `${storeUrl}/wp-json/wc/v3/orders/${wooOrderId}`;
+          const apiUrl = `${storeUrl}/wp-json/wc/v3/orders/${idStr}`;
           const auth = btoa(`${consumerKey}:${consumerSecret}`);
 
           const response = await fetch(apiUrl, {
@@ -547,46 +555,72 @@ serve(async (req: Request) => {
           });
 
           if (!response.ok) {
-            errors.push(`Order ${wooOrderId}: Failed to fetch from WooCommerce (${response.status})`);
-            continue;
+            return { error: `Order ${idStr}: Failed to fetch from WooCommerce (${response.status})` };
           }
 
           const wooOrder = await response.json();
 
-          // Check if order already exists
+          // Check if order already exists in Supabase by woo_order_id
           const { data: existingOrder } = await adminSupabase
             .from('orders')
             .select('id, order_id')
-            .eq('woo_order_id', wooOrderId.toString())
-            .single();
+            .eq('woo_order_id', idStr)
+            .maybeSingle();
 
           if (existingOrder) {
-            errors.push(`Order ${wooOrderId}: Already imported (Order ID: ${existingOrder.order_id})`);
-            continue;
+            console.log(`Order ${idStr} already imported (ID: ${existingOrder.order_id})`);
+            return { error: `Order ${idStr}: Already imported (Order ID: ${existingOrder.order_id})` };
           }
 
-          // Create order in Supabase
-          // FIX: Use numeric order ID only (no WC- prefix) for WooCommerce orders
-          const orderId = wooOrderId.toString();
+          // FIX: Use numeric order ID only (no WC- prefix)
+          const orderId = idStr;
 
-          // CRITICAL: Check for existing order by order_id to prevent duplicates
+          // Auto-Import Customer
+          let customerUuid: string | null = null;
+          if (wooOrder.customer_id && wooOrder.customer_id > 0) {
+            try {
+              const customerData = {
+                wc_id: wooOrder.customer_id,
+                email: wooOrder.billing?.email,
+                first_name: wooOrder.billing?.first_name,
+                last_name: wooOrder.billing?.last_name,
+                phone: wooOrder.billing?.phone,
+                billing: wooOrder.billing,
+                shipping: wooOrder.shipping,
+                assigned_to: user.id,
+                updated_at: new Date().toISOString(),
+                last_synced_at: new Date().toISOString()
+              };
+
+              const { data: custData, error: custError } = await adminSupabase
+                .from('wc_customers')
+                .upsert(customerData, { onConflict: 'wc_id' })
+                .select('id')
+                .single();
+
+              if (custData) customerUuid = custData.id;
+            } catch (err) {
+              console.error(`Error processing customer ${wooOrder.customer_id}:`, err);
+            }
+          }
+
+          // Check distinct order_id again (double check)
           const { data: existingOrderById } = await adminSupabase
             .from('orders')
-            .select('id, source, woo_order_id')
+            .select('id')
             .eq('order_id', orderId)
             .maybeSingle();
 
-          // If order exists, skip (prevent duplicates)
           if (existingOrderById) {
-            console.log(`Order ${orderId} already exists (ID: ${existingOrderById.id}), skipping duplicate`);
-            continue;
+            return { error: `Order ${orderId} already exists (skipping duplicate)` };
           }
 
           const { data: newOrder, error: orderError } = await adminSupabase
             .from('orders')
             .insert({
               order_id: orderId,
-              woo_order_id: wooOrderId.toString(),
+              customer_id: customerUuid,
+              woo_order_id: idStr,
               source: 'woocommerce',
               customer_name: `${wooOrder.billing?.first_name || ''} ${wooOrder.billing?.last_name || ''}`.trim() || 'Unknown',
               customer_phone: wooOrder.billing?.phone || '',
@@ -606,9 +640,9 @@ serve(async (req: Request) => {
               payment_status: wooOrder.status,
               order_status: wooOrder.status,
               created_by: user.id,
-              imported_by: user.id, // Track who imported
-              current_department: userDepartment, // Assign to user's department
-              assigned_user: user.id, // Assign to importing user
+              imported_by: user.id,
+              current_department: userDepartment,
+              assigned_user: user.id,
               global_notes: wooOrder.customer_note || null,
               created_at: new Date(wooOrder.date_created).toISOString(),
               updated_at: new Date().toISOString(),
@@ -617,77 +651,71 @@ serve(async (req: Request) => {
             .single();
 
           if (orderError || !newOrder) {
-            // Handle unique constraint violations (duplicate order_id)
-            if (orderError?.code === '23505' || orderError?.message?.includes('duplicate') || orderError?.message?.includes('unique')) {
-              console.log(`Order ${orderId} already exists (unique constraint), skipping duplicate`);
-              continue;
-            }
-            errors.push(`Order ${wooOrderId}: ${orderError?.message || 'Failed to create order'}`);
-            continue;
+            if (orderError?.code === '23505') return { error: `Order ${orderId} already exists (unique constraint)` };
+            throw orderError;
           }
 
-          // Create order items
-          for (const lineItem of wooOrder.line_items || []) {
+          // Create Items Parallel
+          const itemPromises = (wooOrder.line_items || []).map(async (lineItem: any) => {
             const itemId = `${orderId}-${lineItem.id}`;
             const { specifications } = parseProductMeta(lineItem.meta_data || []);
-
             const deliveryDate = new Date();
             deliveryDate.setDate(deliveryDate.getDate() + 7);
 
-            const { error: itemError } = await adminSupabase
-              .from('order_items')
-              .insert({
-                item_id: itemId,
-                order_id: newOrder.id,
-                product_name: lineItem.name,
-                quantity: lineItem.quantity,
-                line_total: parseFloat(lineItem.total) || 0,
-                specifications: specifications,
-                woo_meta: {
-                  product_id: lineItem.product_id,
-                  variation_id: lineItem.variation_id,
-                },
-                need_design: true,
-                current_stage: 'sales',
-                current_substage: null,
-                assigned_to: user.id, // Assign to importing user
-                assigned_department: userDepartment, // Assign to user's department
-                priority: 'blue', // Add default priority
-                delivery_date: deliveryDate.toISOString(),
-                is_ready_for_production: false,
-                is_dispatched: false,
-                created_at: new Date(wooOrder.date_created).toISOString(),
-                updated_at: new Date().toISOString(),
-              });
-
-            if (itemError) {
-              console.error(`Error creating order item ${itemId}:`, itemError);
-              errors.push(`Order ${wooOrderId} - Item ${lineItem.name}: ${itemError.message || 'Failed to create item'}`);
-            }
-          }
-
-          // Create timeline entry
-          await adminSupabase
-            .from('timeline')
-            .insert({
+            return adminSupabase.from('order_items').insert({
+              item_id: itemId,
               order_id: newOrder.id,
-              action: 'created',
-              stage: 'sales',
-              performed_by: user.id,
-              performed_by_name: userProfile?.full_name || 'Unknown',
-              notes: `Order imported from WooCommerce (WC Order #${wooOrderId})`,
-              is_public: true,
-              created_at: new Date().toISOString(),
+              product_name: lineItem.name,
+              quantity: lineItem.quantity,
+              line_total: parseFloat(lineItem.total) || 0,
+              specifications: specifications,
+              woo_meta: { product_id: lineItem.product_id, variation_id: lineItem.variation_id },
+              need_design: true,
+              current_stage: 'sales',
+              assigned_to: user.id,
+              assigned_department: userDepartment,
+              priority: 'blue',
+              delivery_date: deliveryDate.toISOString(),
+              created_at: new Date(wooOrder.date_created).toISOString(),
+              updated_at: new Date().toISOString(),
             });
-
-          importedOrders.push({
-            woo_order_id: wooOrderId,
-            order_id: orderId,
-            supabase_id: newOrder.id,
           });
+
+          await Promise.all(itemPromises);
+
+          // Timeline
+          await adminSupabase.from('timeline').insert({
+            order_id: newOrder.id,
+            action: 'created',
+            stage: 'sales',
+            performed_by: user.id,
+            performed_by_name: userProfile?.full_name || 'Unknown',
+            notes: `Order imported from WooCommerce (WC Order #${idStr})`,
+            is_public: true
+          });
+
+          return {
+            success: true,
+            data: { woo_order_id: idStr, order_id: orderId, supabase_id: newOrder.id }
+          };
+
         } catch (error: any) {
-          errors.push(`Order ${wooOrderId}: ${error.message || 'Unknown error'}`);
+          return { error: `Order ${wooOrderId}: ${error.message || 'Unknown error'}` };
         }
+      };
+
+      // Process in batches of 5 to avoid rate limits
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < order_ids.length; i += BATCH_SIZE) {
+        const batch = order_ids.slice(i, i + BATCH_SIZE);
+        console.log(`Processing batch ${Math.ceil(i / BATCH_SIZE) + 1}/${Math.ceil(order_ids.length / BATCH_SIZE)}...`);
+
+        const results = await Promise.all(batch.map((id: any) => processOrder(id)));
+
+        results.forEach(res => {
+          if (res.error) errors.push(res.error);
+          if (res.success && res.data) importedOrders.push(res.data);
+        });
       }
 
       return new Response(JSON.stringify({

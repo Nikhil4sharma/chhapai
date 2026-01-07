@@ -1,7 +1,7 @@
 
 import { useState } from "react";
 import { format } from "date-fns";
-import { FileText, Upload, DollarSign, Calculator, Download, Calendar as CalendarIcon } from "lucide-react";
+import { FileText, Upload, Calculator, Download, Calendar as CalendarIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {

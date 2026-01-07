@@ -95,6 +95,7 @@ function transformOrdersToAppFormat(
       order_id: orderRow.order_id,
       source: orderRow.source as 'wordpress' | 'manual' | 'woocommerce',
       customer: {
+        id: orderRow.customer_id,
         name: orderRow.customer_name,
         phone: orderRow.customer_phone || '',
         email: orderRow.customer_email || '',
@@ -103,6 +104,7 @@ function transformOrdersToAppFormat(
         state: orderRow.billing_state || undefined,
         pincode: orderRow.billing_pincode || undefined,
       },
+      customer_id: orderRow.customer_id,
       shipping: orderRow.shipping_name ? {
         name: orderRow.shipping_name,
         email: orderRow.shipping_email || undefined,

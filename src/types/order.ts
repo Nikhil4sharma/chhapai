@@ -11,6 +11,7 @@ export type OutsourceStage = 'outsourced' | 'vendor_in_progress' | 'vendor_dispa
 export type UserRole = 'sales' | 'design' | 'prepress' | 'production' | 'outsource' | 'admin' | 'dispatch' | 'super_admin' | 'hr_admin';
 
 export interface Customer {
+  id?: string;
   name: string;
   phone: string;
   email: string;
@@ -107,6 +108,7 @@ export interface Order {
   id?: string; // UUID from Supabase
   order_id: string;
   source: 'wordpress' | 'manual' | 'woocommerce';
+  customer_id?: string;
   customer: Customer;
   shipping?: ShippingDetails;
   financials?: OrderFinancials;

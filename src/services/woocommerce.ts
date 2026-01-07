@@ -38,6 +38,7 @@ export interface WCCustomer {
     last_order_date?: string;
     last_synced_at: string;
     created_at?: string;
+    assigned_to?: string;
 }
 
 export interface WCOrder {

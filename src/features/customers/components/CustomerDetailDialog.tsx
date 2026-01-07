@@ -20,6 +20,10 @@ import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 
+import { AddPaymentDialog } from '@/components/dialogs/AddPaymentDialog';
+import { financeService } from '@/services/financeService';
+import { PaymentTransaction, CustomerBalance } from '@/types/finance';
+
 interface CustomerDetailDialogProps {
     customer: WCCustomer | null;
     open: boolean;
@@ -29,6 +33,34 @@ interface CustomerDetailDialogProps {
 export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerDetailDialogProps) {
     const [orders, setOrders] = useState<WCOrder[]>([]);
     const [loadingOrders, setLoadingOrders] = useState(false);
+
+    // Finance State
+    const [ledger, setLedger] = useState<PaymentTransaction[]>([]);
+    const [balance, setBalance] = useState<CustomerBalance>({ total_paid: 0, total_used: 0, balance: 0 });
+    const [loadingFinance, setLoadingFinance] = useState(false);
+    const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+
+    const fetchFinanceData = async () => {
+        if (!customer?.wc_id) return;
+        setLoadingFinance(true);
+        try {
+            // Check if wc_id exists as a customer_id in our ledger.
+            // Note: our ledger uses UUID from wc_customers table. 
+            // customer.id (from props) is the UUID from wc_customers table.
+            // customer.wc_id is the WooCommerce ID (number).
+            // We use customer.id (UUID) for ledger foreign key.
+            const [ledgerData, balanceData] = await Promise.all([
+                financeService.getCustomerLedger(customer.id),
+                financeService.getCustomerBalance(customer.id)
+            ]);
+            setLedger(ledgerData);
+            setBalance(balanceData);
+        } catch (error) {
+            console.error("Failed to fetch finance data", error);
+        } finally {
+            setLoadingFinance(false);
+        }
+    };
 
     useEffect(() => {
         if (open && customer?.wc_id) {
@@ -40,6 +72,8 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                     toast.error("Could not load order history");
                 })
                 .finally(() => setLoadingOrders(false));
+
+            fetchFinanceData();
         }
     }, [open, customer]);
 
@@ -109,16 +143,26 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                 </div>
                             </div>
 
-                            {/* Quick Stats in Header */}
-                            <div className="flex gap-4">
+                            {/* Quick Stats in Header - Updated with Wallet */}
+                            <div className="flex gap-6 items-center">
                                 <div className="text-right">
-                                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Total Revenue</p>
-                                    <p className="text-xl font-bold text-slate-900 dark:text-slate-100">₹{displayTotalSpent.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</p>
+                                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Wallet Balance</p>
+                                    <p className={`text-xl font-bold ${balance.balance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                                        ₹{balance.balance.toLocaleString()}
+                                    </p>
                                 </div>
                                 <div className="w-px bg-slate-200 dark:bg-slate-800 h-10 self-center"></div>
                                 <div className="text-right">
-                                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Orders</p>
+                                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold flex items-center justify-end gap-1">
+                                        Orders
+                                    </p>
                                     <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{displayTotalOrders}</p>
+                                </div>
+                                <div>
+                                    <Button onClick={() => setPaymentDialogOpen(true)} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200 dark:shadow-none">
+                                        <CreditCard className="h-4 w-4 mr-2" />
+                                        Add Money
+                                    </Button>
                                 </div>
                             </div>
                         </div>
@@ -130,14 +174,17 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                     <div className="px-6 bg-white dark:bg-slate-900 border-b">
                         <TabsList className="w-full justify-start h-auto p-0 bg-transparent space-x-6">
                             <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-1 py-3 text-slate-500 data-[state=active]:text-blue-600 font-medium transition-all">Overview</TabsTrigger>
+                            <TabsTrigger value="ledger" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-1 py-3 text-slate-500 data-[state=active]:text-blue-600 font-medium transition-all">Ledger & Payments</TabsTrigger>
                             <TabsTrigger value="orders" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-1 py-3 text-slate-500 data-[state=active]:text-blue-600 font-medium transition-all">Order History</TabsTrigger>
                         </TabsList>
                     </div>
 
                     <div className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 p-6">
                         <TabsContent value="overview" className="mt-0 space-y-6 animate-in fade-in-50 slide-in-from-bottom-2 duration-300">
+                            {/* ... Overview Content (Keep Existing) ... */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* Address Cards */}
+                                {/* Address Cards Logic Same as Before - Collapsed for brevity in this replacement block, but I need to include it or reference it. 
+                                   Since I'm replacing the WHOLE component, I must include the original content. */}
                                 <Card className="shadow-sm border-slate-200 dark:border-slate-800">
                                     <CardHeader className="pb-2">
                                         <div className="flex items-center gap-2 text-slate-500">
@@ -191,7 +238,6 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                 </Card>
                             </div>
 
-                            {/* Recent Activity / Insights */}
                             <Card className="shadow-sm border-slate-200 dark:border-slate-800">
                                 <CardHeader>
                                     <CardTitle className="text-base font-semibold flex items-center gap-2"><TrendingUp className="h-4 w-4 text-blue-500" /> Customer Insights</CardTitle>
@@ -220,7 +266,71 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                             </Card>
                         </TabsContent>
 
+                        <TabsContent value="ledger" className="mt-0 space-y-6">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                                    <p className="text-sm font-medium text-slate-500">Total Paid (Credits)</p>
+                                    <p className="text-2xl font-bold text-emerald-600 mt-1">₹{balance.total_paid.toLocaleString()}</p>
+                                </div>
+                                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                                    <p className="text-sm font-medium text-slate-500">Total Used (Debits)</p>
+                                    <p className="text-2xl font-bold text-blue-600 mt-1">₹{balance.total_used.toLocaleString()}</p>
+                                </div>
+                                <div className={`p-4 rounded-lg border shadow-sm ${balance.balance >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                                    <p className={`text-sm font-medium ${balance.balance >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>Available Balance</p>
+                                    <p className={`text-2xl font-bold mt-1 ${balance.balance >= 0 ? 'text-emerald-900' : 'text-red-900'}`}>₹{balance.balance.toLocaleString()}</p>
+                                </div>
+                            </div>
+
+                            <Card>
+                                <CardHeader className="flex flex-row items-center justify-between">
+                                    <CardTitle>Transaction History</CardTitle>
+                                    <Button size="sm" onClick={() => setPaymentDialogOpen(true)}>
+                                        <CreditCard className="h-4 w-4 mr-2" />
+                                        Record Payment
+                                    </Button>
+                                </CardHeader>
+                                <CardContent>
+                                    {ledger.length === 0 ? (
+                                        <div className="text-center py-8 text-muted-foreground">
+                                            No transactions yet.
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {ledger.map((txn) => (
+                                                <div key={txn.id} className="flex items-center justify-between p-3 border-b last:border-0 hover:bg-slate-50 transition-colors">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`h-10 w-10 rounded-full flex items-center justify-center ${txn.transaction_type === 'CREDIT' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>
+                                                            {txn.transaction_type === 'CREDIT' ? <ArrowUpRight className="h-5 w-5" /> : <ShoppingBag className="h-5 w-5" />}
+                                                        </div>
+                                                        <div>
+                                                            <p className="font-medium text-slate-900">
+                                                                {txn.transaction_type === 'CREDIT' ? 'Payment Received' : 'Order Application'}
+                                                            </p>
+                                                            <p className="text-xs text-slate-500">
+                                                                {format(new Date(txn.created_at), "dd MMM yyyy, hh:mm a")} • {txn.payment_method}
+                                                            </p>
+                                                            {txn.reference_note && (
+                                                                <p className="text-xs text-slate-500 italic mt-0.5">{txn.reference_note}</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className={`font-bold ${txn.transaction_type === 'CREDIT' ? 'text-emerald-600' : 'text-slate-900'}`}>
+                                                            {txn.transaction_type === 'CREDIT' ? '+' : '-'} ₹{Number(txn.amount).toLocaleString()}
+                                                        </p>
+                                                        {txn.order_id && <Badge variant="outline" className="text-[10px]">Order</Badge>}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        </TabsContent>
+
                         <TabsContent value="orders" className="mt-0 animate-in fade-in-50 slide-in-from-bottom-2 duration-300">
+                            {/* ... Existing Order History ... */}
                             {loadingOrders ? (
                                 <div className="space-y-4">
                                     {[1, 2, 3].map(i => <div key={i} className="h-24 bg-white dark:bg-slate-900 animate-pulse rounded-lg border border-slate-200 dark:border-slate-800" />)}
@@ -243,6 +353,14 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                     </div>
                 </Tabs>
             </DialogContent>
+
+            <AddPaymentDialog
+                open={paymentDialogOpen}
+                onOpenChange={setPaymentDialogOpen}
+                customerId={customer.id}
+                customerName={displayName}
+                onSuccess={() => fetchFinanceData()}
+            />
         </Dialog>
     );
 }
