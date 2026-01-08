@@ -111,57 +111,58 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
             <DialogContent className="sm:max-w-4xl max-h-[90vh] p-0 gap-0 overflow-hidden flex flex-col bg-slate-50 dark:bg-slate-950 border-none">
                 <DialogTitle className="sr-only">Customer Details: {displayName}</DialogTitle>
                 {/* Header Section */}
-                <div className="bg-white dark:bg-slate-900 per-6 border-b shrink-0">
-                    <div className="p-6 pb-4">
-                        <div className="flex items-start justify-between">
-                            <div className="flex gap-5 items-center">
-                                <Avatar className="h-20 w-20 border-4 border-slate-50 dark:border-slate-800 shadow-md">
-                                    <AvatarImage src={customer.avatar_url} />
-                                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-sky-600 text-white text-2xl font-bold">
+                <div className="bg-white dark:bg-slate-900 border-b shrink-0 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+                    <div className="p-4 sm:p-6 pb-4 relative z-10">
+                        <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
+                            <div className="flex gap-4 sm:gap-5 items-center w-full sm:w-auto">
+                                <Avatar className="h-16 w-16 sm:h-20 sm:w-20 border-4 border-slate-50 dark:border-slate-800 shadow-md ring-1 ring-slate-100 dark:ring-slate-700 transition-transform duration-500 hover:scale-105">
+                                    <AvatarImage src={customer.avatar_url} className="object-cover" />
+                                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-sky-600 text-white text-xl sm:text-2xl font-bold">
                                         {(customer.first_name?.[0] || customer.email?.[0] || '?').toUpperCase()}
                                     </AvatarFallback>
                                 </Avatar>
-                                <div>
-                                    <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">{displayName}</h2>
-                                    <div className="flex items-center gap-2 text-muted-foreground text-sm mt-1">
-                                        <MapPin className="h-3.5 w-3.5" />
-                                        <span>{addressString}</span>
-                                        <Badge variant="outline" className="ml-2 bg-slate-100 dark:bg-slate-800 text-[10px] h-5">ID: {customer.wc_id}</Badge>
+                                <div className="flex-1 min-w-0">
+                                    <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate">{displayName}</h2>
+                                    <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm mt-1">
+                                        <div className="flex items-center gap-1 min-w-0 max-w-full">
+                                            <MapPin className="h-3.5 w-3.5 shrink-0" />
+                                            <span className="truncate max-w-[150px] sm:max-w-none">{addressString}</span>
+                                        </div>
+                                        <Badge variant="outline" className="bg-slate-100 dark:bg-slate-800 text-[10px] h-5 hidden sm:inline-flex">ID: {customer.wc_id}</Badge>
                                     </div>
-                                    <div className="flex items-center gap-3 mt-3">
+                                    <div className="flex items-center gap-2 mt-3 overflow-x-auto no-scrollbar max-w-full pb-1 sm:pb-0">
                                         {customer.email && (
-                                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-md cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700" onClick={() => copyToClipboard(customer.email, "Email")}>
-                                                <Mail className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" /> {customer.email} <Copy className="h-3 w-3 ml-1 opacity-50" />
+                                            <div className="flex items-center gap-2 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 sm:px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shrink-0" onClick={() => copyToClipboard(customer.email, "Email")}>
+                                                <Mail className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" /> <span className="truncate max-w-[120px] sm:max-w-none">{customer.email}</span>
                                             </div>
                                         )}
                                         {customer.phone && (
-                                            <div className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-md cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700" onClick={() => copyToClipboard(customer.phone, "Phone")}>
-                                                <Phone className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" /> {customer.phone} <Copy className="h-3 w-3 ml-1 opacity-50" />
+                                            <div className="flex items-center gap-2 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 sm:px-3 py-1.5 rounded-full cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700 shrink-0" onClick={() => copyToClipboard(customer.phone, "Phone")}>
+                                                <Phone className="h-3.5 w-3.5 text-slate-500 dark:text-slate-400" /> {customer.phone}
                                             </div>
                                         )}
                                     </div>
                                 </div>
                             </div>
 
-                            {/* Quick Stats in Header - Updated with Wallet */}
-                            <div className="flex gap-6 items-center">
-                                <div className="text-right">
-                                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Wallet Balance</p>
-                                    <p className={`text-xl font-bold ${balance.balance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {/* Quick Stats & Actions - Responsive Layout */}
+                            <div className="flex w-full sm:w-auto items-center justify-between sm:justify-end gap-3 sm:gap-6 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl sm:bg-transparent sm:p-0 border sm:border-0 border-slate-100 dark:border-slate-800">
+                                <div className="text-left sm:text-right">
+                                    <p className="text-[10px] sm:text-xs text-slate-500 uppercase tracking-wider font-semibold">Wallet</p>
+                                    <p className={`text-lg sm:text-xl font-bold ${balance.balance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                                         ₹{balance.balance.toLocaleString()}
                                     </p>
                                 </div>
-                                <div className="w-px bg-slate-200 dark:bg-slate-800 h-10 self-center"></div>
-                                <div className="text-right">
-                                    <p className="text-xs text-slate-500 uppercase tracking-wider font-semibold flex items-center justify-end gap-1">
-                                        Orders
-                                    </p>
-                                    <p className="text-xl font-bold text-slate-900 dark:text-slate-100">{displayTotalOrders}</p>
+                                <div className="w-px bg-slate-200 dark:bg-slate-800 h-8 self-center mx-1 sm:mx-0"></div>
+                                <div className="text-left sm:text-right">
+                                    <p className="text-[10px] sm:text-xs text-slate-500 uppercase tracking-wider font-semibold">Orders</p>
+                                    <p className="text-lg sm:text-xl font-bold text-slate-900 dark:text-slate-100">{displayTotalOrders}</p>
                                 </div>
-                                <div>
-                                    <Button onClick={() => setPaymentDialogOpen(true)} size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-200 dark:shadow-none">
-                                        <CreditCard className="h-4 w-4 mr-2" />
-                                        Add Money
+                                <div className="ml-2">
+                                    <Button onClick={() => setPaymentDialogOpen(true)} size="sm" className="bg-slate-900 hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white shadow-lg shadow-slate-200 dark:shadow-none rounded-full px-4 h-9">
+                                        <CreditCard className="h-4 w-4 sm:mr-2" />
+                                        <span className="hidden sm:inline">Add Money</span>
                                     </Button>
                                 </div>
                             </div>

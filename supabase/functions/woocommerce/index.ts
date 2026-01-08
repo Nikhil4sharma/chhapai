@@ -602,9 +602,31 @@ serve(async (req: Request) => {
             }
           }
 
+          // Fetch Avatar URL if customer_id exists
+          let avatarUrl: string | null = null;
+          if (wooOrder.customer_id && wooOrder.customer_id > 0) {
+            try {
+              const customerApiUrl = `${storeUrl}/wp-json/wc/v3/customers/${wooOrder.customer_id}`;
+              const custResponse = await fetch(customerApiUrl, {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Basic ${auth}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+              if (custResponse.ok) {
+                const customerDetails = await custResponse.json();
+                avatarUrl = customerDetails.avatar_url;
+              }
+            } catch (e) {
+              console.warn(`Failed to fetch customer avatar for ID ${wooOrder.customer_id}`, e);
+            }
+          }
+
           const customerData = {
             wc_id: wooOrder.customer_id,
             email: wooOrder.billing?.email,
+            avatar_url: avatarUrl,
             first_name: wooOrder.billing?.first_name,
             last_name: wooOrder.billing?.last_name,
             phone: wooOrder.billing?.phone,

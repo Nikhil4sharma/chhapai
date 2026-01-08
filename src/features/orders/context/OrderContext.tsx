@@ -18,6 +18,7 @@ import {
   subscribeToOrdersChanges,
   subscribeToOrderItemsChanges,
   updateItemSpecifications,
+  deleteOrder as supabaseDeleteOrder,
 } from '@/features/orders/services/supabaseOrdersService';
 import { autoLogWorkAction } from '@/utils/workLogHelper';
 import { uploadOrderFile, deleteFileFromSupabase } from '@/services/supabaseStorage';
@@ -2312,9 +2313,6 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
   const deleteOrder = useCallback(async (orderId: string) => {
     try {
-      const order = orders.find(o => o.order_id === orderId);
-      if (!order) return;
-
       if (!isAdmin && role !== 'sales') {
         toast({
           title: "Permission Denied",
@@ -2324,33 +2322,25 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Delete order - CASCADE will automatically delete related items, files, and timeline entries
-      if (!order.id) {
-        throw new Error('Order ID not found');
-      }
+      // Use service function which handles UUID lookup and cascading delete
+      await supabaseDeleteOrder(orderId);
 
-      const { error: deleteError } = await supabase
-        .from('orders')
-        .delete()
-        .eq('id', order.id);
-
-      if (deleteError) throw deleteError;
-
+      // Refresh orders immediately
       await fetchOrders(false);
 
       toast({
         title: "Order Deleted",
         description: "Order has been permanently deleted",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting order:', error);
       toast({
         title: "Error",
-        description: "Failed to delete order",
+        description: error.message || "Failed to delete order",
         variant: "destructive",
       });
     }
-  }, [orders, isAdmin, role, fetchOrders]);
+  }, [isAdmin, role, fetchOrders]);
 
   const updateItemSpecifications = useCallback(async (orderId: string, itemId: string, updates: Record<string, any>) => {
     try {

@@ -523,10 +523,46 @@ export async function assignOrderToUser(
     throw error;
   }
 }
-
 /**
- * Fetch timeline entries for an order
+ * Delete order and all related data (Cascading delete handles items, logs, etc.)
  */
+export async function deleteOrder(orderId: string): Promise<void> {
+  try {
+    // Check if it's a UUID or string ID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    let orderUuid = orderId;
+
+    if (!uuidRegex.test(orderId)) {
+      // Find UUID from order_id string
+      const { data, error } = await supabase
+        .from('orders')
+        .select('id')
+        .eq('order_id', orderId)
+        .single();
+
+      if (error || !data) {
+        throw new Error(`Order not found: ${orderId}`);
+      }
+      orderUuid = data.id;
+    }
+
+    const { error } = await supabase
+      .from('orders')
+      .delete()
+      .eq('id', orderUuid);
+
+    if (error) {
+      if (error.code === '42501') {
+        throw new Error("Permission denied: You do not have permission to delete this order.");
+      }
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error in deleteOrder:', error);
+    throw error;
+  }
+}
+
 export async function fetchTimelineEntries(orderId: string, itemId?: string): Promise<TimelineEntry[]> {
   try {
     // Convert order_id string (e.g., "53509") to UUID if needed
