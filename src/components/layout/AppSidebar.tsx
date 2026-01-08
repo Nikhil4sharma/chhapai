@@ -12,6 +12,7 @@ import {
   BarChart3,
   X,
   ChevronLeft,
+  ChevronRight,
   PackageCheck,
   Package,
   TrendingUp,
@@ -292,6 +293,8 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
             <X className="h-5 w-5" />
           </Button>
         </div>
+
+
 
         {/* Scrollable Nav Content */}
         <div className="flex-1 overflow-y-auto py-6 px-3 space-y-2 custom-scrollbar">

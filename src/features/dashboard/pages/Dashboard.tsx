@@ -2,7 +2,9 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { ShoppingCart, AlertTriangle, Package, TrendingUp, CheckCircle, Loader2, ChevronLeft, ChevronRight, Filter, ArrowUpDown, Bell, User } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatsCard } from '@/components/dashboard/StatsCard';
-import { StageProgress } from '@/components/dashboard/StageProgress';
+import { DashboardHeader } from '@/components/dashboard/DashboardHeader';
+import { DepartmentLoadChart } from '@/components/dashboard/DepartmentLoadChart';
+import { UserWorkloadCard } from '@/components/dashboard/UserWorkloadCard';
 import { OrderCard } from '@/features/orders/components/OrderCard';
 import { ProductCard } from '@/features/orders/components/ProductCard';
 import { useOrders } from '@/features/orders/context/OrderContext';
@@ -47,7 +49,7 @@ export default function Dashboard() {
   const { isAdmin, role, profile, user, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
   const { requestPushPermission } = useNotifications();
-  
+
   // CRITICAL: Show loading if auth is not ready
   if (authLoading) {
     return (
@@ -56,22 +58,22 @@ export default function Dashboard() {
       </div>
     );
   }
-  
+
   // Pagination state
   const [activePage, setActivePage] = useState(1);
   const [urgentPage, setUrgentPage] = useState(1);
   const [completedPage, setCompletedPage] = useState(1);
-  
+
   // Sort and filter state
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [filterBy, setFilterBy] = useState<FilterOption>('all');
-  
+
   // Notification permission state
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
-  
+
   const orders = useMemo(() => {
     let result: typeof allOrders;
-    
+
     // For admin/sales, return all active orders
     if (isAdmin || role === 'sales') {
       result = allOrders.filter(o => !o.is_completed);
@@ -80,12 +82,12 @@ export default function Dashboard() {
     } else {
       const activeOrders = allOrders.filter(o => !o.is_completed && !o.archived_from_wc);
       const roleLower = role.toLowerCase().trim();
-      
+
       // For production users with production_stage, filter by stage
       if (role === 'production' && profile?.production_stage) {
         result = activeOrders.filter(order =>
-          order.items.some(item => 
-            item.current_stage === 'production' && 
+          order.items.some(item =>
+            item.current_stage === 'production' &&
             item.current_substage === profile.production_stage &&
             (item.assigned_department?.toLowerCase() === 'production' || item.current_stage === 'production')
           )
@@ -103,23 +105,23 @@ export default function Dashboard() {
 
     return result;
   }, [allOrders, isAdmin, role, profile?.production_stage, profile?.department]);
-  
+
   // CRITICAL: Calculate completed orders directly to avoid function reference issues
   const completedOrders = useMemo(() => {
     if (isAdmin || role === 'sales') {
       return allOrders.filter(o => o.is_completed);
     }
     if (!role) return [];
-    
-    return allOrders.filter(o => 
-      o.is_completed && 
+
+    return allOrders.filter(o =>
+      o.is_completed &&
       o.items.some(item => {
         const itemDept = (item.assigned_department || item.current_stage || '').toLowerCase().trim();
         return itemDept === role.toLowerCase().trim();
       })
     );
   }, [allOrders, isAdmin, role]);
-  
+
   // CRITICAL FIX: For admin, use allOrders directly if getOrdersByDepartment returns empty
   // This ensures admin always sees orders even if filtering fails
   const adminOrders = useMemo(() => {
@@ -135,7 +137,7 @@ export default function Dashboard() {
     }
     return orders;
   }, [isAdmin, orders, allOrders]);
-  
+
   // CRITICAL: Remove debug logging that causes re-renders - only log on mount or when counts actually change
   const prevOrdersCountRef = useRef({ allOrders: 0, orders: 0, adminOrders: 0, completedOrders: 0 });
   useEffect(() => {
@@ -146,14 +148,14 @@ export default function Dashboard() {
         adminOrders: adminOrders.length,
         completedOrders: completedOrders.length,
       };
-      
+
       // Only log if counts actually changed
-      const countsChanged = 
+      const countsChanged =
         prevOrdersCountRef.current.allOrders !== currentCounts.allOrders ||
         prevOrdersCountRef.current.orders !== currentCounts.orders ||
         prevOrdersCountRef.current.adminOrders !== currentCounts.adminOrders ||
         prevOrdersCountRef.current.completedOrders !== currentCounts.completedOrders;
-      
+
       if (countsChanged) {
         console.log('[Dashboard] Admin Debug:', {
           ...currentCounts,
@@ -166,7 +168,7 @@ export default function Dashboard() {
       }
     }
   }, [isAdmin, allOrders.length, orders.length, adminOrders.length, completedOrders.length, isLoading, role]);
-  
+
   // For Admin/Sales: show all urgent orders across all departments
   // For other departments: show urgent orders for their department only
   // CRITICAL: Memoize with stable dependencies
@@ -174,7 +176,7 @@ export default function Dashboard() {
     const urgentCount = allOrders.filter(o => !o.is_completed && o.priority_computed === 'red').length;
     return `${allOrders.length}-${urgentCount}-${isAdmin}-${role}`;
   }, [allOrders.length, isAdmin, role]);
-  
+
   const urgentOrders = useMemo(() => {
     if (isAdmin) {
       return getUrgentOrdersForAdmin();
@@ -187,7 +189,7 @@ export default function Dashboard() {
     }
     return [];
   }, [urgentOrdersKey, isAdmin, role, allOrders]);
-  
+
   // Total orders count: For Admin/Sales show all, for others show only their department
   const totalOrdersCount = useMemo(() => {
     if (isAdmin || role === 'sales') {
@@ -196,7 +198,7 @@ export default function Dashboard() {
     // For other departments, count only their department orders
     return orders.length;
   }, [isAdmin, role, allOrders.length, orders.length]);
-  
+
   // Apply sorting and filtering
   const sortOrders = (orderList: typeof orders) => {
     const sorted = [...orderList];
@@ -231,13 +233,13 @@ export default function Dashboard() {
   const ordersToProcess = useMemo(() => {
     return isAdmin ? adminOrders : orders;
   }, [isAdmin, adminOrders, orders]);
-  
+
   // CRITICAL: Use stable comparison for processedOrders
   // Create a stable key from order IDs to detect actual changes
   const processedOrdersKey = useMemo(() => {
     return ordersToProcess.map(o => o.order_id).join(',');
   }, [ordersToProcess.length, ordersToProcess.map(o => o.order_id).slice(0, 5).join(',')]);
-  
+
   const processedOrders = useMemo(() => {
     if (ordersToProcess.length === 0) return [];
     return filterOrders(sortOrders(ordersToProcess));
@@ -245,7 +247,7 @@ export default function Dashboard() {
 
   // PRODUCT-CENTRIC: Convert orders to products (each item = one product card)
   const processedProducts = useMemo(() => {
-    return processedOrders.flatMap(order => 
+    return processedOrders.flatMap(order =>
       order.items
         .filter(item => !item.is_dispatched) // Only show non-dispatched items
         .map(item => ({ order, item }))
@@ -254,7 +256,7 @@ export default function Dashboard() {
 
   // Urgent products (from urgent orders)
   const urgentProducts = useMemo(() => {
-    return urgentOrders.flatMap(order => 
+    return urgentOrders.flatMap(order =>
       order.items
         .filter(item => !item.is_dispatched && item.priority_computed === 'red')
         .map(item => ({ order, item }))
@@ -265,7 +267,7 @@ export default function Dashboard() {
   const completedOrdersKey = useMemo(() => {
     return completedOrders.map(o => o.order_id).join(',');
   }, [completedOrders.length, completedOrders.map(o => o.order_id).slice(0, 5).join(',')]);
-  
+
   const processedCompletedOrders = useMemo(() => {
     if (completedOrders.length === 0) return [];
     return sortOrders(completedOrders);
@@ -273,11 +275,11 @@ export default function Dashboard() {
 
   // Completed products
   const completedProducts = useMemo(() => {
-    return processedCompletedOrders.flatMap(order => 
+    return processedCompletedOrders.flatMap(order =>
       order.items.map(item => ({ order, item }))
     );
   }, [processedCompletedOrders]);
-  
+
   // Calculate stats with useMemo for realtime updates
   // CRITICAL: For non-admin/sales users, stats should only show their department
   // Use stable key to prevent unnecessary recalculations
@@ -294,15 +296,15 @@ export default function Dashboard() {
     role,
     user?.id
   ]);
-  
+
   const statsCacheRef = useRef<{ stats: any; key: string } | null>(null);
-  
+
   const stats = useMemo(() => {
     // Return cached if key matches
     if (statsCacheRef.current && statsCacheRef.current.key === statsKey) {
       return statsCacheRef.current.stats;
     }
-    
+
     const calculated = {
       totalOrders: totalOrdersCount,
       urgentItems: 0,
@@ -338,12 +340,12 @@ export default function Dashboard() {
             return; // Skip items not assigned to user's department
           }
         }
-        
+
         // Count items assigned to current user (user-wise)
         if (item.assigned_to === user?.id) {
           calculated.assignedToMe++;
         }
-        
+
         calculated.byStage[item.current_stage]++;
         if (item.priority_computed === 'red') {
           calculated.urgentItems++;
@@ -383,17 +385,17 @@ export default function Dashboard() {
   };
 
   // Pagination component
-  const Pagination = ({ 
-    currentPage, 
-    totalPages, 
-    onPageChange 
-  }: { 
-    currentPage: number; 
-    totalPages: number; 
+  const Pagination = ({
+    currentPage,
+    totalPages,
+    onPageChange
+  }: {
+    currentPage: number;
+    totalPages: number;
     onPageChange: (page: number) => void;
   }) => {
     if (totalPages <= 1) return null;
-    
+
     return (
       <div className="flex items-center justify-center gap-2 mt-4">
         <Button
@@ -418,7 +420,7 @@ export default function Dashboard() {
       </div>
     );
   };
-  
+
   // Pagination helpers
   const paginateArray = <T,>(array: T[], page: number) => {
     const start = (page - 1) * ITEMS_PER_PAGE;
@@ -453,7 +455,7 @@ export default function Dashboard() {
     }
     setShowNotificationPrompt(false);
   };
-  
+
   // NOW check loading after all hooks are called
   if (authLoading || isLoading) {
     return (
@@ -466,7 +468,7 @@ export default function Dashboard() {
 
   return (
     <TooltipProvider>
-      <div className="h-full flex flex-col gap-4 overflow-hidden">
+      <div className="h-full flex flex-col gap-6 overflow-hidden p-2 sm:p-4 max-w-[1600px] mx-auto w-full">
         {/* Notification Permission Prompt */}
         <AlertDialog open={showNotificationPrompt} onOpenChange={setShowNotificationPrompt}>
           <AlertDialogContent>
@@ -476,7 +478,7 @@ export default function Dashboard() {
                 Enable Push Notifications?
               </AlertDialogTitle>
               <AlertDialogDescription>
-                Get instant notifications about order updates, urgent items, and important alerts. 
+                Get instant notifications about order updates, urgent items, and important alerts.
                 Stay informed without constantly checking the dashboard.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -489,294 +491,181 @@ export default function Dashboard() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Welcome message */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-display font-bold">
-              Welcome, {profile?.full_name || 'User'}
-            </h1>
-            <p className="text-muted-foreground">
-              {isAdmin ? 'Admin Dashboard - All departments' : `${role?.charAt(0).toUpperCase()}${role?.slice(1)} Department`}
-            </p>
+        {/* 1. Header Section */}
+        <DashboardHeader />
+
+        {/* 2. KPI Pulse Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div
+            className="cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
+            onClick={() => handleCardClick(getDepartmentRoute('/sales'))}
+          >
+            <StatsCard
+              title={isAdmin || role === 'sales' ? "Total Active Orders" : `${role?.charAt(0).toUpperCase()}${role?.slice(1)} Orders`}
+              value={stats.totalOrders}
+              icon={ShoppingCart}
+              variant="primary"
+            />
+          </div>
+
+          <div
+            className="cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
+            onClick={() => {
+              const urgentTab = document.querySelector('[value="urgent"]') as HTMLElement;
+              if (urgentTab) urgentTab.click();
+            }}
+          >
+            <StatsCard
+              title="Urgent Attention"
+              value={stats.urgentItems}
+              icon={AlertTriangle}
+              variant="danger"
+            />
+          </div>
+
+          <div className="md:col-span-1 lg:col-span-1">
+            {/* Dynamic Card based on Role */}
+            {isAdmin ? (
+              <StatsCard
+                title="In Production"
+                value={stats.byStage.production}
+                icon={Package}
+                variant="warning"
+              />
+            ) : (
+              <StatsCard
+                title="Tasks Assigned"
+                value={stats.assignedToMe}
+                icon={User}
+                variant="default" // Use blue/neutral
+              />
+            )}
+          </div>
+
+          <div
+            className="cursor-pointer transition-transform hover:scale-[1.02]"
+            onClick={() => handleCardClick('/dispatch')}
+          >
+            <StatsCard
+              title="Ready for Dispatch"
+              value={stats.byStage.dispatch}
+              icon={TrendingUp}
+              variant="success" // Assuming StatsCard supports this or maps to default
+            />
           </div>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div 
-                className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
-                onClick={() => handleCardClick(getDepartmentRoute('/sales'))}
-              >
-                <StatsCard
-                  title={isAdmin || role === 'sales' ? "Total Orders" : `${role?.charAt(0).toUpperCase()}${role?.slice(1)} Orders`}
-                  value={stats.totalOrders}
-                  icon={ShoppingCart}
-                  variant="primary"
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>{isAdmin || role === 'sales' ? "View all orders" : `View ${role} orders`}</TooltipContent>
-          </Tooltip>
-          
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div 
-                className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
-                onClick={() => {
-                  // Switch to urgent tab instead of navigating away
-                  const urgentTab = document.querySelector('[value="urgent"]') as HTMLElement;
-                  if (urgentTab) {
-                    urgentTab.click();
-                  } else {
-                    // Fallback: navigate to appropriate department
-                    if (isAdmin) {
-                      handleCardClick('/dashboard');
-                    } else if (role) {
-                      handleCardClick(`/${role}`);
-                    }
-                  }
-                }}
-              >
-                <StatsCard
-                  title={isAdmin || role === 'sales' ? "Urgent Items" : `${role?.charAt(0).toUpperCase()}${role?.slice(1)} Urgent`}
-                  value={stats.urgentItems}
-                  icon={AlertTriangle}
-                  variant="danger"
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>View urgent items - Click to see urgent tab</TooltipContent>
-          </Tooltip>
-          
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div 
-                className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
-                onClick={() => {
-                  // Production card - route based on department
-                  if (isAdmin || role === 'production') {
-                    handleCardClick('/production');
-                  } else if (role) {
-                    handleCardClick(`/${role}`);
-                  }
-                }}
-              >
-                <StatsCard
-                  title="In Production"
-                  value={stats.byStage.production}
-                  icon={Package}
-                  variant="warning"
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              {isAdmin || role === 'production' ? "View production queue" : `View ${role} department`}
-            </TooltipContent>
-          </Tooltip>
-          
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div 
-                className="cursor-pointer transition-all duration-300 hover:scale-[1.02] hover:shadow-lg"
-                onClick={() => {
-                  // Completed/Dispatch card - route based on department
-                  if (isAdmin || role === 'production' || role === 'sales') {
-                    handleCardClick('/dispatch');
-                  } else if (role) {
-                    handleCardClick(`/${role}`);
-                  }
-                }}
-              >
-                <StatsCard
-                  title="Completed"
-                  value={stats.byStage.completed}
-                  icon={TrendingUp}
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>
-              {isAdmin || role === 'production' || role === 'sales' 
-                ? "View dispatch/completed orders" 
-                : `View ${role} department`}
-            </TooltipContent>
-          </Tooltip>
-        </div>
-
-        {/* Stage Progress - Only show for Admin/Sales */}
-        {(isAdmin || role === 'sales') && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg font-display">Items by Stage</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <StageProgress data={stats.byStage} />
-            </CardContent>
-          </Card>
+        {/* 3. Deep Dive Analytics (Charts) - Only for Admin/Sales/Production */}
+        {(isAdmin || role === 'sales' || role === 'production') && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <DepartmentLoadChart />
+            </div>
+            <div className="lg:col-span-1">
+              <UserWorkloadCard />
+            </div>
+          </div>
         )}
 
-        {/* Sort and Filter Controls */}
-        <div className="flex flex-wrap gap-4 items-center">
-          <div className="flex items-center gap-2">
-            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="newest">Newest First</SelectItem>
-                <SelectItem value="oldest">Oldest First</SelectItem>
-                <SelectItem value="priority">Priority</SelectItem>
-                <SelectItem value="delivery">Delivery Date</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <Select value={filterBy} onValueChange={(v) => setFilterBy(v as FilterOption)}>
-              <SelectTrigger className="w-[150px]">
-                <SelectValue placeholder="Filter by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Priorities</SelectItem>
-                <SelectItem value="red">Urgent (Red)</SelectItem>
-                <SelectItem value="yellow">Warning (Yellow)</SelectItem>
-                <SelectItem value="blue">Normal (Blue)</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
+        {/* 4. Filter & Tabs Bar */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-2">
+          <Tabs defaultValue="active" className="w-full">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
+              <TabsList className="bg-slate-100 dark:bg-slate-800 p-1 rounded-full">
+                <TabsTrigger value="active" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm">Active</TabsTrigger>
+                <TabsTrigger value="urgent" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm text-red-500 data-[state=active]:text-red-600">Urgent</TabsTrigger>
+                <TabsTrigger value="completed" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm">Completed</TabsTrigger>
+              </TabsList>
 
-        {/* Orders Tabs - Scrollable Content */}
-        <div className="flex-1 min-h-0 flex flex-col">
-          <Tabs defaultValue="active" className="flex-1 flex flex-col min-h-0">
-            <TabsList className="flex-shrink-0">
-              <TabsTrigger value="active">Active Products ({processedProducts.length})</TabsTrigger>
-              <TabsTrigger value="urgent">Urgent ({urgentProducts.length})</TabsTrigger>
-              <TabsTrigger value="completed">Completed ({completedProducts.length})</TabsTrigger>
-            </TabsList>
+              {/* Sort/Filter Controls - Compact */}
+              <div className="flex items-center gap-2">
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+                  <SelectTrigger className="w-[140px] h-9 rounded-full text-xs font-medium border-slate-200 dark:border-slate-800">
+                    <ArrowUpDown className="h-3 w-3 mr-2 opacity-50" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest First</SelectItem>
+                    <SelectItem value="priority">Priority High</SelectItem>
+                    <SelectItem value="delivery">Delivery Date</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
 
-            <TabsContent value="active" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                {isLoading ? (
-                  <Card>
-                    <CardContent className="py-12 text-center">
-                      <Loader2 className="h-8 w-8 mx-auto animate-spin text-primary mb-4" />
-                      <p className="text-muted-foreground">Loading products...</p>
-                    </CardContent>
-                  </Card>
-                ) : processedProducts.length > 0 ? (
-                  <>
-                    <div className="space-y-3">
+            <div className="h-[calc(100vh-450px)] sm:h-[calc(100vh-500px)] min-h-[400px]">
+              <TabsContent value="active" className="h-full">
+                <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                  {processedProducts.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                       {paginateArray(processedProducts, activePage).map(({ order, item }) => (
-                        <ProductCard 
+                        <ProductCard
                           key={`${order.order_id}-${item.item_id}`}
-                          order={order} 
-                          item={item} 
+                          order={order}
+                          item={item}
                         />
                       ))}
                     </div>
-                    <Pagination 
-                      currentPage={activePage}
-                      totalPages={getTotalPages(processedProducts.length)}
-                      onPageChange={setActivePage}
-                      className="mt-4"
-                    />
-                  </>
-                ) : (
-                  <Card>
-                    <CardContent className="flex flex-col items-center justify-center py-12">
-                      <Package className="h-12 w-12 text-muted-foreground mb-4" />
-                      <h3 className="font-semibold text-lg mb-2">No active products found</h3>
-                      {isAdmin && (
-                        <>
-                          <p className="text-muted-foreground mb-4 text-center max-w-md">
-                            {allOrders.length === 0 
-                              ? "Database is empty. Please sync orders from WooCommerce in Settings."
-                              : `Found ${allOrders.length} total orders, but no active products. Check completed or archived orders.`
-                            }
-                          </p>
-                          {allOrders.length === 0 && (
-                            <Button onClick={() => navigate('/settings')} variant="default">
-                              Go to Settings & Sync Orders
-                            </Button>
-                          )}
-                        </>
-                      )}
-                      {!isAdmin && (
-                        <p className="text-muted-foreground text-center max-w-md">
-                          No products assigned to your department yet. Contact admin to assign products.
-                        </p>
-                      )}
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            </TabsContent>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                      <Package className="h-12 w-12 mb-2 opacity-20" />
+                      <p>No active items found</p>
+                    </div>
+                  )}
+                  <Pagination
+                    currentPage={activePage}
+                    totalPages={getTotalPages(processedProducts.length)}
+                    onPageChange={setActivePage}
+                  />
+                </div>
+              </TabsContent>
 
-            <TabsContent value="urgent" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                {urgentProducts.length > 0 ? (
-                  <>
-                    <div className="space-y-3">
+              <TabsContent value="urgent" className="h-full">
+                <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                  {urgentProducts.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                       {paginateArray(urgentProducts, urgentPage).map(({ order, item }) => (
-                        <ProductCard 
+                        <ProductCard
                           key={`${order.order_id}-${item.item_id}`}
-                          order={order} 
-                          item={item} 
+                          order={order}
+                          item={item}
                         />
                       ))}
                     </div>
-                    <Pagination 
-                      currentPage={urgentPage}
-                      totalPages={getTotalPages(urgentProducts.length)}
-                      onPageChange={setUrgentPage}
-                      className="mt-4"
-                    />
-                  </>
-                ) : (
-                  <Card>
-                    <CardContent className="flex flex-col items-center justify-center py-12">
-                      <CheckCircle className="h-12 w-12 text-green-500 mb-4" />
-                      <p className="text-muted-foreground">No urgent products!</p>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            </TabsContent>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-emerald-500/50">
+                      <CheckCircle className="h-16 w-16 mb-2 opacity-50" />
+                      <p className="font-medium">All caught up! No urgent items.</p>
+                    </div>
+                  )}
+                </div>
+              </TabsContent>
 
-            <TabsContent value="completed" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                {completedProducts.length > 0 ? (
-                  <>
-                    <div className="space-y-3">
+              <TabsContent value="completed" className="h-full">
+                <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                  {completedProducts.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                       {paginateArray(completedProducts, completedPage).map(({ order, item }) => (
-                        <ProductCard 
+                        <ProductCard
                           key={`${order.order_id}-${item.item_id}`}
-                          order={order} 
-                          item={item} 
+                          order={order}
+                          item={item}
                         />
                       ))}
                     </div>
-                    <Pagination 
-                      currentPage={completedPage}
-                      totalPages={getTotalPages(completedProducts.length)}
-                      onPageChange={setCompletedPage}
-                      className="mt-4"
-                    />
-                  </>
-                ) : (
-                  <Card>
-                    <CardContent className="flex flex-col items-center justify-center py-12">
-                      <Package className="h-12 w-12 text-muted-foreground mb-4" />
-                      <p className="text-muted-foreground">No completed products yet</p>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            </TabsContent>
+                  ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                      <p>No history yet</p>
+                    </div>
+                  )}
+                  <Pagination
+                    currentPage={completedPage}
+                    totalPages={getTotalPages(completedProducts.length)}
+                    onPageChange={setCompletedPage}
+                  />
+                </div>
+              </TabsContent>
+            </div>
           </Tabs>
         </div>
       </div>
