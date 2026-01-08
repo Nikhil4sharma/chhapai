@@ -14,49 +14,47 @@ import { MIGRATION_START_DATE } from '@/constants/migration';
  */
 export async function fetchAllOrders(): Promise<Order[]> {
   try {
-    // Fetch orders (RLS automatically applies department/assignment filtering)
-    // Note: migration_date column might not exist initially, so we check created_at
-    let query = supabase
+    // 1. Fetch orders (Limit to 200 for performance)
+    const { data: ordersData, error: ordersError } = await supabase
       .from('orders')
       .select('*')
       .order('created_at', { ascending: false })
-      .limit(500);
-
-    // If migration_date column exists, filter by it
-    // Otherwise fetch all (for backward compatibility during migration)
-    const { data: ordersData, error: ordersError } = await query;
+      .limit(200); // Reduced from 500 to 200 for better LCP
 
     if (ordersError) throw ordersError;
     if (!ordersData || ordersData.length === 0) return [];
 
-    // Fetch order items
     const orderIds = ordersData.map(o => o.id);
-    const { data: itemsData, error: itemsError } = await supabase
-      .from('order_items')
-      .select('*')
-      .in('order_id', orderIds);
 
-    if (itemsError) throw itemsError;
+    // 2. Fetch related data in PARALLEL
+    const [itemsResult, filesResult] = await Promise.all([
+      supabase.from('order_items').select('*').in('order_id', orderIds),
+      supabase.from('order_files').select('*').in('order_id', orderIds)
+    ]);
 
-    // Fetch files
-    const { data: filesData, error: filesError } = await supabase
-      .from('order_files')
-      .select('*')
-      .in('order_id', orderIds);
+    if (itemsResult.error) throw itemsResult.error;
+    // Files error is non-critical, log warning but proceed
+    if (filesResult.error) console.warn('Error fetching files:', filesResult.error);
 
-    // Files error is non-critical
-    if (filesError) console.warn('Error fetching files:', filesError);
+    const itemsData = itemsResult.data || [];
+    const filesData = filesResult.data || [];
 
-    // Fetch profiles for assigned users
+    // 3. Fetch profiles (Must wait for items/files to get all user IDs)
     const userIds = new Set<string>();
-    (itemsData || []).forEach(item => {
+
+    // Order owners
+    ordersData.forEach(order => {
+      if (order.assigned_user) userIds.add(order.assigned_user);
+      if (order.created_by) userIds.add(order.created_by);
+    });
+
+    // Item assignees
+    itemsData.forEach(item => {
       if (item.assigned_to) userIds.add(item.assigned_to);
     });
-    // Add logic to include order owners in the profile fetch
-    (ordersData || []).forEach(order => {
-      if (order.assigned_user) userIds.add(order.assigned_user);
-    });
-    (filesData || []).forEach(file => {
+
+    // File uploaders
+    filesData.forEach(file => {
       if (file.uploaded_by) userIds.add(file.uploaded_by);
     });
 
@@ -72,8 +70,8 @@ export async function fetchAllOrders(): Promise<Order[]> {
       });
     }
 
-    // Transform to Order[] format
-    return transformOrdersToAppFormat(ordersData, itemsData || [], filesData || [], profilesMap);
+    // 4. Transform to Order[] format
+    return transformOrdersToAppFormat(ordersData, itemsData, filesData, profilesMap);
   } catch (error) {
     console.error('Error in fetchAllOrders:', error);
     throw error;
