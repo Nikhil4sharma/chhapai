@@ -1085,3 +1085,44 @@ export async function updateItemSpecifications(
     throw error;
   }
 }
+
+/**
+ * Import a specific order from WooCommerce by ID
+ * Used for "View Legacy Order" functionality
+ */
+export async function importOrderFromWooCommerce(wcOrderId: string | number): Promise<string> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) throw new Error('Not authenticated');
+
+    const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/woocommerce`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        action: 'import-orders',
+        order_ids: [wcOrderId]
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Import failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (!result.success) {
+      throw new Error(result.error || 'Import failed');
+    }
+
+    if (result.orders && result.orders.length > 0) {
+      return result.orders[0].supabase_id;
+    }
+
+    throw new Error('Order imported but ID not returned');
+  } catch (error) {
+    console.error('Error importing order:', error);
+    throw error;
+  }
+}

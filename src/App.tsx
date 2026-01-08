@@ -19,6 +19,7 @@ import Auth from "@/features/auth/pages/Auth";
 import TrackOrder from "@/features/orders/pages/TrackOrder";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
+import { DashboardSwitcher } from "@/components/routing/DashboardSwitcher";
 
 // Lazy load pages for better performance
 const Dashboard = lazy(() => import("@/features/dashboard/pages/Dashboard"));
@@ -94,7 +95,7 @@ const App = () => (
                         {/* Dashboard */}
                         <Route path="/" element={
                           <Suspense fallback={<PageLoader />}>
-                            <Dashboard />
+                            <DashboardSwitcher />
                           </Suspense>
                         } />
                         <Route path="/dashboard" element={<Navigate to="/" replace />} />

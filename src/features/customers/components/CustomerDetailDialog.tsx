@@ -23,6 +23,10 @@ import { toast } from 'sonner';
 import { AddPaymentDialog } from '@/components/dialogs/AddPaymentDialog';
 import { financeService } from '@/services/financeService';
 import { PaymentTransaction, CustomerBalance } from '@/types/finance';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
+import { importOrderFromWooCommerce } from '@/features/orders/services/supabaseOrdersService';
+import { Loader2 } from 'lucide-react';
 
 interface CustomerDetailDialogProps {
     customer: WCCustomer | null;
@@ -239,29 +243,81 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                 </Card>
                             </div>
 
-                            <Card className="shadow-sm border-slate-200 dark:border-slate-800">
-                                <CardHeader>
-                                    <CardTitle className="text-base font-semibold flex items-center gap-2"><TrendingUp className="h-4 w-4 text-blue-500" /> Customer Insights</CardTitle>
+                            {/* Enhanced Customer Insights */}
+                            <Card className="shadow-sm border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 overflow-hidden">
+                                <CardHeader className="bg-slate-50/50 dark:bg-slate-900/20 border-b border-slate-100 dark:border-slate-800 pb-3">
+                                    <CardTitle className="text-base font-semibold flex items-center gap-2">
+                                        <TrendingUp className="h-4 w-4 text-indigo-500" /> Customer Insights
+                                    </CardTitle>
                                 </CardHeader>
-                                <CardContent>
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                        <div className="bg-blue-50 dark:bg-blue-950/20 p-4 rounded-lg">
-                                            <p className="text-xs text-blue-600 dark:text-blue-400 font-semibold uppercase mb-1">Avg Order Value</p>
-                                            <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">₹{avgOrderValue}</p>
+                                <CardContent className="p-4 sm:p-6">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+
+                                        {/* Insight Card 1: AOV */}
+                                        <div className="bg-indigo-50 dark:bg-indigo-950/20 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/30 flex flex-col justify-between">
+                                            <div>
+                                                <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-wider mb-1">Avg Order Value</p>
+                                                <p className="text-2xl font-bold text-indigo-900 dark:text-indigo-100">₹{avgOrderValue}</p>
+                                            </div>
+                                            <div className="mt-3 flex items-center gap-1.5 text-xs text-indigo-700 dark:text-indigo-300">
+                                                <div className="h-1.5 w-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
+                                                Based on {displayTotalOrders} orders
+                                            </div>
                                         </div>
-                                        <div className="bg-emerald-50 dark:bg-emerald-950/20 p-4 rounded-lg">
-                                            <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold uppercase mb-1">Status</p>
-                                            <p className="text-lg font-bold text-emerald-900 dark:text-emerald-100 flex items-center gap-2">
-                                                {displayTotalOrders > 2 ? 'Repeat Customer' : 'New Customer'}
-                                                {displayTotalOrders > 5 && <Badge className="bg-emerald-500 hover:bg-emerald-600">VIP</Badge>}
+
+                                        {/* Insight Card 2: Status */}
+                                        <div className="bg-emerald-50 dark:bg-emerald-950/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/30 flex flex-col justify-between">
+                                            <div>
+                                                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider mb-1">Relationships</p>
+                                                <div className="flex flex-wrap gap-2 mt-1">
+                                                    {displayTotalOrders > 5 ? (
+                                                        <Badge className="bg-emerald-500 hover:bg-emerald-600 border-none shadow-sm">VIP Customer</Badge>
+                                                    ) : displayTotalOrders > 1 ? (
+                                                        <Badge className="bg-blue-500 hover:bg-blue-600 border-none shadow-sm">Repeat</Badge>
+                                                    ) : (
+                                                        <Badge className="bg-slate-500 hover:bg-slate-600 border-none shadow-sm">New</Badge>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            <p className="mt-3 text-xs text-emerald-700 dark:text-emerald-300 font-medium">
+                                                Total Spent: ₹{displayTotalSpent.toLocaleString()}
                                             </p>
                                         </div>
-                                        <div className="bg-purple-50 dark:bg-purple-950/20 p-4 rounded-lg">
-                                            <p className="text-xs text-purple-600 dark:text-purple-400 font-semibold uppercase mb-1">Last Active</p>
-                                            <p className="text-lg font-bold text-purple-900 dark:text-purple-100">
-                                                {customer.last_order_date ? format(new Date(customer.last_order_date), 'dd MMM yyyy') : 'N/A'}
-                                            </p>
+
+                                        {/* Insight Card 3: Top Product (Calculated) */}
+                                        <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-xl border border-amber-100 dark:border-amber-900/30 sm:col-span-2 lg:col-span-2">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <p className="text-[10px] text-amber-600 dark:text-amber-400 font-bold uppercase tracking-wider">Top Ordered Products</p>
+                                                <Package className="h-3 w-3 text-amber-500" />
+                                            </div>
+
+                                            {orders.length > 0 ? (
+                                                <div className="space-y-2">
+                                                    {/* Simple frequency map logic could be here, but for now we show recent/most frequent from visible orders */}
+                                                    {(() => {
+                                                        const productCounts: Record<string, number> = {};
+                                                        orders.forEach(o => o.line_items?.forEach(i => {
+                                                            productCounts[i.name] = (productCounts[i.name] || 0) + (i.quantity || 1);
+                                                        }));
+                                                        const topProducts = Object.entries(productCounts)
+                                                            .sort(([, a], [, b]) => b - a)
+                                                            .slice(0, 3);
+
+                                                        return topProducts.length > 0 ? (
+                                                            topProducts.map(([name, count], idx) => (
+                                                                <div key={idx} className="flex items-center justify-between text-xs border-b border-amber-100 dark:border-amber-900/30 last:border-0 pb-1 last:pb-0">
+                                                                    <span className="font-medium text-slate-800 dark:text-slate-200 truncate pr-2 max-w-[200px]">{name}</span>
+                                                                    <span className="font-bold text-amber-700 dark:text-amber-500 whitespace-nowrap">{count} units</span>
+                                                                </div>
+                                                            ))
+                                                        ) : <p className="text-xs text-slate-400">No product data available</p>
+                                                    })()}
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-slate-400 italic mt-1">Order history needed for insights</p>
+                                            )}
                                         </div>
+
                                     </div>
                                 </CardContent>
                             </Card>
@@ -369,86 +425,208 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
 function CollapsibleOrderCard({ order }: { order: WCOrder }) {
     const [isOpen, setIsOpen] = useState(false);
 
+    // Filter out internal meta keys (start with _)
+    const getVisibleMeta = (metaData: any[]) => {
+        if (!metaData || !Array.isArray(metaData)) return [];
+        // Show everything except strict internal keys if user insists they are missing info
+        return metaData.filter(m => m.key && !m.key.startsWith('_'));
+    };
+
+    const orderTotal = parseFloat(order.total);
+    const calculatedSubtotal = order.line_items.reduce((acc, item) => acc + parseFloat(item.total), 0);
+
     return (
         <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden">
+            <div className={`group transition-all duration-300 ease-in-out border rounded-2xl overflow-hidden bg-white dark:bg-slate-950/50 ${isOpen ? 'border-primary/20 shadow-lg ring-1 ring-primary/5' : 'border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md hover:border-slate-200 dark:hover:border-slate-700'}`}>
                 <CollapsibleTrigger asChild>
-                    <div className="p-4 flex items-center justify-between cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
-                        <div className="flex items-center gap-4">
-                            <div className={`p-2 rounded-full ${isOpen ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'} transition-colors`}>
-                                <ShoppingBag className="h-5 w-5" />
+                    <div className="p-5 flex items-center justify-between cursor-pointer select-none">
+                        <div className="flex items-center gap-5">
+                            <div className={`h-12 w-12 rounded-xl flex items-center justify-center transition-colors duration-300 ${isOpen ? 'bg-primary text-primary-foreground shadow-md' : 'bg-slate-50 dark:bg-slate-900 text-slate-500'}`}>
+                                <ShoppingBag className="h-6 w-6 stroke-[1.5]" />
                             </div>
                             <div>
-                                <div className="flex items-center gap-2">
-                                    <span className="font-bold text-slate-900 dark:text-slate-100">Order #{order.number}</span>
-                                    <Badge className={`uppercase text-[10px] h-5 px-1.5 ${order.status === 'completed' ? 'bg-emerald-500 hover:bg-emerald-600' :
-                                        order.status === 'processing' ? 'bg-blue-500 hover:bg-blue-600' :
-                                            order.status === 'cancelled' ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-500'
+                                <div className="flex items-center gap-2.5 mb-1">
+                                    <span className="font-semibold text-base text-slate-900 dark:text-slate-100 tracking-tight">Order #{order.number}</span>
+                                    <Badge variant="secondary" className={`capitalize font-medium px-2 py-0.5 rounded-full text-[10px] tracking-wide ${order.status === 'completed' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' :
+                                        order.status === 'processing' ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400' :
+                                            order.status === 'cancelled' ? 'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400' :
+                                                'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
                                         }`}>
                                         {order.status}
                                     </Badge>
                                 </div>
-                                <p className="text-xs text-muted-foreground mt-0.5">
-                                    {format(new Date(order.date_created), "dd MMM yyyy, hh:mm a")}
-                                </p>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                    <span className="flex items-center gap-1">
+                                        <Calendar className="h-3.5 w-3.5" />
+                                        {format(new Date(order.date_created), "MMM dd, yyyy")}
+                                    </span>
+                                    <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                    <span>{order.line_items.length} items</span>
+                                </div>
                             </div>
                         </div>
                         <div className="text-right">
-                            <p className="text-lg font-bold text-slate-900 dark:text-slate-100">₹{order.total}</p>
-                            <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium mt-0.5 group-hover:underline">
-                                {isOpen ? 'Show Less' : 'View Items'}
-                            </p>
+                            <p className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">₹{parseFloat(order.total).toLocaleString()}</p>
+                            <div className={`flex items-center justify-end gap-1.5 text-xs font-medium transition-colors duration-300 ${isOpen ? 'text-primary' : 'text-slate-400'}`}>
+                                {isOpen ? 'Hide Details' : 'View Details'}
+                                <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
+                            </div>
                         </div>
                     </div>
                 </CollapsibleTrigger>
+
                 <CollapsibleContent>
-                    <div className="bg-slate-50 dark:bg-slate-950/50 p-4 border-t border-slate-200 dark:border-slate-800">
-                        <div className="space-y-4">
-                            <div className="space-y-3">
-                                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Order Items</p>
-                                {order.line_items.map((item, idx) => (
-                                    <div key={idx} className="flex items-center justify-between bg-white dark:bg-slate-900 p-3 rounded border border-slate-100 dark:border-slate-800">
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-8 w-8 bg-slate-100 dark:bg-slate-800 rounded flex items-center justify-center text-xs font-bold text-slate-500">
-                                                {item.quantity}x
-                                            </div>
-                                            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{item.name}</span>
-                                        </div>
-                                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-                                            ₹{item.total}
-                                        </div>
-                                    </div>
-                                ))}
+                    <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/10">
+                        {/* Order Items Section - Redesigned List */}
+                        <div className="p-5 space-y-4">
+                            <div className="flex items-center gap-2 mb-2">
+                                <Package className="h-4 w-4 text-slate-500" />
+                                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">Products</h4>
                             </div>
 
-                            {/* Meta Data & GST Section */}
-                            {order.meta_data && order.meta_data.length > 0 && (
-                                <div className="space-y-3">
-                                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Additional Details</p>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                        {order.meta_data
-                                            .filter(meta => !meta.key.startsWith('_') || meta.key.toLowerCase().includes('gst')) // Filter internal keys unless it's GST
-                                            .map((meta) => (
-                                                <div key={meta.id} className="bg-white dark:bg-slate-900 p-3 rounded border border-slate-100 dark:border-slate-800">
-                                                    <p className="text-xs text-slate-500 mb-1 font-medium bg-slate-100 dark:bg-slate-800 inline-block px-1.5 py-0.5 rounded">
-                                                        {meta.key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                                                    </p>
-                                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200 break-words">
-                                                        {typeof meta.value === 'string' ? meta.value : JSON.stringify(meta.value)}
-                                                    </p>
+                            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 divide-y divide-slate-50 dark:divide-slate-800 overflow-hidden shadow-sm">
+                                {order.line_items.map((item, idx) => {
+                                    const meta = getVisibleMeta(item.meta_data);
+                                    const itemTotal = parseFloat(item.total);
+                                    const unitPrice = item.quantity > 0 ? itemTotal / item.quantity : 0;
+
+                                    return (
+                                        <div key={idx} className="p-5 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                                            <div className="flex flex-col sm:flex-row gap-4">
+                                                {/* Quantity Badge */}
+                                                <div className="shrink-0 pt-0.5">
+                                                    <div className="h-10 w-10 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg flex items-center justify-center text-sm font-bold border border-indigo-100 dark:border-indigo-800 shadow-sm">
+                                                        {item.quantity}
+                                                    </div>
                                                 </div>
-                                            ))}
-                                    </div>
-                                    {/* Fallback if all keys were hidden but meta_data existed */}
-                                    {order.meta_data.filter(meta => !meta.key.startsWith('_') || meta.key.toLowerCase().includes('gst')).length === 0 && (
-                                        <p className="text-sm text-muted-foreground italic">No additional public details.</p>
-                                    )}
-                                </div>
-                            )}
+
+                                                {/* Main Content */}
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+                                                        <div className="space-y-3">
+                                                            {/* Product Name */}
+                                                            <div>
+                                                                <p className="text-base font-bold text-slate-900 dark:text-slate-100 leading-tight">
+                                                                    {item.name}
+                                                                </p>
+                                                                <div className="mt-1 flex items-center gap-2">
+                                                                    {item.sku && (
+                                                                        <Badge variant="outline" className="text-[10px] h-5 rounded px-1.5 font-normal text-slate-400 border-slate-200">
+                                                                            SKU: {item.sku}
+                                                                        </Badge>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Meta Specs Grid */}
+                                                            {meta.length > 0 && (
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                                                                    {meta.map((m) => (
+                                                                        <div key={m.id} className="flex gap-2 items-baseline">
+                                                                            <span className="font-medium text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide shrink-0">
+                                                                                {(m.display_key || m.key).replace(/_/g, ' ')}
+                                                                            </span>
+                                                                            <span className="text-slate-700 dark:text-slate-300 font-medium truncate">
+                                                                                {m.display_value || m.value}
+                                                                            </span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Pricing Section */}
+                                                        <div className="text-right shrink-0 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-100 dark:border-slate-800 min-w-[120px]">
+                                                            <div className="space-y-1">
+                                                                <div className="flex justify-between items-center gap-4 text-xs text-slate-500">
+                                                                    <span>Unit</span>
+                                                                    <span>₹{unitPrice.toLocaleString()}</span>
+                                                                </div>
+                                                                <div className="h-px bg-slate-200 dark:bg-slate-700" />
+                                                                <div className="flex justify-between items-center gap-4 text-sm font-bold text-slate-900 dark:text-slate-100">
+                                                                    <span>Total</span>
+                                                                    <span>₹{itemTotal.toLocaleString()}</span>
+                                                                </div>
+                                                                <p className="text-[10px] text-slate-400 text-right pt-0.5">
+                                                                    (Excl. GST)
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
+
+                        {/* Order Summary & Details Grid */}
+                        {(order.shipping || order.customer_note || getVisibleMeta(order.meta_data).length > 0) && (
+                            <div className="px-5 pb-5">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                                    {/* Shipping Address - Only show if valid */}
+                                    {order.shipping && (order.shipping.address_1 || order.shipping.city) && (
+                                        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                                            <div className="flex items-center gap-2 mb-3 text-slate-400">
+                                                <MapPin className="h-3.5 w-3.5" />
+                                                <span className="text-[10px] font-bold uppercase tracking-wider">Shipping To</span>
+                                            </div>
+                                            <div className="space-y-1 text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
+                                                <p className="text-slate-900 dark:text-slate-100">{order.shipping.first_name} {order.shipping.last_name}</p>
+                                                <p>{order.shipping.address_1}</p>
+                                                {order.shipping.address_2 && <p>{order.shipping.address_2}</p>}
+                                                <p>{[order.shipping.city, order.shipping.state, order.shipping.postcode].filter(Boolean).join(', ')}</p>
+                                                <p>{order.shipping.country}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Financial Breakdown & Notes */}
+                                    <div className="space-y-4">
+                                        {/* Notes - Only show if exists */}
+                                        {order.customer_note && (
+                                            <div className="bg-amber-50 dark:bg-amber-950/10 p-4 rounded-xl border border-amber-100 dark:border-amber-900/20">
+                                                <div className="flex items-center gap-2 mb-2 text-amber-600/70 dark:text-amber-500/70">
+                                                    <Copy className="h-3.5 w-3.5" />
+                                                    <span className="text-[10px] font-bold uppercase tracking-wider">Customer Note</span>
+                                                </div>
+                                                <p className="text-sm text-amber-900 dark:text-amber-100 italic">"{order.customer_note}"</p>
+                                            </div>
+                                        )}
+
+                                        {/* Cost Breakdown */}
+                                        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                                            <div className="flex items-center gap-2 mb-3 text-slate-400">
+                                                <CreditCard className="h-3.5 w-3.5" />
+                                                <span className="text-[10px] font-bold uppercase tracking-wider">Payment Details</span>
+                                            </div>
+                                            <div className="space-y-2 text-sm">
+                                                <div className="flex justify-between text-slate-500">
+                                                    <span>Subtotal (Items)</span>
+                                                    <span>₹{calculatedSubtotal.toLocaleString()}</span>
+                                                </div>
+                                                <div className="flex justify-between text-slate-500">
+                                                    <span>Tax & Shipping (Est.)</span>
+                                                    <span>₹{(orderTotal - calculatedSubtotal).toLocaleString()}</span>
+                                                </div>
+                                                <div className="h-px bg-slate-100 dark:bg-slate-800 my-2" />
+                                                <div className="flex justify-between font-bold text-base text-slate-900 dark:text-slate-100">
+                                                    <span>Total Paid</span>
+                                                    <span>₹{orderTotal.toLocaleString()}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </CollapsibleContent>
             </div>
         </Collapsible>
     );
 }
+

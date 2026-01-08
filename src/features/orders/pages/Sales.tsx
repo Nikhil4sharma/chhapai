@@ -367,9 +367,13 @@ export default function Sales() {
               {/* Left Spine: Vertical Order ID */}
               <div
                 className={`w-10 sm:w-12 flex flex-col items-center justify-center py-4 border-r ${spineColor} flex-shrink-0 cursor-pointer transition-colors hover:bg-opacity-80`}
-                onClick={() => {
-                  navigator.clipboard.writeText(orderId);
-                  toast({ title: "Copied", description: `Order #${orderId} copied to clipboard` });
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (orderId && navigator?.clipboard) {
+                    navigator.clipboard.writeText(orderId).then(() => {
+                      toast({ title: "Copied", description: `Order #${orderId} copied to clipboard` });
+                    }).catch(console.error);
+                  }
                 }}
               >
                 <div className="flex-1" />
@@ -449,6 +453,24 @@ export default function Sales() {
                         ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
+
+                    {/* Delete Order Button */}
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (order.order_id) {
+                            confirmDelete(order.order_id);
+                          }
+                        }}
+                        title="Delete Order"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </div>
 

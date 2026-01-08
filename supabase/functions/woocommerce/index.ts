@@ -933,11 +933,16 @@ serve(async (req: Request) => {
           status: o.status,
           date_created: o.date_created,
           total: o.total,
+          customer_note: o.customer_note,
+          shipping: o.shipping,
+          billing: o.billing,
+          meta_data: o.meta_data,
           line_items: o.line_items.map((i: any) => ({
             name: i.name,
             quantity: i.quantity,
             total: i.total,
-            sku: i.sku
+            sku: i.sku,
+            meta_data: i.meta_data
           }))
         }));
 

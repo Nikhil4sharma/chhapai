@@ -16,7 +16,8 @@ export function useWooCommerce() {
             const [customersResponse, ordersResponse] = await Promise.all([
                 supabase
                     .from('wc_customers')
-                    .select('*'),
+                    .select('*')
+                    .neq('id', '00000000-0000-0000-0000-000000000000'),
                 supabase
                     .from('orders')
                     .select('customer_email, order_total, created_at')

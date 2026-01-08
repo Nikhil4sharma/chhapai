@@ -52,12 +52,31 @@ export interface WCOrder {
         quantity: number;
         total: string;
         sku: string;
+        meta_data: Array<{
+            id: number;
+            key: string;
+            value: any;
+            display_key?: string;
+            display_value?: string;
+        }>;
     }>;
     meta_data: Array<{
         id: number;
         key: string;
         value: any;
     }>;
+    shipping: {
+        first_name: string;
+        last_name: string;
+        company: string;
+        address_1: string;
+        address_2: string;
+        city: string;
+        state: string;
+        postcode: string;
+        country: string;
+    };
+    customer_note?: string;
 }
 
 // Helper to invoke the Edge Function
