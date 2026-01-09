@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
 import {
-    ChevronDown, ChevronUp, Calendar, Package,
-    Upload, Users, FileText, UserPlus, Building2, PlayCircle
+    ChevronDown, ChevronUp,
+    Upload, Users, FileText, UserPlus, Building2, PlayCircle, Palette
 } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,10 +16,12 @@ import { OrderItem } from '@/types/order';
 import { ProductSpecifications } from '@/features/orders/components/ProductSpecifications';
 import { FilePreview } from '@/features/orders/components/FilePreview';
 import { cn } from '@/lib/utils';
+import { DesignBriefDialog } from './DesignBriefDialog';
 
 interface ProductItemCardProps {
     item: OrderItem;
     orderId: string;
+    orderUUID: string; // Add UUID prop
     onUpload: () => void;
     onAssignUser: () => void;
     onAddNote: () => void;
@@ -31,6 +33,7 @@ interface ProductItemCardProps {
 export function ProductItemCard({
     item,
     orderId,
+    orderUUID,
     onUpload,
     onAssignUser,
     onAddNote,
@@ -40,6 +43,7 @@ export function ProductItemCard({
 }: ProductItemCardProps) {
     const [isOpen, setIsOpen] = useState(true);
     const [showSpecs, setShowSpecs] = useState(false);
+    const [designBriefOpen, setDesignBriefOpen] = useState(false);
 
     const priorityColor =
         item.priority_computed === 'red' ? 'border-l-red-500' :
@@ -115,6 +119,17 @@ export function ProductItemCard({
 
                     {/* Action Buttons - Apple Style */}
                     <div className="flex flex-wrap gap-2">
+                        {/* Design Brief Button */}
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setDesignBriefOpen(true)}
+                            className="group hover:bg-indigo-50 dark:hover:bg-indigo-950/20 hover:border-indigo-300 transition-all border-indigo-200"
+                        >
+                            <Palette className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform text-indigo-600 dark:text-indigo-400" />
+                            Design Brief
+                        </Button>
+
                         <Button
                             variant="outline"
                             size="sm"
@@ -215,6 +230,14 @@ export function ProductItemCard({
                     </div>
                 </CollapsibleContent>
             </Collapsible>
+
+            <DesignBriefDialog
+                open={designBriefOpen}
+                onOpenChange={setDesignBriefOpen}
+                orderId={orderId}
+                orderUUID={orderUUID}
+                item={item}
+            />
         </Card>
     );
 }

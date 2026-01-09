@@ -9,7 +9,7 @@ import { OrderCard } from '@/features/orders/components/OrderCard';
 import { ProductCard } from '@/features/orders/components/ProductCard';
 import { useOrders } from '@/features/orders/context/OrderContext';
 import { useAuth } from '@/features/auth/context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import {
@@ -71,6 +71,10 @@ export default function Dashboard() {
   // Notification permission state
   const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
 
+  // Filter by assigned user from URL
+  const [searchParams] = useSearchParams();
+  const assignedUserFilter = searchParams.get('assigned_user');
+
   const orders = useMemo(() => {
     let result: typeof allOrders;
 
@@ -103,8 +107,15 @@ export default function Dashboard() {
       }
     }
 
+    // Apply assigned user filter if present
+    if (assignedUserFilter) {
+      result = result.filter(order =>
+        order.items.some(item => item.assigned_to === assignedUserFilter)
+      );
+    }
+
     return result;
-  }, [allOrders, isAdmin, role, profile?.production_stage, profile?.department]);
+  }, [allOrders, isAdmin, role, profile?.production_stage, profile?.department, assignedUserFilter]);
 
   // CRITICAL: Calculate completed orders directly to avoid function reference issues
   const completedOrders = useMemo(() => {
@@ -466,6 +477,43 @@ export default function Dashboard() {
     );
   }
 
+  // Helper for grid rendering
+  const ProductGrid = ({
+    products,
+    page,
+    setPage,
+    emptyMessage
+  }: {
+    products: { order: typeof orders[0], item: typeof orders[0]['items'][0] }[],
+    page: number,
+    setPage: (p: number) => void,
+    emptyMessage: string
+  }) => (
+    <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+      {products.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {paginateArray(products, page).map(({ order, item }) => (
+            <ProductCard
+              key={`${order.order_id}-${item.item_id}`}
+              order={order}
+              item={item}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="h-full flex flex-col items-center justify-center text-slate-400">
+          <Package className="h-12 w-12 mb-2 opacity-20" />
+          <p>{emptyMessage}</p>
+        </div>
+      )}
+      <Pagination
+        currentPage={page}
+        totalPages={getTotalPages(products.length)}
+        onPageChange={setPage}
+      />
+    </div>
+  );
+
   return (
     <TooltipProvider>
       <div className="h-full flex flex-col gap-6 overflow-hidden p-2 sm:p-4 max-w-[1600px] mx-auto w-full">
@@ -550,7 +598,7 @@ export default function Dashboard() {
               title="Ready for Dispatch"
               value={stats.byStage.dispatch}
               icon={TrendingUp}
-              variant="success" // Assuming StatsCard supports this or maps to default
+              variant="default"
             />
           </div>
         </div>
@@ -569,12 +617,51 @@ export default function Dashboard() {
 
         {/* 4. Filter & Tabs Bar */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 dark:border-slate-800 pb-2">
-          <Tabs defaultValue="active" className="w-full">
+
+          {/* Active Filter Banner */}
+          {assignedUserFilter && (
+            <div className="w-full bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-lg p-3 flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <span className="text-sm font-medium text-blue-900 dark:text-blue-200">
+                  Filtering by Assigned User
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-blue-600 dark:text-blue-300 hover:text-blue-800 hover:bg-blue-100 dark:hover:bg-blue-800/50"
+                onClick={() => {
+                  // Clear the param
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete('assigned_user');
+                  navigate(url.pathname + url.search);
+                }}
+              >
+                Clear Filter
+              </Button>
+            </div>
+          )}
+
+          <Tabs defaultValue={role === 'design' ? "in_progress" : "active"} className="w-full">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
-              <TabsList className="bg-slate-100 dark:bg-slate-800 p-1 rounded-full">
-                <TabsTrigger value="active" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm">Active</TabsTrigger>
-                <TabsTrigger value="urgent" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm text-red-500 data-[state=active]:text-red-600">Urgent</TabsTrigger>
-                <TabsTrigger value="completed" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm">Completed</TabsTrigger>
+              <TabsList className="bg-slate-100 dark:bg-slate-800 p-1 rounded-full overflow-x-auto max-w-full flex-wrap justify-start h-auto min-h-[40px]">
+                {role === 'design' ? (
+                  <>
+                    <TabsTrigger value="in_progress" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">In Progress</TabsTrigger>
+                    <TabsTrigger value="pending_approval" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">Pending Approval</TabsTrigger>
+                    <TabsTrigger value="assigned_to_me" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">Assigned to Me</TabsTrigger>
+                    <TabsTrigger value="urgent" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm text-red-500 data-[state=active]:text-red-600 transition-all duration-200">Urgent</TabsTrigger>
+                    <TabsTrigger value="completed" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">Completed</TabsTrigger>
+                    <TabsTrigger value="all" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">All Active</TabsTrigger>
+                  </>
+                ) : (
+                  <>
+                    <TabsTrigger value="active" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm">Active</TabsTrigger>
+                    <TabsTrigger value="urgent" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm text-red-500 data-[state=active]:text-red-600">Urgent</TabsTrigger>
+                    <TabsTrigger value="completed" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm">Completed</TabsTrigger>
+                  </>
+                )}
               </TabsList>
 
               {/* Sort/Filter Controls - Compact */}
@@ -594,77 +681,100 @@ export default function Dashboard() {
             </div>
 
             <div className="h-[calc(100vh-450px)] sm:h-[calc(100vh-500px)] min-h-[400px]">
-              <TabsContent value="active" className="h-full">
-                <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
-                  {processedProducts.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {paginateArray(processedProducts, activePage).map(({ order, item }) => (
-                        <ProductCard
-                          key={`${order.order_id}-${item.item_id}`}
-                          order={order}
-                          item={item}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                      <Package className="h-12 w-12 mb-2 opacity-20" />
-                      <p>No active items found</p>
-                    </div>
-                  )}
-                  <Pagination
-                    currentPage={activePage}
-                    totalPages={getTotalPages(processedProducts.length)}
-                    onPageChange={setActivePage}
-                  />
-                </div>
-              </TabsContent>
+              {/* DESIGN DASHBOARD CONTENT */}
+              {role === 'design' ? (
+                <>
+                  {/* In Progress: Active Design Items */}
+                  <TabsContent value="in_progress" className="h-full">
+                    <ProductGrid
+                      products={processedProducts.filter(({ item }) => item.current_stage === 'design' && item.status !== 'completed')}
+                      page={activePage}
+                      setPage={setActivePage}
+                      emptyMessage="No designs in progress"
+                    />
+                  </TabsContent>
 
-              <TabsContent value="urgent" className="h-full">
-                <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
-                  {urgentProducts.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {paginateArray(urgentProducts, urgentPage).map(({ order, item }) => (
-                        <ProductCard
-                          key={`${order.order_id}-${item.item_id}`}
-                          order={order}
-                          item={item}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-emerald-500/50">
-                      <CheckCircle className="h-16 w-16 mb-2 opacity-50" />
-                      <p className="font-medium">All caught up! No urgent items.</p>
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
+                  {/* Pending Approval: Items in Sales stage with pending status */}
+                  <TabsContent value="pending_approval" className="h-full">
+                    <ProductGrid
+                      products={allOrders.flatMap(o => o.items.filter(i => i.status === 'pending_for_customer_approval').map(i => ({ order: o, item: i })))}
+                      page={activePage}
+                      setPage={setActivePage}
+                      emptyMessage="No designs pending approval"
+                    />
+                  </TabsContent>
 
-              <TabsContent value="completed" className="h-full">
-                <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
-                  {completedProducts.length > 0 ? (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                      {paginateArray(completedProducts, completedPage).map(({ order, item }) => (
-                        <ProductCard
-                          key={`${order.order_id}-${item.item_id}`}
-                          order={order}
-                          item={item}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                      <p>No history yet</p>
-                    </div>
-                  )}
-                  <Pagination
-                    currentPage={completedPage}
-                    totalPages={getTotalPages(completedProducts.length)}
-                    onPageChange={setCompletedPage}
-                  />
-                </div>
-              </TabsContent>
+                  {/* Assigned to Me */}
+                  <TabsContent value="assigned_to_me" className="h-full">
+                    <ProductGrid
+                      products={processedProducts.filter(({ item }) => item.assigned_to === user?.id)}
+                      page={activePage}
+                      setPage={setActivePage}
+                      emptyMessage="No active designs assigned to you"
+                    />
+                  </TabsContent>
+
+                  {/* Urgent */}
+                  <TabsContent value="urgent" className="h-full">
+                    <ProductGrid
+                      products={urgentProducts}
+                      page={urgentPage}
+                      setPage={setUrgentPage}
+                      emptyMessage="No urgent designs"
+                    />
+                  </TabsContent>
+
+                  {/* Completed */}
+                  <TabsContent value="completed" className="h-full">
+                    <ProductGrid
+                      products={completedProducts}
+                      page={completedPage}
+                      setPage={setCompletedPage}
+                      emptyMessage="No completed designs history"
+                    />
+                  </TabsContent>
+
+                  {/* All Active */}
+                  <TabsContent value="all" className="h-full">
+                    <ProductGrid
+                      products={processedProducts}
+                      page={activePage}
+                      setPage={setActivePage}
+                      emptyMessage="No active items"
+                    />
+                  </TabsContent>
+                </>
+              ) : (
+                // STANDARD DASHBOARD CONTENT
+                <>
+                  <TabsContent value="active" className="h-full">
+                    <ProductGrid
+                      products={processedProducts}
+                      page={activePage}
+                      setPage={setActivePage}
+                      emptyMessage="No active items found"
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="urgent" className="h-full">
+                    <ProductGrid
+                      products={urgentProducts}
+                      page={urgentPage}
+                      setPage={setUrgentPage}
+                      emptyMessage="All caught up! No urgent items."
+                    />
+                  </TabsContent>
+
+                  <TabsContent value="completed" className="h-full">
+                    <ProductGrid
+                      products={completedProducts}
+                      page={completedPage}
+                      setPage={setCompletedPage}
+                      emptyMessage="No history yet"
+                    />
+                  </TabsContent>
+                </>
+              )}
             </div>
           </Tabs>
         </div>

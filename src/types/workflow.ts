@@ -3,6 +3,7 @@ export type Department = 'sales' | 'design' | 'prepress' | 'production' | 'outso
 export type SalesStatus =
     | 'new_order'
     | 'pending_for_customer_approval' // Generic pending state for Sales to review
+    | 'customer_approved' // Specific status for approved design
     | 'approved' // Generic approved state (if needed in Sales view, though usually items move back to dept)
     | 'completed';
 

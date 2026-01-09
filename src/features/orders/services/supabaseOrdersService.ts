@@ -7,6 +7,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { Order, OrderItem, TimelineEntry, Stage, SubStage, Priority, UserRole } from '@/types/order';
+import { ProductStatus } from '@/types/workflow';
 import { MIGRATION_START_DATE } from '@/constants/migration';
 
 /**
@@ -195,7 +196,7 @@ function transformOrderItem(itemRow: any, filesData: any[], profilesMap: Map<str
     updated_at: new Date(itemRow.updated_at),
     production_stage_sequence: itemRow.production_stage_sequence || undefined,
     outsource_info: itemRow.outsource_info || undefined,
-    status: itemRow.specifications?.workflow_status || 'new_order',
+    status: itemRow.status || itemRow.specifications?.workflow_status || 'new_order',
     department: itemRow.department || itemRow.assigned_department || 'sales', // Ensure department is present
   };
 }
@@ -268,6 +269,19 @@ export async function updateOrderItemStage(
       throw new Error(`Could not find order item with id: ${itemId}`);
     }
 
+    // Map stage to default status
+    const statusMap: Record<Stage, ProductStatus> = {
+      sales: 'new_order',
+      design: 'design_in_progress',
+      prepress: 'prepress_in_progress',
+      production: 'in_production',
+      outsource: 'outsource_in_progress',
+      dispatch: 'dispatched',
+      completed: 'completed',
+    };
+
+    const defaultStatus = statusMap[newStage];
+
     // Update item
     const { error: itemError } = await supabase
       .from('order_items')
@@ -275,6 +289,7 @@ export async function updateOrderItemStage(
         current_stage: newStage,
         current_substage: substage || null,
         assigned_department: assignedDept,
+        status: defaultStatus,
         updated_at: new Date().toISOString(),
       })
       .eq('id', itemUuid)

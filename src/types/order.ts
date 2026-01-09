@@ -88,6 +88,7 @@ export interface OrderItem {
   status: ProductStatus;
   previous_department?: Department;
   previous_status?: ProductStatus;
+  last_workflow_note?: string;
 
   assigned_to?: string;
   assigned_to_name?: string | null;
@@ -139,7 +140,7 @@ export interface TimelineEntry {
   product_name?: string;
   stage: Stage;
   substage?: SubStage;
-  action: 'created' | 'assigned' | 'uploaded_proof' | 'customer_approved' | 'final_proof_uploaded' | 'sent_to_production' | 'substage_started' | 'substage_completed' | 'packed' | 'dispatched' | 'note_added';
+  action: 'created' | 'assigned' | 'uploaded_proof' | 'customer_approved' | 'final_proof_uploaded' | 'sent_to_production' | 'substage_started' | 'substage_completed' | 'packed' | 'dispatched' | 'note_added' | 'design_chat' | 'status_changed';
   performed_by: string;
   performed_by_name: string;
   notes?: string;

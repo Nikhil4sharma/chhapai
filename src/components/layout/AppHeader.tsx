@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { UserMenu } from './UserMenu';
 import { ThemeToggle } from './ThemeToggle';
 import { NotificationsDropdown } from './NotificationsDropdown';
+import { ChatDrawer } from '@/features/chat/components/ChatDrawer';
 import { SearchBar } from './SearchBar';
 import { CreateOrderDialog } from '@/components/dialogs/CreateOrderDialog';
 import {
@@ -108,9 +109,9 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
             {/* New Order button - Primary Action - FIRST priority on mobile */}
             {!isLoading && (isAdmin || role === 'sales') && (
               <>
-                {/* Mobile: Icon only */}
+                {/* Mobile: Icon only - RESTORED PREMIUM STYLING */}
                 <div className="md:hidden">
-                  <NewOrderButton onClick={() => setCreateOrderOpen(true)} collapsed={true} className="shadow-none bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 border-none w-9 h-9" variant="ghost" />
+                  <NewOrderButton onClick={() => setCreateOrderOpen(true)} collapsed={true} className="w-9 h-9" />
                 </div>
                 {/* Desktop: Full Button */}
                 <div className="hidden md:block">
@@ -140,10 +141,12 @@ export function AppHeader({ onMenuClick, title = 'Dashboard' }: AppHeaderProps) 
               <TooltipContent>Refresh page content</TooltipContent>
             </Tooltip>
 
-            <div className="hidden md:block">
+            {/* Theme Toggle - Visible on Mobile now */}
+            <div>
               <ThemeToggle />
             </div>
 
+            <ChatDrawer />
             <NotificationsDropdown />
 
             <div className="pl-2 border-l border-slate-200 dark:border-slate-800 ml-1">

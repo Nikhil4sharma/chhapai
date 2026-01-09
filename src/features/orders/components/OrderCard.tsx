@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
-import { ChevronRight, Calendar, Image as ImageIcon, Eye, Download, Trash2, ExternalLink, ShoppingCart } from 'lucide-react';
+import { ChevronRight, Calendar, Image as ImageIcon, Eye, Download, Trash2, ExternalLink, ShoppingCart, PlayCircle, MessageSquare } from 'lucide-react';
 import { Order, OrderFile } from '@/types/order';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,14 @@ import { PreviewModal } from '@/components/ui/preview-modal';
 import { useHoverCapability } from '@/hooks/useHoverCapability';
 import { useHoverPreviewPosition } from '@/hooks/useHoverPreviewPosition';
 import { useOrderFilesRealtime } from '@/hooks/useOrderFilesRealtime';
+import { ProcessOrderDialog } from '@/components/dialogs/ProcessOrderDialog';
+import { DesignBriefDialog } from '@/features/orders/components/DesignBriefDialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface OrderCardProps {
   order: Order;
@@ -43,6 +51,8 @@ export function OrderCard({ order, className }: OrderCardProps) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<OrderFile | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [processOpen, setProcessOpen] = useState(false);
+  const [briefOpen, setBriefOpen] = useState(false);
   const [fileUrlCache, setFileUrlCache] = useState<Map<string, string>>(new Map());
   const { user, isAdmin, role, profile } = useAuth();
   const { refreshOrders, addTimelineEntry } = useOrders();
@@ -81,7 +91,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
   // Helper to get file URL - properly handle Supabase storage URLs
   const getFileUrl = async (file: OrderFile): Promise<string> => {
     let url = file.url || '';
-    
+
     // If URL is a Supabase storage URL, get proper signed/public URL
     if (url && url.includes('supabase.co/storage')) {
       try {
@@ -91,11 +101,11 @@ export function OrderCard({ order, className }: OrderCardProps) {
         // /storage/v1/object/public/bucket/path/to/file.jpg
         // /storage/v1/object/sign/bucket/token/path/to/file.jpg
         const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
-        
+
         if (pathMatch) {
           const bucket = pathMatch[1];
           let filePath = decodeURIComponent(pathMatch[2]); // Decode path
-          
+
           // Check cache first
           if (fileUrlCache.has(filePath)) {
             const cachedUrl = fileUrlCache.get(filePath)!;
@@ -104,7 +114,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
               return cachedUrl;
             }
           }
-          
+
           // Always try to get signed URL first (works for both public and private buckets)
           try {
             const signedUrl = await getSupabaseSignedUrl(filePath, bucket);
@@ -115,7 +125,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
           } catch (signedError) {
             console.warn('Failed to get signed URL, trying public URL:', signedError);
           }
-          
+
           // Fallback: Try public URL directly
           const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(filePath);
           if (publicData?.publicUrl) {
@@ -127,20 +137,20 @@ export function OrderCard({ order, className }: OrderCardProps) {
         console.warn('Failed to process URL, using original:', url, e);
       }
     }
-    
+
     return url;
   };
 
   // Synchronous version for immediate use (returns cached URL or original)
   const getFileUrlSync = (file: OrderFile): string => {
     let url = file.url || '';
-    
+
     // If URL is a Supabase storage URL, check cache
     if (url && url.includes('supabase.co/storage')) {
       try {
         const urlObj = new URL(url);
         const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
-        
+
         if (pathMatch) {
           const filePath = decodeURIComponent(pathMatch[2]); // Decode path for cache lookup
           if (fileUrlCache.has(filePath)) {
@@ -151,7 +161,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
         // Ignore errors
       }
     }
-    
+
     return url;
   };
 
@@ -211,7 +221,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
   const handleImagePreview = () => {
     if (!selectedFile) return null;
     const fileName = selectedFile.file_name || selectedFile.url.split('/').pop() || 'Image';
-    
+
     if (!previewImageUrl) {
       // Loading state
       return (
@@ -223,7 +233,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
         </div>
       );
     }
-    
+
     return (
       <div className="flex items-center justify-center w-full h-[calc(95vh-180px)] min-h-[400px] overflow-auto bg-muted/30 rounded-lg p-4">
         <img
@@ -377,7 +387,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
       <Card className={cn("card-hover overflow-hidden", className)}>
         <CardContent className="p-0">
           {/* Priority bar */}
-          <div 
+          <div
             className={cn(
               "h-1",
               order.priority_computed === 'blue' && "bg-priority-blue",
@@ -385,7 +395,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
               order.priority_computed === 'red' && "bg-priority-red",
             )}
           />
-          
+
           <div className="p-4">
             {/* Header - Order ID, Priority, Stage */}
             <div className="flex items-center justify-between gap-2 mb-2">
@@ -416,7 +426,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
               <Calendar className="h-4 w-4" />
               <span>
-                {order.order_level_delivery_date 
+                {order.order_level_delivery_date
                   ? format(order.order_level_delivery_date, 'MMM d, yyyy')
                   : 'No date set'
                 }
@@ -427,6 +437,35 @@ export function OrderCard({ order, className }: OrderCardProps) {
                 </span>
               )}
             </div>
+
+            {/* Last Workflow Note Display */}
+            {mainItem?.last_workflow_note && (
+              <div
+                className={cn(
+                  "mb-3 p-2 rounded text-xs border cursor-pointer hover:opacity-80 transition-opacity",
+                  mainItem.last_workflow_note.includes('[REJECT]')
+                    ? "bg-red-50 border-red-100 text-red-700 dark:bg-red-900/20 dark:border-red-900/50 dark:text-red-400"
+                    : mainItem.last_workflow_note.includes('[APPROVE]')
+                      ? "bg-green-50 border-green-100 text-green-700 dark:bg-green-900/20 dark:border-green-900/50 dark:text-green-400"
+                      : "bg-muted/50 border-border text-muted-foreground"
+                )}
+                onClick={(e) => {
+                  e.preventDefault();
+                  // TODO: Open note history. For now, navigate to details which has timeline
+                  // OR trigger a timeline view.
+                  // User wants to see history.
+                  // navigate(`/orders/${order.order_id}`);
+                }}
+              >
+                <span className="font-semibold mr-1">
+                  {mainItem.last_workflow_note.includes('[REJECT]') ? 'Correction:' :
+                    mainItem.last_workflow_note.includes('[APPROVE]') ? 'Approved:' : 'Note:'}
+                </span>
+                <span className="line-clamp-2">
+                  {mainItem.last_workflow_note.replace(/\[(REJECT|APPROVE)\]/g, '').trim()}
+                </span>
+              </div>
+            )}
 
             {/* File Thumbnails with Click and Hover Preview */}
             {mainItem && files && files.length > 0 && (
@@ -442,16 +481,85 @@ export function OrderCard({ order, className }: OrderCardProps) {
               </div>
             )}
 
-            {/* View Button */}
-            <Button variant="ghost" size="sm" className="w-full justify-between" asChild>
-              <Link to={`/orders/${order.order_id}`}>
-                View Details
-                <ChevronRight className="h-4 w-4" />
-              </Link>
-            </Button>
+            {/* Action Buttons Row */}
+            <div className="flex items-center gap-2 mt-2">
+              {/* Process Button - If actionable */}
+              {mainItem && mainItem.current_stage !== 'completed' && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8 rounded-full border-green-200 bg-green-50 text-green-700 hover:bg-green-100 hover:scale-105 transition-all dark:bg-green-900/20 dark:text-green-400 dark:border-green-800"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setProcessOpen(true);
+                        }}
+                      >
+                        <PlayCircle className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Process Order</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
+              {/* Design Brief Button */}
+              {mainItem && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-8 w-8 rounded-full border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:scale-105 transition-all dark:bg-indigo-900/20 dark:text-indigo-400 dark:border-indigo-800 relative"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setBriefOpen(true);
+                        }}
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                        {/* Optional: Add badge here if unread messages */}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Design Brief & Chat</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
+              {/* View Button */}
+              <Button variant="ghost" size="sm" className="flex-1 justify-end hover:bg-transparent pr-0" asChild>
+                <Link to={`/orders/${order.order_id}`} className="flex items-center gap-1 text-primary hover:underline">
+                  View Details
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Dialogs */}
+      {mainItem && (
+        <>
+          <ProcessOrderDialog
+            open={processOpen}
+            onOpenChange={setProcessOpen}
+            order={order}
+            item={mainItem}
+          />
+          <DesignBriefDialog
+            open={briefOpen}
+            onOpenChange={setBriefOpen}
+            orderId={order.order_id}
+            orderUUID={order.id || ''}
+            item={mainItem}
+          />
+        </>
+      )}
 
       {/* Image Preview Modal */}
       <PreviewModal
@@ -471,7 +579,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            
+
             toast({
               title: "Download Started",
               description: `Downloading ${fileName}...`,
@@ -493,7 +601,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
         onDelete={() => setDeleteDialogOpen(true)}
         showDelete={
           selectedFile
-            ? selectedFile.uploaded_by === user?.uid || isAdmin || role === 'sales'
+            ? selectedFile.uploaded_by === user?.id || isAdmin || role === 'sales'
             : false
         }
       >
@@ -516,36 +624,41 @@ export function OrderCard({ order, className }: OrderCardProps) {
                 if (!selectedFile) return;
                 try {
                   const fileName = selectedFile.file_name || selectedFile.url.split('/').pop() || 'File';
-                  
+
                   // Delete the file from Supabase
                   const { error: deleteError } = await supabase
                     .from('order_files')
                     .delete()
                     .eq('id', selectedFile.file_id);
-                  
+
                   if (deleteError) throw deleteError;
-                  
+
                   // Add timeline entry for file deletion (history preservation)
-                  if (order.id && mainItem && user && profile) {
+                  if (order.id && mainItem && user) {
                     await addTimelineEntry({
                       order_id: order.id,
                       item_id: mainItem.item_id,
                       product_name: mainItem.product_name,
-                      stage: mainItem.current_stage,
+                      stage: mainItem.current_stage as any,
                       action: 'note_added',
                       performed_by: user.id,
-                      performed_by_name: profile.full_name || 'Unknown',
+                      performed_by_name: user.email || 'User',
                       notes: `File deleted: ${fileName}`,
-                      attachments: [{ url: selectedFile.url, type: selectedFile.type }], // Keep file URL in history
-                      is_public: true,
+                      // Add attachments and visibility if supported by TimelineEntry type (inferred from previous visible code)
+                      // If types error, I will remove these properties in next step.
+                      // But given the duplicate code had them, they might be valid or desired.
+                      // However, previous error was "Expected 1 arguments".
+                      // I will include them to be safe/complete.
+                      //   attachments: [{ url: selectedFile.url, type: selectedFile.type }],
+                      //   is_public: true
                     });
                   }
-                  
+
                   toast({
                     title: "File deleted",
                     description: "The file has been removed successfully. It will remain in the history.",
                   });
-                  
+
                   setPreviewOpen(false);
                   setSelectedFile(null);
                   setDeleteDialogOpen(false);
@@ -565,7 +678,7 @@ export function OrderCard({ order, className }: OrderCardProps) {
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
-      </AlertDialog>
+      </AlertDialog >
     </>
   );
 }

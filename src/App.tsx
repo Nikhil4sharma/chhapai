@@ -10,7 +10,8 @@ import { lazy, Suspense } from "react";
 import { AuthProvider } from "@/features/auth/context/AuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { OrderProvider } from "@/features/orders/context/OrderContext";
-import { WorkLogProvider } from "@/contexts/WorkLogContext";
+import { WorkLogProvider } from '@/contexts/WorkLogContext';
+import { ChatProvider } from '@/features/chat/context/ChatContext';
 import { AnalyticsProvider } from "@/contexts/AnalyticsContext";
 import { WorkflowProvider } from "@/contexts/WorkflowContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
@@ -76,228 +77,230 @@ const App = () => (
       <AuthProvider>
         <OrderProvider>
           <WorkLogProvider>
-            <AnalyticsProvider>
-              <WorkflowProvider>
-                <TooltipProvider>
-                  <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-                    <Routes>
-                      {/* Public routes */}
-                      <Route path="/auth" element={<Auth />} />
-                      <Route path="/track" element={<TrackOrder />} />
-                      <Route path="/login" element={<Navigate to="/auth" replace />} />
+            <ChatProvider>
+              <AnalyticsProvider>
+                <WorkflowProvider>
+                  <TooltipProvider>
+                    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                      <Routes>
+                        {/* Public routes */}
+                        <Route path="/auth" element={<Auth />} />
+                        <Route path="/track" element={<TrackOrder />} />
+                        <Route path="/login" element={<Navigate to="/auth" replace />} />
 
-                      {/* Protected routes with AppLayout */}
-                      <Route element={
-                        <ProtectedRoute>
-                          <AppLayout />
-                        </ProtectedRoute>
-                      }>
-                        {/* Dashboard */}
-                        <Route path="/" element={
-                          <Suspense fallback={<PageLoader />}>
-                            <DashboardSwitcher />
-                          </Suspense>
-                        } />
-                        <Route path="/dashboard" element={<Navigate to="/" replace />} />
+                        {/* Protected routes with AppLayout */}
+                        <Route element={
+                          <ProtectedRoute>
+                            <AppLayout />
+                          </ProtectedRoute>
+                        }>
+                          {/* Dashboard */}
+                          <Route path="/" element={
+                            <Suspense fallback={<PageLoader />}>
+                              <DashboardSwitcher />
+                            </Suspense>
+                          } />
+                          <Route path="/dashboard" element={<Navigate to="/" replace />} />
 
-                        {/* Modules */}
-                        <Route path="/orders" element={
-                          <ProtectedRoute allowedRoles={['admin', 'sales', 'design', 'production', 'dispatch', 'super_admin']}>
+                          {/* Modules */}
+                          <Route path="/orders" element={
+                            <ProtectedRoute allowedRoles={['admin', 'sales', 'design', 'production', 'dispatch', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Orders />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+                          <Route path="/orders/new" element={<Navigate to="/dashboard?action=new_order" replace />} />
+                          <Route path="/orders/:orderId" element={
                             <Suspense fallback={<PageLoader />}>
-                              <Orders />
+                              <OrderDetail />
                             </Suspense>
-                          </ProtectedRoute>
-                        } />
-                        <Route path="/orders/new" element={<Navigate to="/dashboard?action=new_order" replace />} />
-                        <Route path="/orders/:orderId" element={
-                          <Suspense fallback={<PageLoader />}>
-                            <OrderDetail />
-                          </Suspense>
-                        } />
+                          } />
 
-                        {/* Sales */}
-                        <Route path="/sales" element={
-                          <ProtectedRoute allowedRoles={['admin', 'sales']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <Sales />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
-                        <Route path="/customers" element={
-                          <ProtectedRoute allowedRoles={['admin', 'sales', 'super_admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <Customers />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
+                          {/* Sales */}
+                          <Route path="/sales" element={
+                            <ProtectedRoute allowedRoles={['admin', 'sales']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Sales />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+                          <Route path="/customers" element={
+                            <ProtectedRoute allowedRoles={['admin', 'sales', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Customers />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
 
-                        {/* Depts */}
-                        <Route path="/design" element={
-                          <ProtectedRoute allowedRoles={['admin', 'design', 'super_admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <Design />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
-                        <Route path="/prepress" element={
-                          <ProtectedRoute allowedRoles={['admin', 'prepress', 'super_admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <Prepress />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
-                        <Route path="/production" element={
-                          <ProtectedRoute allowedRoles={['admin', 'production', 'super_admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <Production />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
-                        <Route path="/outsource" element={
-                          <ProtectedRoute allowedRoles={['admin', 'sales', 'prepress', 'super_admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <Outsource />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
-                        <Route path="/dispatch" element={
-                          <ProtectedRoute allowedRoles={['admin', 'dispatch', 'super_admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <Dispatch />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
-                        <Route path="/dispatched" element={
-                          <ProtectedRoute allowedRoles={['admin', 'sales', 'super_admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <Dispatched />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
+                          {/* Depts */}
+                          <Route path="/design" element={
+                            <ProtectedRoute allowedRoles={['admin', 'design', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Design />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+                          <Route path="/prepress" element={
+                            <ProtectedRoute allowedRoles={['admin', 'prepress', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Prepress />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+                          <Route path="/production" element={
+                            <ProtectedRoute allowedRoles={['admin', 'production', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Production />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+                          <Route path="/outsource" element={
+                            <ProtectedRoute allowedRoles={['admin', 'sales', 'prepress', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Outsource />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+                          <Route path="/dispatch" element={
+                            <ProtectedRoute allowedRoles={['admin', 'dispatch', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Dispatch />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+                          <Route path="/dispatched" element={
+                            <ProtectedRoute allowedRoles={['admin', 'sales', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Dispatched />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
 
-                        {/* Inventory */}
-                        <Route path="/inventory" element={
-                          <ProtectedRoute allowedRoles={['admin', 'sales', 'production', 'super_admin']}>
+                          {/* Inventory */}
+                          <Route path="/inventory" element={
+                            <ProtectedRoute allowedRoles={['admin', 'sales', 'production', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <InventoryDashboard />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+
+                          {/* Employee Portal */}
+                          <Route path="/hr" element={
                             <Suspense fallback={<PageLoader />}>
-                              <InventoryDashboard />
+                              <EmployeeDashboard />
                             </Suspense>
-                          </ProtectedRoute>
-                        } />
+                          } />
 
-                        {/* Employee Portal */}
-                        <Route path="/hr" element={
-                          <Suspense fallback={<PageLoader />}>
-                            <EmployeeDashboard />
-                          </Suspense>
-                        } />
-
-                        {/* Resources/Profile */}
-                        <Route path="/how-we-work" element={
-                          <Suspense fallback={<PageLoader />}>
-                            <HowWeWork />
-                          </Suspense>
-                        } />
-                        <Route path="/profile" element={
-                          <Suspense fallback={<PageLoader />}>
-                            <Profile />
-                          </Suspense>
-                        } />
-
-                        {/* Performance & Reports */}
-                        <Route path="/performance" element={
-                          <Suspense fallback={<PageLoader />}>
-                            <PerformanceReports />
-                          </Suspense>
-                        } />
-
-                        {/* Admin Routes */}
-                        <Route path="/admin" element={
-                          <Navigate to="/admin/users" replace />
-                        } />
-
-                        <Route path="/admin/users" element={
-                          <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                          {/* Resources/Profile */}
+                          <Route path="/how-we-work" element={
                             <Suspense fallback={<PageLoader />}>
-                              <Team />
+                              <HowWeWork />
                             </Suspense>
-                          </ProtectedRoute>
-                        } />
-
-                        <Route path="/admin/hr" element={
-                          <ProtectedRoute allowedRoles={['admin', 'super_admin', 'hr_admin']}>
+                          } />
+                          <Route path="/profile" element={
                             <Suspense fallback={<PageLoader />}>
-                              <HRDashboard />
+                              <Profile />
                             </Suspense>
-                          </ProtectedRoute>
-                        } />
+                          } />
 
-                        <Route path="/admin/settings" element={
-                          <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                          {/* Performance & Reports */}
+                          <Route path="/performance" element={
                             <Suspense fallback={<PageLoader />}>
-                              <AdminSettings />
+                              <PerformanceReports />
                             </Suspense>
-                          </ProtectedRoute>
-                        } />
+                          } />
 
-                        <Route path="/reports" element={
-                          <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <Reports />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
+                          {/* Admin Routes */}
+                          <Route path="/admin" element={
+                            <Navigate to="/admin/users" replace />
+                          } />
 
-                        <Route path="/analytics" element={
-                          <ProtectedRoute allowedRoles={['admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <AnalyticsDashboard />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
+                          <Route path="/admin/users" element={
+                            <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Team />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
 
-                        <Route path="/reports/department-efficiency" element={
-                          <ProtectedRoute allowedRoles={['admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <DepartmentEfficiencyReports />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
-                        <Route path="/reports/user-productivity" element={
-                          <ProtectedRoute allowedRoles={['admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <UserProductivityReports />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
-                        <Route path="/reports/vendor-analytics" element={
-                          <ProtectedRoute allowedRoles={['admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <VendorAnalytics />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
+                          <Route path="/admin/hr" element={
+                            <ProtectedRoute allowedRoles={['admin', 'super_admin', 'hr_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <HRDashboard />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
 
-                        <Route path="/settings" element={
-                          <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                            <Suspense fallback={<PageLoader />}>
-                              <Settings />
-                            </Suspense>
-                          </ProtectedRoute>
-                        } />
+                          <Route path="/admin/settings" element={
+                            <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <AdminSettings />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
 
-                      </Route>
+                          <Route path="/reports" element={
+                            <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Reports />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
 
-                      {/* Fallback */}
-                      <Route path="*" element={<NotFound />} />
-                    </Routes>
-                    <Toaster />
-                    <Sonner />
+                          <Route path="/analytics" element={
+                            <ProtectedRoute allowedRoles={['admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <AnalyticsDashboard />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
 
-                    <SpeedInsights />
-                  </BrowserRouter>
-                </TooltipProvider>
-              </WorkflowProvider>
-            </AnalyticsProvider>
+                          <Route path="/reports/department-efficiency" element={
+                            <ProtectedRoute allowedRoles={['admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <DepartmentEfficiencyReports />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+                          <Route path="/reports/user-productivity" element={
+                            <ProtectedRoute allowedRoles={['admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <UserProductivityReports />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+                          <Route path="/reports/vendor-analytics" element={
+                            <ProtectedRoute allowedRoles={['admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <VendorAnalytics />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+
+                          <Route path="/settings" element={
+                            <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <Settings />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
+
+                        </Route>
+
+                        {/* Fallback */}
+                        <Route path="*" element={<NotFound />} />
+                      </Routes>
+                      <Toaster />
+                      <Sonner />
+
+                      <SpeedInsights />
+                    </BrowserRouter>
+                  </TooltipProvider>
+                </WorkflowProvider>
+              </AnalyticsProvider>
+            </ChatProvider>
           </WorkLogProvider>
         </OrderProvider>
       </AuthProvider>

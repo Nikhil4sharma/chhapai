@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Plus, Download, ArrowRight, Send, CheckCircle, Trash2, UserCircle, Loader2, Search, ChevronDown, ChevronUp, ChevronRight, Package, Calendar, Building2, Settings, AlertTriangle, Clock, IndianRupee, CheckCircle2, Flame } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -92,7 +92,8 @@ export default function Sales() {
   const [selectedItemForDeliveryDate, setSelectedItemForDeliveryDate] = useState<{ orderId: string; itemId: string; productName: string; currentDate: Date } | null>(null);
   const [priorityDialogOpen, setPriorityDialogOpen] = useState(false);
   const [selectedItemForPriority, setSelectedItemForPriority] = useState<{ orderId: string; itemId: string; productName: string; currentPriority: 'blue' | 'yellow' | 'red' } | null>(null);
-  const [selectedUserTab, setSelectedUserTab] = useState<string>('all'); // 'all' or user_id
+  const [searchParams] = useSearchParams();
+  const [selectedUserTab, setSelectedUserTab] = useState<string>(searchParams.get('assigned_user') || 'all'); // 'all' or user_id
   const [salesUsers, setSalesUsers] = useState<SalesUser[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
@@ -401,7 +402,7 @@ export default function Sales() {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 text-xs gap-1"
+                      className="h-7 text-xs gap-1 px-2 sm:px-3"
                       onClick={() => {
                         if (customerId) {
                           setSelectedOrderForPayment({
@@ -416,7 +417,7 @@ export default function Sales() {
                       }}
                     >
                       <IndianRupee className="h-3 w-3" />
-                      Add Payment
+                      <span className="hidden sm:inline">Add Payment</span>
                     </Button>
 
                     {/* Order Assignment Dropdown */}
@@ -424,12 +425,10 @@ export default function Sales() {
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2 border border-dashed border-slate-300 dark:border-slate-700">
                           <UserCircle className="h-3 w-3" />
-                          {order.assigned_user_name ? (
-                            <span className="font-medium">{order.assigned_user_name}</span>
-                          ) : (
-                            <span className="text-muted-foreground italic">Unassigned</span>
-                          )}
-                          <ChevronDown className="h-3 w-3 opacity-50" />
+                          <span className="hidden sm:inline font-medium">
+                            {order.assigned_user_name || "Unassigned"}
+                          </span>
+                          <ChevronDown className="h-3 w-3 opacity-50 hidden sm:block" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">

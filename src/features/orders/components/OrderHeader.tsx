@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Edit, MoreHorizontal, Trash2 } from 'lucide-react';
+import { ArrowLeft, Edit, MoreHorizontal, Trash2, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
@@ -14,9 +14,10 @@ interface OrderHeaderProps {
     onEdit: () => void;
     onDelete?: () => void;
     canDelete?: boolean;
+    onChat?: () => void;
 }
 
-export function OrderHeader({ orderId, onEdit, onDelete, canDelete }: OrderHeaderProps) {
+export function OrderHeader({ orderId, onEdit, onDelete, canDelete, onChat }: OrderHeaderProps) {
     return (
         <div className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
             <div className="flex items-center justify-between h-16 px-4 sm:px-6 lg:px-8">
@@ -28,13 +29,20 @@ export function OrderHeader({ orderId, onEdit, onDelete, canDelete }: OrderHeade
                     </Link>
                 </Button>
 
-                {/* Center: Order ID (on mobile, moves to left on desktop) */}
-                <h1 className="text-lg sm:text-xl font-semibold absolute left-1/2 -translate-x-1/2 sm:relative sm:left-0 sm:translate-x-0">
+                {/* Center: Order ID */}
+                <h1 className="text-lg sm:text-xl font-semibold sm:absolute sm:left-1/2 sm:-translate-x-1/2">
                     Order #{orderId}
                 </h1>
 
                 {/* Right: Actions */}
                 <div className="flex items-center gap-2">
+                    {onChat && (
+                        <Button variant="outline" size="sm" onClick={onChat} className="gap-2 border-indigo-200 text-indigo-600 hover:bg-indigo-50 hover:text-indigo-700 bg-indigo-50/50">
+                            <MessageSquare className="h-4 w-4" />
+                            <span className="hidden sm:inline">Chat</span>
+                        </Button>
+                    )}
+
                     <Button variant="outline" size="sm" onClick={onEdit} className="gap-2">
                         <Edit className="h-4 w-4" />
                         <span className="hidden sm:inline">Edit</span>

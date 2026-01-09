@@ -17,7 +17,7 @@ import {
   addActivityLog,
   subscribeToOrdersChanges,
   subscribeToOrderItemsChanges,
-  updateItemSpecifications,
+  updateItemSpecifications as supabaseUpdateItemSpecifications,
   deleteOrder as supabaseDeleteOrder,
 } from '@/features/orders/services/supabaseOrdersService';
 import { autoLogWorkAction } from '@/utils/workLogHelper';
@@ -62,6 +62,7 @@ interface OrderContextType {
   updateItemSpecifications: (orderId: string, itemId: string, updates: Record<string, any>) => Promise<void>;
   assignOrderToUser: (orderId: string, userId: string) => Promise<void>;
   getCompletedOrders: () => Order[];
+  fetchOrderTimeline: (orderId: string) => Promise<void>;
 }
 
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
@@ -488,7 +489,11 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         is_public: entry.is_public !== false,
       }));
 
-      setTimeline(mappedTimeline);
+      setTimeline(prev => {
+        const merged = new Map(prev.map(t => [t.timeline_id, t]));
+        mappedTimeline.forEach(t => merged.set(t.timeline_id, t));
+        return Array.from(merged.values()).sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      });
 
       // Fetch activity logs for all orders (will be filtered per order in getTimelineForOrder)
       // Get all unique order IDs from orders (not just timeline, to get all activities)
@@ -2261,6 +2266,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         updateData.customer_address = updates.customer.address;
       }
       if (updates.global_notes !== undefined) updateData.global_notes = updates.global_notes;
+      if (updates.financials) updateData.financials = updates.financials;
 
       // If order-level delivery date is updated, also update all items' delivery dates
       if (updates.order_level_delivery_date) {
@@ -2344,8 +2350,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
   const updateItemSpecifications = useCallback(async (orderId: string, itemId: string, updates: Record<string, any>) => {
     try {
-      // Use the imported service function
-      await updateItemSpecifications(orderId, itemId, updates);
+      // Use the imported service function explicitly
+      await supabaseUpdateItemSpecifications(orderId, itemId, updates);
       await refreshOrders();
 
       toast({
@@ -2360,7 +2366,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         variant: "destructive",
       });
     }
-  }, [refreshOrders, toast]);
+  }, [refreshOrders]);
 
   const updateItemDeliveryDate = useCallback(async (orderId: string, itemId: string, deliveryDate: Date) => {
     // PERMISSION CHECK: Only Sales and Admin can update delivery date
@@ -2905,6 +2911,44 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     }
   }, [fetchOrders, logActivity, user?.id]);
 
+  const fetchOrderTimeline = useCallback(async (orderId: string) => {
+    try {
+      const { data: timelineData, error } = await supabase
+        .from('timeline')
+        .select('*')
+        .eq('order_id', orderId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const mappedTimeline: TimelineEntry[] = (timelineData || []).map(entry => ({
+        timeline_id: entry.id,
+        order_id: entry.order_id,
+        item_id: entry.item_id || undefined,
+        product_name: entry.product_name || undefined,
+        stage: entry.stage as Stage,
+        substage: (entry.substage as SubStage) || undefined,
+        action: entry.action as any,
+        performed_by: entry.performed_by || '',
+        performed_by_name: entry.performed_by_name || 'Unknown',
+        notes: entry.notes || undefined,
+        attachments: entry.attachments || undefined,
+        qty_confirmed: entry.qty_confirmed || undefined,
+        paper_treatment: entry.paper_treatment || undefined,
+        created_at: new Date(entry.created_at),
+        is_public: entry.is_public !== false,
+      }));
+
+      setTimeline(prev => {
+        const existingIds = new Set(prev.map(t => t.timeline_id));
+        const newEntries = mappedTimeline.filter(t => !existingIds.has(t.timeline_id));
+        return [...prev, ...newEntries].sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+      });
+    } catch (error) {
+      console.error('Error fetching order timeline:', error);
+    }
+  }, []);
+
   const value = {
     orders,
     timeline,
@@ -2943,6 +2987,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
     refreshOrders,
     updateItemSpecifications,
     getCompletedOrders,
+    fetchOrderTimeline,
   };
   return (
     <OrderContext.Provider value={value}>

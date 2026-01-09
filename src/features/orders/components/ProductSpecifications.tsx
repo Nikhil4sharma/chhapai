@@ -11,12 +11,12 @@ interface ProductSpecificationsProps {
 }
 
 // Keys to exclude from display (SKU and other internal fields)
-const EXCLUDED_KEYS = ['sku', 'SKU', 'notes', '_sku', 'product_sku', 'id'];
+const EXCLUDED_KEYS = ['sku', 'SKU', 'notes', '_sku', 'product_sku', 'id', 'workflow_status'];
 
 export function ProductSpecifications({ item, compact = false }: ProductSpecificationsProps) {
   // Collect all specifications from both structured and woo_meta
   const allSpecs: { key: string; value: string }[] = [];
-  
+
   // Add structured specs first
   if (item.specifications) {
     Object.entries(item.specifications).forEach(([key, value]) => {
@@ -24,7 +24,7 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
       if (/^\d+$/.test(key) || EXCLUDED_KEYS.includes(key.toLowerCase())) {
         return;
       }
-      
+
       if (value !== null && value !== undefined) {
         // Ensure value is a string, not an object
         let stringValue = '';
@@ -54,37 +54,37 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
         } else {
           stringValue = String(value || '');
         }
-        
+
         if (stringValue && stringValue.trim()) {
           allSpecs.push({ key: key, value: stringValue.trim() });
         }
       }
     });
   }
-  
+
   // Add WooCommerce meta (if not already in structured specs)
   if (item.woo_meta) {
     // Handle both array and object formats
-    const metaArray = Array.isArray(item.woo_meta) ? item.woo_meta : 
-                     typeof item.woo_meta === 'object' ? Object.values(item.woo_meta) : [];
-    
+    const metaArray = Array.isArray(item.woo_meta) ? item.woo_meta :
+      typeof item.woo_meta === 'object' ? Object.values(item.woo_meta) : [];
+
     for (const meta of metaArray) {
       if (!meta || typeof meta !== 'object') continue;
-      
+
       const metaKey = (meta.key || '').toLowerCase();
-      
+
       // Skip SKU-related fields and internal keys
       if (EXCLUDED_KEYS.some(k => metaKey.includes(k.toLowerCase())) || metaKey.startsWith('_')) {
         continue;
       }
-      
+
       const displayKey = meta.display_key || meta.key;
       const displayValue = meta.display_value || meta.value;
-      
+
       // Only process if we have a valid string value
       if (displayValue && typeof displayValue === 'string' && displayValue.trim()) {
         const stringValue = displayValue.trim();
-        
+
         // Check if this spec is already added (avoid duplicates)
         if (!allSpecs.find(s => s.key === displayKey && s.value === stringValue)) {
           allSpecs.push({

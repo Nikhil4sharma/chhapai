@@ -35,12 +35,14 @@ export function SearchBar({ className, isMobile }: SearchBarProps) {
       return;
     }
 
-    const filtered = orders.filter(order => 
-      order.order_id.toLowerCase().includes(query.toLowerCase()) ||
-      order.customer.name.toLowerCase().includes(query.toLowerCase()) ||
-      order.customer.phone?.includes(query) ||
-      order.items.some(item => 
-        item.product_name.toLowerCase().includes(query.toLowerCase())
+    const filtered = orders.filter(order =>
+      !order.is_completed && (
+        order.order_id.toLowerCase().includes(query.toLowerCase()) ||
+        order.customer.name.toLowerCase().includes(query.toLowerCase()) ||
+        order.customer.phone?.includes(query) ||
+        order.items.some(item =>
+          item.product_name.toLowerCase().includes(query.toLowerCase())
+        )
       )
     );
     setResults(filtered.slice(0, 10)); // Limit to 10 results
@@ -73,9 +75,9 @@ export function SearchBar({ className, isMobile }: SearchBarProps) {
   if (isMobile) {
     return (
       <>
-        <Button 
-          variant="ghost" 
-          size="icon" 
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => setIsOpen(true)}
         >
           <Search className="h-5 w-5" />
@@ -84,11 +86,11 @@ export function SearchBar({ className, isMobile }: SearchBarProps) {
         {isOpen && (
           <div className="fixed inset-0 z-50">
             {/* Overlay */}
-            <div 
+            <div
               className="fixed inset-0 bg-black/80 animate-in fade-in-0"
               onClick={() => setIsOpen(false)}
             />
-            
+
             {/* Search Dialog - Top Positioned */}
             <div className="fixed top-4 left-4 right-4 z-50 bg-background border border-border rounded-lg shadow-lg max-h-[90vh] flex flex-col animate-in fade-in-0 zoom-in-95 slide-in-from-top-2">
               {/* Header */}
@@ -102,7 +104,7 @@ export function SearchBar({ className, isMobile }: SearchBarProps) {
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              
+
               {/* Search Input */}
               <div className="p-4">
                 <div className="relative">
@@ -214,31 +216,44 @@ export function SearchBar({ className, isMobile }: SearchBarProps) {
       {/* Desktop Results Dropdown */}
       {results.length > 0 && (
         <div className="absolute top-full left-0 right-0 mt-2 bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden">
-          <ScrollArea className="max-h-[300px]">
-            <div className="p-2">
+          <ScrollArea className="max-h-[400px]">
+            <div className="p-2 space-y-1">
               {results.map((order) => (
                 <button
                   key={order.order_id}
-                  className="w-full p-3 text-left rounded-lg hover:bg-secondary/50 transition-colors"
+                  className="w-full p-3 text-left rounded-lg hover:bg-secondary/50 transition-colors border border-transparent hover:border-border"
                   onClick={() => handleSelect(order.order_id)}
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <Package className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium text-foreground">{order.order_id}</span>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <Package className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+                      <span className="font-semibold text-foreground truncate">{order.order_id}</span>
                     </div>
                     <PriorityBadge priority={order.priority_computed} />
                   </div>
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <User className="h-3 w-3" />
-                      {order.customer.name}
-                    </span>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <User className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="truncate">{order.customer.name}</span>
+                    </div>
+                    {order.customer.phone && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="truncate">{order.customer.phone}</span>
+                      </div>
+                    )}
                     {order.order_level_delivery_date && (
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {format(order.order_level_delivery_date, 'MMM d')}
-                      </span>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Calendar className="h-3.5 w-3.5 flex-shrink-0" />
+                        <span>Delivery: {format(order.order_level_delivery_date, 'MMM d, yyyy')}</span>
+                      </div>
+                    )}
+                    {order.items.length > 0 && (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{order.items.length} item{order.items.length > 1 ? 's' : ''}</span>
+                        {order.items[0]?.product_name && (
+                          <span className="truncate">• {order.items[0].product_name}</span>
+                        )}
+                      </div>
                     )}
                   </div>
                 </button>

@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Upload, CheckCircle, Clock, ArrowRight, Send, Building2, Settings, MessageSquare, FileText, RotateCcw, AlertTriangle, Package, User } from 'lucide-react';
 import { ProductCard } from '@/features/orders/components/ProductCard';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +50,8 @@ export default function Design() {
   const [selectedItemForOutsource, setSelectedItemForOutsource] = useState<{ orderId: string; itemId: string; productName: string; quantity: number } | null>(null);
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
   const [selectedItemForNote, setSelectedItemForNote] = useState<{ orderId: string; itemId: string; productName: string } | null>(null);
-  const [selectedUserTab, setSelectedUserTab] = useState<string>('all');
+  const [searchParams] = useSearchParams();
+  const [selectedUserTab, setSelectedUserTab] = useState<string>(searchParams.get('assigned_user') || 'all');
   const [designUsers, setDesignUsers] = useState<DesignUser[]>([]);
 
   // Fetch design users for admin tabs
@@ -186,7 +187,7 @@ export default function Design() {
       return item.current_stage === 'sales' &&
         item.assigned_department === 'sales' &&
         item.need_design &&
-        item.files && item.files.some(f => f.file_type === 'image' || f.file_type === 'design');
+        item.files && item.files.some(f => f.type === 'image' || f.type === 'proof');
     });
   }, [allDesignItems]);
 
@@ -194,8 +195,7 @@ export default function Design() {
     return allDesignItems.filter(({ item }) => {
       // Items currently in design department and not completed
       return item.current_stage === 'design' &&
-        item.assigned_department === 'design' &&
-        item.current_stage !== 'completed';
+        item.assigned_department === 'design';
     });
   }, [allDesignItems]);
 

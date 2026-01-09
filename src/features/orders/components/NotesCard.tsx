@@ -35,12 +35,8 @@ const departmentColors = {
 export function NotesCard({ notes, globalNotes }: NotesCardProps) {
     const [isOpen, setIsOpen] = useState(true);
 
-    // Filter for actual notes (action = note_added OR has notes content)
-    // And exclude empty auto-generated notes if any
-    const displayNotes = notes.filter(n =>
-        (n.action === 'note_added' || (n.notes && n.notes.length > 0)) &&
-        !n.action.includes('status_changed') // Exclude pure status changes unless they have custom notes
-    );
+    // Strict filter: Only show manual user notes
+    const displayNotes = notes.filter(n => n.action === 'note_added');
 
     return (
         <Card className="hover:shadow-md transition-shadow">
