@@ -63,6 +63,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AddPaymentDialog } from '@/components/dialogs/AddPaymentDialog';
+import { ProformaInvoiceDialog } from '@/components/dialogs/ProformaInvoiceDialog';
 import { financeService } from '@/services/financeService';
 import { OrderPaymentStatus } from '@/types/finance';
 
@@ -106,6 +107,7 @@ export default function Sales() {
     customerName: string;
   } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [piDialogOpen, setPiDialogOpen] = useState(false);
 
   // PRODUCT-CENTRIC: Get products (items) in sales stage
   const salesProducts = useMemo(() => {
@@ -559,9 +561,9 @@ export default function Sales() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => toast({ title: "Coming Soon", description: "Performa Invoice generation will be available soon." })}>
+                  <DropdownMenuItem onClick={() => setPiDialogOpen(true)}>
                     <IndianRupee className="h-4 w-4 mr-2 text-muted-foreground" />
-                    Generate Performa Invoice
+                    Generate Proforma Invoice
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => toast({ title: "Coming Soon", description: "More actions coming soon." })}>
                     <Package className="h-4 w-4 mr-2 text-muted-foreground" />
@@ -847,6 +849,12 @@ export default function Sales() {
             }}
           />
         )}
+
+        {/* Proforma Invoice Dialog */}
+        <ProformaInvoiceDialog
+          open={piDialogOpen}
+          onOpenChange={setPiDialogOpen}
+        />
       </div>
     </TooltipProvider>
   );
