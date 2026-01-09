@@ -311,9 +311,9 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-4xl h-[90vh] flex flex-col p-0 gap-0 bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
                 <DialogHeader className="p-6 pb-2 shrink-0">
-                    <div className="flex items-start justify-between">
-                        <div>
-                            <div className="flex items-center gap-2 mb-1">
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
                                 <FileText className="w-5 h-5 text-indigo-500" />
                                 <DialogTitle className="text-xl font-bold text-slate-900 dark:text-slate-100">
                                     Proforma Invoice
@@ -323,7 +323,7 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
                                 Generate and manage proforma invoices
                             </DialogDescription>
                         </div>
-                        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-[300px]">
+                        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full sm:w-[300px]">
                             <TabsList className="grid w-full grid-cols-2 bg-slate-100 dark:bg-slate-900">
                                 <TabsTrigger
                                     value="generate"
@@ -617,48 +617,50 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
                                 </div>
                             </div>
 
-                            <ScrollArea className="flex-1 p-6">
-                                {isLoadingHistory ? (
-                                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-500">
-                                        <Loader2 className="w-8 h-8 animate-spin mb-2" />
-                                        <p>Loading history...</p>
-                                    </div>
-                                ) : filteredHistory.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-500">
-                                        <History className="w-12 h-12 mb-3 opacity-20" />
-                                        <p>No Invoice History Found</p>
-                                    </div>
-                                ) : (
-                                    <div className="grid gap-4 pb-6">
-                                        {filteredHistory.map((invoice) => (
-                                            <div key={invoice.id} className="group flex items-center justify-between p-4 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-800 hover:shadow-md transition-all">
-                                                <div className="space-y-1">
-                                                    <div className="flex items-center gap-3">
-                                                        <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{invoice.pi_number}</span>
-                                                        <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                                                            {format(new Date(invoice.created_at), 'dd MMM yyyy')}
-                                                        </span>
+                            <div className="flex-1 overflow-y-auto w-full min-h-0">
+                                <div className="p-6">
+                                    {isLoadingHistory ? (
+                                        <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-500">
+                                            <Loader2 className="w-8 h-8 animate-spin mb-2" />
+                                            <p>Loading history...</p>
+                                        </div>
+                                    ) : filteredHistory.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-500">
+                                            <History className="w-12 h-12 mb-3 opacity-20" />
+                                            <p>No Invoice History Found</p>
+                                        </div>
+                                    ) : (
+                                        <div className="grid gap-4 pb-6">
+                                            {filteredHistory.map((invoice) => (
+                                                <div key={invoice.id} className="group flex items-center justify-between p-4 bg-white dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-indigo-200 dark:hover:border-indigo-800 hover:shadow-md transition-all">
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center gap-3">
+                                                            <span className="text-sm font-bold text-slate-900 dark:text-slate-100">{invoice.pi_number}</span>
+                                                            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                                                                {format(new Date(invoice.created_at), 'dd MMM yyyy')}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{invoice.purchaser_details.name}</p>
+                                                        <p className="text-xs text-slate-500 dark:text-slate-500 truncate max-w-[300px]">{invoice.items.map(i => i.description).join(', ')}</p>
                                                     </div>
-                                                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">{invoice.purchaser_details.name}</p>
-                                                    <p className="text-xs text-slate-500 dark:text-slate-500 truncate max-w-[300px]">{invoice.items.map(i => i.description).join(', ')}</p>
-                                                </div>
 
-                                                <div className="flex items-center gap-4">
-                                                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100">₹ {invoice.financials.total.toFixed(2)}</span>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="ghost"
-                                                        onClick={() => handleRedownload(invoice)}
-                                                        className="h-9 w-9 p-0 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-950 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
-                                                    >
-                                                        <Download className="w-4 h-4" />
-                                                    </Button>
+                                                    <div className="flex items-center gap-4">
+                                                        <span className="text-sm font-bold text-slate-900 dark:text-slate-100">₹ {invoice.financials.total.toFixed(2)}</span>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="ghost"
+                                                            onClick={() => handleRedownload(invoice)}
+                                                            className="h-9 w-9 p-0 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-950 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+                                                        >
+                                                            <Download className="w-4 h-4" />
+                                                        </Button>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </ScrollArea>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     )}
                 </div>
