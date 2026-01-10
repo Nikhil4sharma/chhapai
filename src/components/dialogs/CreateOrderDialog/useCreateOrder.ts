@@ -525,7 +525,7 @@ export function useCreateOrder(
 
                 // 🪄 POST-RPC ENRICHMENT (Metadata that RPC doesn't handle)
                 const { error: patchError } = await supabase.from('orders').update({
-                    notes: globalNotes,
+                    global_notes: globalNotes, // Corrected column name
                     delivery_date: deliveryDate ? deliveryDate.toISOString() : null,
                     priority: computedPriority,
                     assigned_user: finalUser,

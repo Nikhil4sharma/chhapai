@@ -99,27 +99,35 @@ begin
   -- 2️⃣ ORDER UPSERT
   insert into orders (
     wc_order_id,
+    order_id,
     customer_id,
-    status,
+    order_status,
     payment_status,
     total_amount,
     source,
+    customer_name,   -- Added Required Column
+    customer_email,  -- Likely Required
+    customer_phone,  -- Likely Required
     created_at,
     updated_at
   )
   values (
+    payload->>'order_id',
     payload->>'order_id',
     v_customer_id,
     payload->>'status',
     payload->>'payment_status',
     (payload->>'total')::numeric,
     'woocommerce',
+    payload->'customer'->>'name',   -- Map customer name
+    payload->'customer'->>'email',  -- Map customer email
+    payload->'customer'->>'phone',  -- Map customer phone
     now(),
     now()
   )
   on conflict (wc_order_id)
   do update set
-    status = excluded.status,
+    order_status = excluded.order_status,
     payment_status = excluded.payment_status,
     total_amount = excluded.total_amount,
     updated_at = now()
