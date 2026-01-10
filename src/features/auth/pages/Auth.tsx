@@ -17,7 +17,7 @@ export default function Auth() {
   const [isLoading, setIsLoading] = useState(false);
   const isMobile = useIsMobile();
   const { theme, toggleTheme } = useTheme();
-  
+
   const { signIn, user, role, isLoading: authLoading } = useAuth();
   const navigate = useNavigate();
 
@@ -40,7 +40,7 @@ export default function Auth() {
       case 'sales':
         return '/sales';
       case 'design':
-        return '/design';
+        return '/'; // Dashboard is default for Design
       case 'prepress':
         return '/prepress';
       case 'production':
@@ -52,7 +52,7 @@ export default function Auth() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!email || !password) {
       toast({
         title: "Error",
@@ -65,10 +65,10 @@ export default function Auth() {
     setIsLoading(true);
     try {
       const { error } = await signIn(email, password);
-      
+
       if (error) {
         let errorMessage = error.message || "Invalid email or password";
-        
+
         // Better error messages for common issues
         if (error.message?.includes('Email not confirmed') || error.message?.includes('email_not_confirmed')) {
           errorMessage = "Email not confirmed. Please contact admin to confirm your email, or run CONFIRM_EXISTING_USERS_EMAIL.sql in Supabase SQL Editor.";
@@ -77,7 +77,7 @@ export default function Auth() {
         } else if (error.message?.includes('400') || error.status === 400) {
           errorMessage = "Login failed. Please check your email and password, or contact admin if email is not confirmed.";
         }
-        
+
         toast({
           title: "Login Failed",
           description: errorMessage,
@@ -98,13 +98,13 @@ export default function Auth() {
     } catch (error: any) {
       console.error('[Auth] Sign in error:', error);
       let errorMessage = "An unexpected error occurred";
-      
+
       if (error.message?.includes('Invalid') || error.message?.includes('credentials')) {
         errorMessage = "Invalid email or password. Please check your credentials.";
       } else if (error.message) {
         errorMessage = error.message;
       }
-      
+
       toast({
         title: "Login Failed",
         description: errorMessage,
@@ -119,9 +119,9 @@ export default function Auth() {
       <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-4">
           <div className="h-16 w-16 flex items-center justify-center">
-            <img 
-              src="/chhapai-logo.png" 
-              alt="Chhapai Logo" 
+            <img
+              src="/chhapai-logo.png"
+              alt="Chhapai Logo"
               className="h-full w-full object-contain logo-dark-mode animate-pulse"
             />
           </div>
@@ -155,9 +155,9 @@ export default function Auth() {
           <div className="hidden lg:flex flex-col items-start justify-center space-y-6 px-8">
             <div className="flex items-center gap-4">
               <div className="h-20 w-20 flex items-center justify-center">
-                <img 
-                  src="/chhapai-logo.png" 
-                  alt="Chhapai Logo" 
+                <img
+                  src="/chhapai-logo.png"
+                  alt="Chhapai Logo"
                   className="h-full w-full object-contain logo-dark-mode"
                 />
               </div>
@@ -169,7 +169,7 @@ export default function Auth() {
             <div className="space-y-4">
               <h2 className="text-3xl font-semibold text-foreground">Order Flow & Tracking System</h2>
               <p className="text-lg text-muted-foreground leading-relaxed">
-                Streamline your order management workflow with real-time tracking, 
+                Streamline your order management workflow with real-time tracking,
                 department coordination, and comprehensive analytics.
               </p>
             </div>
@@ -192,9 +192,9 @@ export default function Auth() {
               <CardHeader className="space-y-1 text-center lg:text-left">
                 <div className="flex items-center justify-center lg:justify-start gap-3 mb-4">
                   <div className="h-12 w-12 flex items-center justify-center lg:hidden">
-                    <img 
-                      src="/chhapai-logo.png" 
-                      alt="Chhapai Logo" 
+                    <img
+                      src="/chhapai-logo.png"
+                      alt="Chhapai Logo"
                       className="h-full w-full object-contain logo-dark-mode"
                     />
                   </div>
@@ -221,7 +221,7 @@ export default function Auth() {
                       className="h-11"
                     />
                   </div>
-                  
+
                   <div className="space-y-2">
                     <Label htmlFor="password">Password</Label>
                     <div className="relative">
@@ -280,9 +280,9 @@ export default function Auth() {
           <div className="text-center mb-8">
             <div className="flex items-center justify-center gap-3 mb-4">
               <div className="h-16 w-16 flex items-center justify-center">
-                <img 
-                  src="/chhapai-logo.png" 
-                  alt="Chhapai Logo" 
+                <img
+                  src="/chhapai-logo.png"
+                  alt="Chhapai Logo"
                   className="h-full w-full object-contain logo-dark-mode"
                 />
               </div>
@@ -316,7 +316,7 @@ export default function Auth() {
                     className="h-11"
                   />
                 </div>
-                
+
                 <div className="space-y-2">
                   <Label htmlFor="password-mobile">Password</Label>
                   <div className="relative">

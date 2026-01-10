@@ -9,7 +9,7 @@ import { NewOrderButton } from '@/components/common/actions/NewOrderButton';
 import { AddCustomerButton } from '@/components/common/actions/AddCustomerButton';
 
 export function DashboardHeader() {
-    const { profile } = useAuth();
+    const { profile, isAdmin, role } = useAuth();
     const navigate = useNavigate();
     const [greeting, setGreeting] = useState('');
 
@@ -34,19 +34,23 @@ export function DashboardHeader() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-                <AddCustomerButton />
+                {isAdmin && (
+                    <>
+                        <AddCustomerButton />
 
-                <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9 px-3 rounded-full border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all duration-300 shadow-sm hover:shadow"
-                    onClick={() => navigate('/settings')}
-                >
-                    <Settings className="h-4 w-4 mr-2 text-slate-500" />
-                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Config</span>
-                </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 px-3 rounded-full border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all duration-300 shadow-sm hover:shadow"
+                            onClick={() => navigate('/settings')}
+                        >
+                            <Settings className="h-4 w-4 mr-2 text-slate-500" />
+                            <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Config</span>
+                        </Button>
+                    </>
+                )}
 
-                <NewOrderButton />
+                {(isAdmin || role === 'sales') && <NewOrderButton />}
             </div>
         </div>
     );

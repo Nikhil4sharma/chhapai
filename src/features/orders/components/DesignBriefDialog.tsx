@@ -27,16 +27,23 @@ interface DesignBriefDialogProps {
     orderId: string; // Readable ID
     orderUUID: string; // Database UUID
     item: OrderItem;
+    department?: string; // Target department for the brief
 }
 
 // Helper for initials
 const getInitials = (name: string) => name ? name.substring(0, 2).toUpperCase() : '??';
 
-export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item }: DesignBriefDialogProps) {
+export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item, department }: DesignBriefDialogProps) {
     const { user, profile } = useAuth();
     const { timeline, refreshOrders, updateItemSpecifications } = useOrders();
     const [activeTab, setActiveTab] = useState<'brief' | 'chat'>('brief');
-    const [briefText, setBriefText] = useState(item.specifications?.design_brief || '');
+
+    // Determine which field to use in specifications
+    const targetDept = department || item.assigned_department || item.current_stage;
+    const briefKey = targetDept === 'prepress' ? 'prepress_brief' :
+        targetDept === 'production' ? 'production_brief' : 'design_brief';
+
+    const [briefText, setBriefText] = useState(item.specifications?.[briefKey] || '');
     const [newMessage, setNewMessage] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [isSending, setIsSending] = useState(false);
@@ -45,20 +52,22 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
     const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
     const [editedMessageText, setEditedMessageText] = useState('');
 
-    // Typing State (Simulated for demo purposes, usually needs Realtime Presence)
+    // Typing State
     const [isTyping, setIsTyping] = useState(false);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
 
+    const deptLabel = targetDept.charAt(0).toUpperCase() + targetDept.slice(1);
+
     // Initial load of brief
     useEffect(() => {
         if (open) {
-            setBriefText(item.specifications?.design_brief || '');
+            setBriefText(item.specifications?.[briefKey] || '');
             // When opening chat, mark all relevant messages as read by me
             markMessagesAsRead();
         }
-    }, [open, item]);
+    }, [open, item, briefKey]);
 
     const markMessagesAsRead = async () => {
         if (!user || activeTab !== 'chat') return;
@@ -91,9 +100,9 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
         setIsSaving(true);
         try {
             await updateItemSpecifications(orderUUID, item.item_id, {
-                design_brief: briefText
+                [briefKey]: briefText
             });
-            toast({ title: "Brief Saved", description: "Design brief updated successfully." });
+            toast({ title: "Brief Saved", description: `${deptLabel} brief updated successfully.` });
         } catch (error) {
             console.error("Error saving brief:", error);
             toast({ title: "Error", description: "Failed to save brief.", variant: "destructive" });
@@ -213,9 +222,9 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
                             <Palette className="w-5 h-5" />
                         </div>
                         <div>
-                            <DialogTitle className="text-lg font-semibold tracking-tight">Design Collaboration</DialogTitle>
+                            <DialogTitle className="text-lg font-semibold tracking-tight">{deptLabel} Collaboration</DialogTitle>
                             <DialogDescription className="text-xs">
-                                {item.product_name} • {item.current_stage}
+                                {item.product_name} • {targetDept}
                             </DialogDescription>
                         </div>
                     </div>
@@ -238,9 +247,22 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
                                     </div>
                                 </div>
 
+                                {/* Sales Assignment Notes */}
+                                {item.last_workflow_note && (
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                                            <FileText className="w-4 h-4" />
+                                            Sales Assignment Notes
+                                        </label>
+                                        <div className="p-4 bg-blue-50 dark:bg-blue-950/20 rounded-xl border border-blue-200 dark:border-blue-900 text-sm leading-relaxed">
+                                            {item.last_workflow_note}
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="space-y-2">
                                     <label className="text-sm font-semibold text-muted-foreground flex items-center justify-between">
-                                        <span>Design Brief & Instructions</span>
+                                        <span>{deptLabel} Brief & Instructions</span>
                                         <Button size="sm" onClick={handleSaveBrief} disabled={isSaving} variant="outline" className="h-7 text-xs">
                                             {isSaving ? "Saving..." : "Save Changes"}
                                         </Button>
@@ -249,7 +271,7 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
                                         value={briefText}
                                         onChange={(e) => setBriefText(e.target.value)}
                                         className="min-h-[200px] resize-none p-4 leading-relaxed bg-background/50 focus:bg-background transition-colors"
-                                        placeholder="Enter detailed design brief..."
+                                        placeholder={`Enter detailed ${targetDept} brief...`}
                                     />
                                 </div>
                             </div>

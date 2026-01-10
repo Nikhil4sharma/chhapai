@@ -126,13 +126,7 @@ const App = () => (
                           } />
 
                           {/* Depts */}
-                          <Route path="/design" element={
-                            <ProtectedRoute allowedRoles={['admin', 'design', 'super_admin']}>
-                              <Suspense fallback={<PageLoader />}>
-                                <Design />
-                              </Suspense>
-                            </ProtectedRoute>
-                          } />
+                          <Route path="/design" element={<Navigate to="/" replace />} />
                           <Route path="/prepress" element={
                             <ProtectedRoute allowedRoles={['admin', 'prepress', 'super_admin']}>
                               <Suspense fallback={<PageLoader />}>

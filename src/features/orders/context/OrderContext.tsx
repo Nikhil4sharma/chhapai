@@ -772,22 +772,37 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       )
       .subscribe();
 
-    // CRITICAL: Add 200ms polling for timeline to ensure instant updates
-    // This supplements Supabase realtime for guaranteed updates
-    const timelinePollingInterval = setInterval(() => {
-      if (initialFetchComplete && isMounted && fetchTimelineRef.current) {
-        fetchTimelineRef.current();
-      }
-    }, 200); // Poll every 200ms for instant timeline updates
+    // CRITICAL: Add order_files subscription for instant file upload updates
+    const orderFilesChannel = supabase
+      .channel('order_files_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'order_files'
+        },
+        (payload) => {
+          console.log('[OrderContext] File uploaded:', payload);
+          // Trigger refresh when file is uploaded
+          if (fetchOrdersRef.current) {
+            fetchOrdersRef.current(false, true); // Force refresh
+          }
+        }
+      )
+      .subscribe();
+
+    // REMOVED: 200ms polling was causing card content to blink
+    // Supabase realtime subscriptions are sufficient for updates
 
     return () => {
       isMounted = false; // Mark as unmounted
       if (debounceTimer) clearTimeout(debounceTimer);
-      clearInterval(timelinePollingInterval); // Clear polling interval
       unsubscribeOrders();
       unsubscribeItems();
       supabase.removeChannel(timelineChannel);
       supabase.removeChannel(activityLogsChannel);
+      supabase.removeChannel(orderFilesChannel); // Clean up order_files subscription
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       // CRITICAL: DO NOT call setOrders([]) here - it causes orders to disappear
       // DO NOT clear cache or fetch guard on unmount - keep for session persistence
@@ -2167,9 +2182,9 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      // Refresh orders to show new file - wait a bit for database to update
+      // Refresh orders to show new file immediately - force refresh to bypass cache
       await new Promise(resolve => setTimeout(resolve, 300));
-      await fetchOrders(false);
+      await fetchOrders(false, true); // Force refresh to bypass cache
 
       toast({
         title: replaceExisting ? "File Replaced" : "File Uploaded",

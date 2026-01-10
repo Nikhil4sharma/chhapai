@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, memo } from 'react';
 import { FileText, Eye, ExternalLink, FileImage, Trash2, Download, X, Loader2, User, Building2, History, ChevronRight, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -84,7 +84,7 @@ interface FileButtonProps {
   cacheVersion: number;
 }
 
-const FileButton = ({
+const FileButton = memo(({
   file,
   getFileName,
   getFileUrlSync,
@@ -229,7 +229,7 @@ const FileButton = ({
       )}
     </>
   );
-};
+});
 
 // Simple User Icon helper
 const UserCircleIcon = ({ name, className }: { name: string, className?: string }) => (

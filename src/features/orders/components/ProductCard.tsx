@@ -21,7 +21,7 @@ import { AssignUserDialog } from '@/components/dialogs/AssignUserDialog';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
 import { OutsourceAssignmentDialog } from '@/components/dialogs/OutsourceAssignmentDialog';
 import { FilePreview } from '@/features/orders/components/FilePreview';
-// Removed unused dialog imports
+import { DesignBriefDialog } from '@/features/orders/components/DesignBriefDialog';
 import { ProductSpecifications } from '@/features/orders/components/ProductSpecifications';
 import {
   Tooltip,
@@ -69,6 +69,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
   // Dialog states
   const [assignUserDialogOpen, setAssignUserDialogOpen] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [designBriefOpen, setDesignBriefOpen] = useState(false);
   const [outsourceDialogOpen, setOutsourceDialogOpen] = useState(false);
   const [processDialogOpen, setProcessDialogOpen] = useState(false);
 
@@ -141,9 +142,9 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
   const statusLabel = statusConfig?.label || item.status?.replace(/_/g, ' ') || 'Unknown';
 
   let statusColor = statusConfig?.color || 'bg-slate-100 text-slate-800 border-slate-200';
-  if (item.status === 'completed' || item.current_stage === 'completed' || item.current_stage === 'delivered' || item.current_stage === 'dispatched') {
+  if (item.status === 'completed' || item.current_stage === 'completed' || item.status === 'delivered' || item.status === 'dispatched') {
     statusColor = 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
-  } else if (item.current_stage === 'new_order' || item.current_stage === 'pending_for_customer_approval') {
+  } else if (item.status === 'new_order' || item.status === 'pending_for_customer_approval') {
     statusColor = 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800';
   } else {
     // Default / In Progress (Blue)
@@ -164,7 +165,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
 
   return (
     <TooltipProvider>
-      <Card className={cn("hover:shadow-lg transition-all overflow-hidden border border-border/70 bg-card", className)}>
+      <Card className={cn("transition-all overflow-hidden border border-border/70 bg-card", className)}>
         {/* Priority bar */}
         <div
           className={cn(
@@ -281,7 +282,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                       e.stopPropagation();
                       setProcessDialogOpen(true);
                     }}
-                    className="text-xs flex-shrink-0 justify-start bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm border-0 animate-in fade-in zoom-in duration-300"
+                    className="text-xs flex-shrink-0 justify-start bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm border-0"
                   >
                     <Play className="w-3 h-3 mr-1.5" /> Process
                   </Button>
@@ -298,7 +299,20 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               </div>
 
               {/* Utility Toolbar */}
-              <div className="flex items-center justify-start flex-wrap gap-2">
+              <div className="flex items-center justify-start flex-wrap gap-2 relative z-20 pointer-events-auto">
+                {/* Dynamic Brief Button based on Department */}
+                {['design', 'prepress', 'production'].includes(item.current_stage) && (
+                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setDesignBriefOpen(true); }} className="h-8 px-3 text-xs">
+                    <Palette className={cn(
+                      "h-3 w-3 mr-1",
+                      item.current_stage === 'design' && "text-indigo-600 dark:text-indigo-400 font-bold",
+                      item.current_stage === 'prepress' && "text-pink-600 dark:text-pink-400 font-bold",
+                      item.current_stage === 'production' && "text-orange-600 dark:text-orange-400 font-bold"
+                    )} />
+                    <span className="capitalize">{item.current_stage} Brief</span>
+                  </Button>
+                )}
+
                 <Button variant="ghost" size="sm" onClick={handleOrderClick} className="h-8 px-3 text-xs">
                   <Eye className="h-3 w-3 mr-1" /> View
                 </Button>
@@ -341,6 +355,15 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
 
       {/* Process Dialog */}
       <ProcessOrderDialog open={processDialogOpen} onOpenChange={setProcessDialogOpen} order={order} item={item} />
+
+      <DesignBriefDialog
+        open={designBriefOpen}
+        onOpenChange={setDesignBriefOpen}
+        orderId={order.order_id}
+        orderUUID={order.id || ''}
+        item={item}
+        department={item.current_stage}
+      />
 
     </TooltipProvider>
   );

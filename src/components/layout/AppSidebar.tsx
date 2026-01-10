@@ -169,7 +169,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           icon: Palette,
           badge: badges.counts.design,
           badgeVariant: badges.urgentCounts.design > 0 ? 'priority-red' : 'default',
-          roles: ['admin', 'design', 'super_admin']
+          roles: ['admin', 'super_admin'] // Only Admin can see, not Design users
         },
         {
           label: 'Prepress',
@@ -205,12 +205,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
         },
       ]
     },
-    {
-      title: 'Resources',
-      items: [
-        { label: 'How We Work', path: '/how-we-work', icon: BookOpen },
-      ]
-    },
+
     {
       title: 'Administration',
       roles: ['admin', 'super_admin', 'hr_admin'],

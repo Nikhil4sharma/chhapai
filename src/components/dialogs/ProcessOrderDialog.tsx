@@ -332,8 +332,8 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item }: ProcessO
                                 <Label className="text-xs uppercase font-semibold text-muted-foreground">Select Destination</Label>
                                 <RadioGroup value={selectedDept} onValueChange={(v) => setSelectedDept(v as Department)} className="grid grid-cols-3 gap-3">
                                     {['sales', 'design', 'prepress', 'production', 'outsource'].filter(d => {
-                                        // User Request: If currently in Sales, don't show Sales as an option (force move to other dept)
-                                        if (currentDept === 'sales' && d === 'sales') return false;
+                                        // Exclude current department - users can't assign to their own department
+                                        if (currentDept === d) return false;
                                         return true;
                                     }).map(d => (
                                         <div key={d}>

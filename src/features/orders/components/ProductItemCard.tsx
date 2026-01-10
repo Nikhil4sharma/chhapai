@@ -119,16 +119,28 @@ export function ProductItemCard({
 
                     {/* Action Buttons - Apple Style */}
                     <div className="flex flex-wrap gap-2">
-                        {/* Design Brief Button */}
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setDesignBriefOpen(true)}
-                            className="group hover:bg-indigo-50 dark:hover:bg-indigo-950/20 hover:border-indigo-300 transition-all border-indigo-200"
-                        >
-                            <Palette className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform text-indigo-600 dark:text-indigo-400" />
-                            Design Brief
-                        </Button>
+                        {/* Dynamic Brief Button based on Department */}
+                        {['design', 'prepress', 'production'].includes(item.current_stage) && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setDesignBriefOpen(true)}
+                                className={cn(
+                                    "group transition-all border-2",
+                                    item.current_stage === 'design' && "hover:bg-indigo-50 dark:hover:bg-indigo-950/20 hover:border-indigo-300 border-indigo-100",
+                                    item.current_stage === 'prepress' && "hover:bg-pink-50 dark:hover:bg-pink-950/20 hover:border-pink-300 border-pink-100",
+                                    item.current_stage === 'production' && "hover:bg-orange-50 dark:hover:bg-orange-950/20 hover:border-orange-300 border-orange-100"
+                                )}
+                            >
+                                <Palette className={cn(
+                                    "h-4 w-4 mr-2 group-hover:scale-110 transition-transform",
+                                    item.current_stage === 'design' && "text-indigo-600 dark:text-indigo-400",
+                                    item.current_stage === 'prepress' && "text-pink-600 dark:text-pink-400",
+                                    item.current_stage === 'production' && "text-orange-600 dark:text-orange-400"
+                                )} />
+                                <span className="capitalize">{item.current_stage} Brief</span>
+                            </Button>
+                        )}
 
                         <Button
                             variant="outline"
