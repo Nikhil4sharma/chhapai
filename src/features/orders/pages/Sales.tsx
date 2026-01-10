@@ -715,8 +715,54 @@ export default function Sales() {
             </TabsContent>
 
             <TabsContent value="pending_approval" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                {renderProductList(pendingApprovalItems, "No orders awaiting approval")}
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 space-y-8">
+                {/* 1. Design Requests */}
+                {(() => {
+                  const designReqs = pendingApprovalItems.filter(({ item }) => item.previous_department === 'design');
+                  const prepressReqs = pendingApprovalItems.filter(({ item }) => item.previous_department === 'prepress');
+                  const otherReqs = pendingApprovalItems.filter(({ item }) => item.previous_department !== 'design' && item.previous_department !== 'prepress');
+
+                  if (pendingApprovalItems.length === 0) return renderProductList([], "No orders awaiting approval");
+
+                  return (
+                    <>
+                      {designReqs.length > 0 && (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 px-1">
+                            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
+                              Request from Design
+                            </Badge>
+                            <span className="text-xs text-muted-foreground font-medium">{designReqs.length} items</span>
+                          </div>
+                          {renderProductList(designReqs, "")}
+                        </div>
+                      )}
+
+                      {prepressReqs.length > 0 && (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 px-1">
+                            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                              Request from Prepress
+                            </Badge>
+                            <span className="text-xs text-muted-foreground font-medium">{prepressReqs.length} items</span>
+                          </div>
+                          {renderProductList(prepressReqs, "")}
+                        </div>
+                      )}
+
+                      {otherReqs.length > 0 && (
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 px-1">
+                            <Badge variant="outline" className="bg-slate-50 text-slate-700 border-slate-200">
+                              Other Pending Items
+                            </Badge>
+                          </div>
+                          {renderProductList(otherReqs, "")}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </TabsContent>
 

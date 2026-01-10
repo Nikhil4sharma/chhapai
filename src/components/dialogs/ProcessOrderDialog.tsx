@@ -36,7 +36,8 @@ import {
     Settings,
     Briefcase,
     XCircle,
-    ScrollText
+    ScrollText,
+    RotateCcw
 } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -128,23 +129,41 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
 
             // AUTO-FILL PREVIOUS SENDER (Smart Redirection)
             if (actionType === 'approve' || actionType === 'reject' || item.status === 'pending_for_customer_approval' || item.status === 'pending_client_approval') {
-                if (item.previous_department) {
+                if (item.previous_department && item.previous_department !== 'sales') {
+                    // TRUSTED PREVIOUS DEPARTMENT (Only if not Sales itself)
+                    console.log("Reverting to previous dept:", item.previous_department);
                     setSelectedDept(item.previous_department);
 
                     // Specific Status based on Action
                     if (actionType === 'approve') {
                         setSelectedStatus('approved');
                     } else if (actionType === 'reject') {
-                        // Use the new 'rejected' status for design items
                         if (item.previous_department === 'design') setSelectedStatus('rejected');
                         else if (item.previous_department === 'prepress') setSelectedStatus('prepress_in_progress');
                     }
+                } else {
+                    // FALLBACK INTUITIVE LOGIC (If previous is missing or is sales)
+                    console.log("No valid previous dept, inferring...");
+                    // Default to Design if needed, otherwise Prepress
+                    const inferDept = item.need_design ? 'design' : 'prepress';
+
+                    setSelectedDept(inferDept);
+
+                    if (actionType === 'approve') setSelectedStatus(inferDept === 'design' ? 'approved' : 'prepress_in_progress');
+                    else if (actionType === 'reject') setSelectedStatus(inferDept === 'design' ? 'rejected' : 'prepress_in_progress');
+
+                    // CRITICAL: Unassign user so it goes to "Unassigned" pool of target dept
+                    setSelectedUser('_unassign');
                 }
 
                 if (item.previous_assigned_to) {
                     setSelectedUser(item.previous_assigned_to);
                 }
             }
+
+            // REMOVE OLD FALLBACK BLOCK (It is now integrated above)
+
+            // (Previous fallback block removed as it is handled in the main block now)
 
             // DIRECT ACTION LOGIC: If triggered from specific dashboard button, set approvalAction immediately
             if (actionType === 'approve') {
@@ -232,24 +251,38 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                     finalNotes = `[${approvalAction.toUpperCase()}] ${finalNotes}`;
                 }
 
-                // If specialized actionType from props, use it
+                // WARNING: Do NOT override statusToApply here with hardcoded values. 
+                // Rely on selectedStatus which is correctly set by useEffect logic above.
                 let statusToApply = selectedStatus;
-                if (actionType === 'approve' && isApprovalState) statusToApply = 'approved';
-                if (actionType === 'reject' && isApprovalState) {
-                    statusToApply = item.previous_department === 'prepress' ? 'prepress_in_progress' : 'design_in_progress';
-                }
+
+                // Only override if absolutely necessary and not already set.
+                if (actionType === 'approve' && isApprovalState && !statusToApply) statusToApply = 'approved';
+
+                // For reject, selectedStatus should already be 'rejected' or 'prepress_in_progress' via useEffect.
+                // We keep it as is.
 
                 const updateData: any = {
                     status: statusToApply,
                     current_stage: selectedDept,
                     assigned_department: selectedDept,
-                    assigned_to: selectedUser || null,
+                    // FIX: Convert '_unassign' sentinel to null for DB UUID field
+                    assigned_to: (selectedUser && selectedUser !== '_unassign') ? selectedUser : null,
                     updated_at: new Date().toISOString(),
                     last_workflow_note: finalNotes
                 };
 
                 if (showProductionFlow) {
                     updateData.production_stage_sequence = productionStages;
+                }
+
+                // CRITICAL: Save History when sending to Sales for Approval
+                // This ensures we know who to return it to (Smart Redirection)
+                if (selectedDept === 'sales' || statusToApply === 'pending_for_customer_approval' || statusToApply === 'pending_client_approval') {
+                    // Only save if we are moving FROM a different dept
+                    if (currentDept !== 'sales') {
+                        updateData.previous_department = currentDept;
+                        updateData.previous_assigned_to = item.assigned_to;
+                    }
                 }
 
 

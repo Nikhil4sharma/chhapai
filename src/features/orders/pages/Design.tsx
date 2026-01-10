@@ -115,7 +115,14 @@ export default function Design() {
 
             // CRITICAL: Item must be assigned to design department
             // Check both assigned_department and current_stage as fallback
-            const isDesignItem = itemDept === deptLower || (itemStage === deptLower && !item.assigned_department);
+            const isDesignDept = itemDept === deptLower || (itemStage === deptLower && !item.assigned_department);
+
+            // ALSO INCLUDE: Items sent to Sales for Approval (so they show in Pending Approval tab)
+            const isPendingApprovalInSales = (itemDept === 'sales') &&
+              (item.status === 'pending_for_customer_approval' || item.status === 'pending_client_approval') &&
+              item.need_design;
+
+            const isDesignItem = isDesignDept || isPendingApprovalInSales;
 
             if (!isDesignItem) {
               return false;
