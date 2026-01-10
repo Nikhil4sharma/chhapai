@@ -39,7 +39,6 @@ const Outsource = lazy(() => import("@/features/orders/pages/Outsource"));
 const Dispatch = lazy(() => import("@/features/orders/pages/Dispatch"));
 const Dispatched = lazy(() => import("@/features/orders/pages/Dispatched"));
 // Orders
-const Orders = lazy(() => import("@/features/orders/pages/Orders"));
 const OrderDetail = lazy(() => import("@/features/orders/pages/OrderDetail"));
 // Settings & Profile
 const Profile = lazy(() => import("@/features/settings/pages/Profile"));
@@ -103,13 +102,6 @@ const App = () => (
                           <Route path="/dashboard" element={<Navigate to="/" replace />} />
 
                           {/* Modules */}
-                          <Route path="/orders" element={
-                            <ProtectedRoute allowedRoles={['admin', 'sales', 'design', 'production', 'dispatch', 'super_admin']}>
-                              <Suspense fallback={<PageLoader />}>
-                                <Orders />
-                              </Suspense>
-                            </ProtectedRoute>
-                          } />
                           <Route path="/orders/new" element={<Navigate to="/dashboard?action=new_order" replace />} />
                           <Route path="/orders/:orderId" element={
                             <Suspense fallback={<PageLoader />}>

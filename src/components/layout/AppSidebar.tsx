@@ -144,12 +144,6 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
       title: 'Modules',
       items: [
         {
-          label: 'Orders',
-          path: '/orders',
-          icon: ShoppingCart,
-          roles: ['admin', 'sales', 'design', 'production', 'dispatch', 'super_admin']
-        },
-        {
           label: 'Inventory',
           path: '/inventory',
           icon: Layers,
