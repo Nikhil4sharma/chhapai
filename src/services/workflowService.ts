@@ -122,7 +122,7 @@ export const workflowService = {
         if (!targetStatus) throw new Error('Action configuration error: No target status');
 
         // 4. Update the Order Item
-        const updateData = {
+        const updateData: any = {
             status: targetStatus,
             // Update department fields (both current_stage and assigned_department for compatibility)
             current_stage: targetDept === 'sales' ? 'sales' :
@@ -135,9 +135,15 @@ export const workflowService = {
                     targetDept === 'prepress' ? 'prepress' :
                         targetDept === 'production' ? 'production' :
                             targetDept === 'outsource' ? 'outsource' : 'sales',
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
+            last_workflow_note: notes || null
         };
 
+        // If moving to Sales for approval, SAVE current assignment as 'previous'
+        if (targetDept === 'sales' || targetStatus === 'pending_for_customer_approval' || targetStatus === 'pending_client_approval') {
+            updateData.previous_department = currentDept;
+            updateData.previous_assigned_to = product.assigned_to || null;
+        }
 
         const { error: updateError } = await supabase
             .from('order_items')

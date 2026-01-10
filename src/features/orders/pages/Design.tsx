@@ -184,18 +184,22 @@ export default function Design() {
   const pendingApprovalItems = useMemo(() => {
     return allDesignItems.filter(({ item, order }) => {
       // Items sent to sales from design (waiting for approval)
-      return item.current_stage === 'sales' &&
-        item.assigned_department === 'sales' &&
-        item.need_design &&
-        item.files && item.files.some(f => f.type === 'image' || f.type === 'proof');
+      // Or items that are specifically in pending status for customer approval
+      const isPendingStatus = item.status === 'pending_for_customer_approval' || item.status === 'pending_client_approval';
+      const isWithSales = (item.assigned_department === 'sales' || item.current_stage === 'sales');
+
+      return (isWithSales || isPendingStatus) && item.need_design;
     });
   }, [allDesignItems]);
 
   const inProgressItems = useMemo(() => {
     return allDesignItems.filter(({ item }) => {
       // Items currently in design department and not completed
-      return item.current_stage === 'design' &&
-        item.assigned_department === 'design';
+      // Also include rejected items (revisions) and approved items waiting to be handed off
+      const isDesignDept = item.assigned_department === 'design' || item.current_stage === 'design';
+      const isWorkingStatus = item.status === 'design_in_progress' || item.status === 'rejected' || item.status === 'approved';
+
+      return isDesignDept && isWorkingStatus;
     });
   }, [allDesignItems]);
 

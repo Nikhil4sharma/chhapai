@@ -88,6 +88,8 @@ export interface OrderItem {
   status: ProductStatus;
   previous_department?: Department;
   previous_status?: ProductStatus;
+  previous_assigned_to?: string;
+  previous_assigned_to_name?: string | null;
   last_workflow_note?: string;
 
   assigned_to?: string;

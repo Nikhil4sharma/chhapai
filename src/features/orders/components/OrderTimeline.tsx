@@ -1,12 +1,12 @@
 import { format, formatDistanceToNow } from 'date-fns';
-import { 
-  Plus, 
-  UserPlus, 
-  Upload, 
-  CheckCircle, 
-  FileCheck, 
-  Factory, 
-  Play, 
+import {
+  Plus,
+  UserPlus,
+  Upload,
+  CheckCircle,
+  FileCheck,
+  Factory,
+  Play,
   CheckSquare,
   Package,
   Truck,
@@ -15,11 +15,10 @@ import {
   Eye,
   Clock,
   ArrowRight,
-  User,
 } from 'lucide-react';
 import { TimelineEntry } from '@/types/order';
 import { cn } from '@/lib/utils';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 
 interface OrderTimelineProps {
@@ -88,142 +87,45 @@ export function OrderTimeline({ entries, className, onEntryClick, highlightedId 
 
   return (
     <div className={cn("relative", className)}>
-      {/* Timeline line */}
       <div className="absolute left-5 top-0 bottom-0 w-0.5 bg-gradient-to-b from-primary/50 via-border to-transparent" />
-      
       <div className="space-y-4">
         {entries.map((entry, index) => {
           const Icon = actionIcons[entry.action] || MessageSquare;
           const colorClass = actionColors[entry.action] || 'bg-muted border-border text-muted-foreground';
-          
           const isHighlighted = highlightedId === entry.timeline_id;
-          
+
           return (
-            <div 
-              key={entry.timeline_id} 
-              className={cn(
-                "relative pl-14 animate-fade-in",
-                index === 0 && "animate-slide-in-right"
-              )}
-              style={{ animationDelay: `${index * 50}ms` }}
-            >
-              {/* Icon with Avatar */}
-              <div className={cn(
-                "absolute left-0 top-0 h-10 w-10 rounded-full border-2 flex items-center justify-center shadow-sm",
-                colorClass,
-                isHighlighted && "ring-4 ring-primary/50 ring-offset-2 scale-110 transition-all duration-300"
-              )}>
+            <div key={entry.timeline_id} className={cn("relative pl-14", index === 0 && "animate-fade-in")}>
+              <div className={cn("absolute left-0 top-0 h-10 w-10 rounded-full border-2 flex items-center justify-center shadow-sm z-10", colorClass, isHighlighted && "ring-4 ring-primary/50 ring-offset-2")}>
                 <Icon className="h-4 w-4" />
               </div>
-              
-              {/* Content Card */}
-              <div 
-                className={cn(
-                  "bg-card border rounded-lg p-4 sm:p-5 shadow-sm transition-all duration-200",
-                  isHighlighted 
-                    ? "border-primary shadow-lg ring-2 ring-primary/30 bg-primary/5 scale-[1.02]" 
-                    : "border-border hover:shadow-md hover:border-primary/20",
-                  onEntryClick && "cursor-pointer"
-                )}
+              <div
+                className={cn("bg-card border rounded-lg p-4 sm:p-5 shadow-sm hover:shadow-md transition-all", isHighlighted && "border-primary bg-primary/5")}
                 onClick={() => onEntryClick?.(entry.timeline_id)}
               >
-                {/* Header */}
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h4 className="font-semibold text-sm text-foreground">
-                      {actionLabels[entry.action] || entry.action}
-                    </h4>
-                    {/* Show product name if available (for multi-product orders) */}
-                    {entry.product_name && (
-                      <Badge variant="outline" className="text-xs font-medium bg-primary/5 text-primary border-primary/20">
-                        <Package className="h-3 w-3 mr-1" />
-                        {entry.product_name}
-                      </Badge>
-                    )}
-                    {entry.substage && (
-                      <Badge variant="outline" className="text-xs capitalize">
-                        <ArrowRight className="h-3 w-3 mr-1" />
-                        {entry.substage}
-                      </Badge>
-                    )}
-                    {entry.stage && (
-                      <Badge variant="secondary" className="text-xs capitalize">
-                        {entry.stage}
-                      </Badge>
-                    )}
+                    <h4 className="font-semibold text-sm">{actionLabels[entry.action] || entry.action}</h4>
+                    {entry.product_name && <Badge variant="outline" className="text-xs">{entry.product_name}</Badge>}
+                    {entry.stage && <Badge variant="secondary" className="text-xs uppercase">{entry.stage}</Badge>}
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">
-                      {format(entry.created_at, 'MMM d, h:mm a')}
-                    </span>
-                    <span className="text-xs text-muted-foreground/70">
-                      {formatDistanceToNow(entry.created_at, { addSuffix: true })}
-                    </span>
-                  </div>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">{format(new Date(entry.created_at), 'MMM d, h:mm a')}</span>
                 </div>
-                
-                {/* Performer */}
+
                 <div className="flex items-center gap-2 mb-2">
                   <Avatar className="h-6 w-6">
-                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                      {getInitials(entry.performed_by_name)}
-                    </AvatarFallback>
+                    <AvatarFallback className="text-[10px]">{getInitials(entry.performed_by_name)}</AvatarFallback>
                   </Avatar>
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-sm text-muted-foreground mr-1">
                     by <span className="font-medium text-foreground">{entry.performed_by_name}</span>
                   </span>
+                  {entry.stage && <Badge variant="outline" className="text-[10px] h-5 py-0 px-1.5 capitalize bg-muted/50 font-normal">{entry.stage}</Badge>}
                 </div>
-                
-                {/* Notes */}
+
                 {entry.notes && (
                   <div className="mt-2 text-sm text-foreground/80 bg-secondary/50 rounded-md p-3 border-l-2 border-primary/30">
                     <MessageSquare className="h-3 w-3 inline mr-2 text-muted-foreground" />
                     {entry.notes}
-                  </div>
-                )}
-                
-                {/* Additional Details */}
-                {(entry.qty_confirmed || entry.paper_treatment) && (
-                  <div className="mt-2 flex flex-wrap gap-3 text-sm">
-                    {entry.qty_confirmed && (
-                      <div className="flex items-center gap-1">
-                        <Package className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-muted-foreground">Qty:</span>
-                        <span className="font-medium">{entry.qty_confirmed}</span>
-                      </div>
-                    )}
-                    {entry.paper_treatment && (
-                      <div className="flex items-center gap-1">
-                        <FileText className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-muted-foreground">Paper:</span>
-                        <span className="font-medium">{entry.paper_treatment}</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-                
-                {/* Attachments with Preview */}
-                {entry.attachments && entry.attachments.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {entry.attachments.map((att, i) => {
-                      const isImage = att.type?.includes('image');
-                      return (
-                        <a
-                          key={i}
-                          href={att.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="group relative inline-flex items-center gap-2 text-xs text-primary hover:underline bg-primary/5 hover:bg-primary/10 px-3 py-2 rounded-md transition-colors border border-primary/20"
-                        >
-                          {isImage ? (
-                            <Eye className="h-3 w-3" />
-                          ) : (
-                            <FileText className="h-3 w-3" />
-                          )}
-                          <span>View {att.type?.split('/')[1]?.toUpperCase() || 'FILE'}</span>
-                        </a>
-                      );
-                    })}
                   </div>
                 )}
               </div>

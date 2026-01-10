@@ -72,6 +72,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
   const [designBriefOpen, setDesignBriefOpen] = useState(false);
   const [outsourceDialogOpen, setOutsourceDialogOpen] = useState(false);
   const [processDialogOpen, setProcessDialogOpen] = useState(false);
+  const [dialogActionType, setDialogActionType] = useState<'process' | 'approve' | 'reject'>('process');
 
   // Workflow: Get Status Config & Available Actions
   const currentDept = item.department || item.current_stage || 'sales';
@@ -140,11 +141,12 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
   // Status Badge Logic
   // Status Badge Logic
   const statusLabel = statusConfig?.label || item.status?.replace(/_/g, ' ') || 'Unknown';
+  const isPendingApproval = item.status === 'pending_for_customer_approval' || item.status === 'pending_client_approval';
 
   let statusColor = statusConfig?.color || 'bg-slate-100 text-slate-800 border-slate-200';
   if (item.status === 'completed' || item.current_stage === 'completed' || item.status === 'delivered' || item.status === 'dispatched') {
     statusColor = 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
-  } else if (item.status === 'new_order' || item.status === 'pending_for_customer_approval') {
+  } else if (item.status === 'new_order' || isPendingApproval) {
     statusColor = 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800';
   } else {
     // Default / In Progress (Blue)
@@ -189,6 +191,13 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   <PriorityBadge priority={item.priority_computed} />
                 </button>
 
+                {order.assigned_user_name && (
+                  <Badge variant="secondary" className="text-[10px] font-normal px-2 py-0.5 bg-indigo-50 text-indigo-700 border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800">
+                    <User className="w-3 h-3 mr-1" />
+                    Manager: {order.assigned_user_name}
+                  </Badge>
+                )}
+
                 {/* Visual Department Badge */}
                 <Badge variant="outline" className="uppercase tracking-wide text-[10px] px-2 py-1 flex items-center gap-1">
                   {/* Add Icons based on Department? */}
@@ -232,14 +241,17 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
             </div>
 
             {/* Assigned user info */}
-            <div className="flex items-center gap-3 flex-wrap text-xs">
-              {item.assigned_to_name && (
-                <div className="flex items-center gap-1">
-                  <User className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-muted-foreground">Assigned to</span>
-                  <span className="font-medium">{item.assigned_to_name}</span>
-                </div>
-              )}
+            <div className="flex items-center gap-3 flex-wrap text-xs pt-1">
+              <div className="flex items-center gap-1.5 py-1 px-2 bg-muted/30 rounded-full border border-border/40">
+                <User className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-muted-foreground whitespace-nowrap font-medium">Assignee:</span>
+                <span className="font-semibold text-foreground">
+                  {item.assigned_to_name || "Unassigned"}
+                </span>
+                <span className="text-muted-foreground/60 text-[10px] uppercase font-bold tracking-tighter ml-0.5">
+                  ({item.department || item.current_stage})
+                </span>
+              </div>
             </div>
 
             {/* Outsource Info */}
@@ -275,16 +287,60 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               <div className="flex flex-wrap gap-2">
                 {/* Manual Process Button - Always visible for authorized users? Or only if allowed actions exist? */}
                 {/* User asked for "Process Button". Let's verify permission first. Sales/Admin usually. */}
-                {(role === 'sales' || isAdmin || actions.length > 0) && item.status !== 'completed' && item.current_stage !== 'completed' && (
+                {/* Approve/Reject Buttons for Sales (when pending approval) */}
+                {isPendingApproval && (isAdmin || role === 'sales') && (
+                  <div className="flex gap-2.5 w-full pt-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDialogActionType('approve');
+                        setProcessDialogOpen(true);
+                      }}
+                      className="flex-1 rounded-full h-10 text-xs font-bold bg-green-500/10 hover:bg-green-500 text-green-700 hover:text-white border-none shadow-sm transition-all"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" /> Approve
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDialogActionType('reject');
+                        setProcessDialogOpen(true);
+                      }}
+                      className="flex-1 rounded-full h-10 text-xs font-bold bg-red-500/10 hover:bg-red-500 text-red-700 hover:text-white border-none shadow-sm transition-all"
+                    >
+                      <X className="w-4 h-4 mr-2" /> Reject
+                    </Button>
+                  </div>
+                )}
+
+                {(role === 'sales' || isAdmin || actions.length > 0) && item.status !== 'completed' && item.current_stage !== 'completed' && !isPendingApproval && (
                   <Button
                     size="sm"
                     onClick={(e) => {
                       e.stopPropagation();
+                      setDialogActionType('process');
                       setProcessDialogOpen(true);
                     }}
-                    className="text-xs flex-shrink-0 justify-start bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm border-0"
+                    className={cn(
+                      "text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9",
+                      item.status === 'rejected' && role === 'design'
+                        ? "bg-red-600 hover:bg-red-700 text-white"
+                        : item.status === 'approved' && role === 'design'
+                          ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                          : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+                    )}
                   >
-                    <Play className="w-3 h-3 mr-1.5" /> Process
+                    {item.status === 'rejected' && role === 'design' ? (
+                      <><RotateCcw className="w-4 h-4 mr-2" /> Revision</>
+                    ) : item.status === 'approved' && role === 'design' ? (
+                      <><ArrowRight className="w-4 h-4 mr-2" /> Handoff to Prepress</>
+                    ) : (
+                      <><Play className="w-3 h-3 mr-1.5" /> Process</>
+                    )}
                   </Button>
                 )}
 
@@ -354,7 +410,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
       {outsourceDialogOpen && <OutsourceAssignmentDialog open={outsourceDialogOpen} onOpenChange={setOutsourceDialogOpen} productName={item.product_name} quantity={item.quantity} onAssign={async (vendor, job) => { if (!order.id) return; await assignToOutsource(order.id, item.item_id, vendor, job); await refreshOrders(); setOutsourceDialogOpen(false); }} />}
 
       {/* Process Dialog */}
-      <ProcessOrderDialog open={processDialogOpen} onOpenChange={setProcessDialogOpen} order={order} item={item} />
+      <ProcessOrderDialog open={processDialogOpen} onOpenChange={setProcessDialogOpen} order={order} item={item} actionType={dialogActionType} />
 
       <DesignBriefDialog
         open={designBriefOpen}

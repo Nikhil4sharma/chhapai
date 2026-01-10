@@ -7,7 +7,7 @@
 
 import { supabase } from '@/integrations/supabase/client';
 import { Order, OrderItem, TimelineEntry, Stage, SubStage, Priority, UserRole } from '@/types/order';
-import { ProductStatus } from '@/types/workflow';
+import { ProductStatus, Department } from '@/types/workflow';
 import { MIGRATION_START_DATE } from '@/constants/migration';
 
 /**
@@ -52,6 +52,7 @@ export async function fetchAllOrders(): Promise<Order[]> {
     // Item assignees
     itemsData.forEach(item => {
       if (item.assigned_to) userIds.add(item.assigned_to);
+      if (item.previous_assigned_to) userIds.add(item.previous_assigned_to);
     });
 
     // File uploaders
@@ -198,6 +199,9 @@ function transformOrderItem(itemRow: any, filesData: any[], profilesMap: Map<str
     outsource_info: itemRow.outsource_info || undefined,
     status: itemRow.status || itemRow.specifications?.workflow_status || 'new_order',
     department: itemRow.department || itemRow.assigned_department || 'sales', // Ensure department is present
+    previous_department: itemRow.previous_department as Department || undefined,
+    previous_assigned_to: itemRow.previous_assigned_to || undefined,
+    previous_assigned_to_name: itemRow.previous_assigned_to ? profilesMap.get(itemRow.previous_assigned_to) || null : null,
   };
 }
 

@@ -3,12 +3,14 @@ export type Department = 'sales' | 'design' | 'prepress' | 'production' | 'outso
 export type SalesStatus =
     | 'new_order'
     | 'pending_for_customer_approval' // Generic pending state for Sales to review
+    | 'pending_client_approval' // Legacy or WooCommerce specific pending state
     | 'customer_approved' // Specific status for approved design
     | 'approved' // Generic approved state (if needed in Sales view, though usually items move back to dept)
     | 'completed';
 
 export type DesignStatus =
     | 'design_in_progress'
+    | 'rejected' // Specifically for items sent back from Sales
     | 'approved' // "Design Approved"
     | 'completed'; // "Design Completed" (Ready for next dept)
 
@@ -70,10 +72,17 @@ export const WORKFLOW_CONFIG: Record<Department, DepartmentConfig> = {
                 value: 'pending_for_customer_approval',
                 label: 'Pending Approval',
                 allowedActions: [
-                    // Actions here are dynamic ("Approve" sends back to previous dept).
-                    // We define generic actions, logic in Service handles the routing based on 'previous_department'.
-                    { id: 'sales_approve', label: 'Approve', targetStatus: 'approved', style: 'success' }, // targetStatus is placeholder, service logic overrides
-                    { id: 'sales_reject', label: 'Reject', targetStatus: 'design_in_progress', style: 'danger' } // targetStatus placeholder
+                    { id: 'sales_approve', label: 'Approve', targetStatus: 'approved', style: 'success' },
+                    { id: 'sales_reject', label: 'Reject', targetStatus: 'rejected', style: 'danger' }
+                ],
+                color: 'bg-yellow-100 text-yellow-800'
+            },
+            {
+                value: 'pending_client_approval',
+                label: 'Pending Client Approval',
+                allowedActions: [
+                    { id: 'sales_approve', label: 'Approve', targetStatus: 'approved', style: 'success' },
+                    { id: 'sales_reject', label: 'Reject', targetStatus: 'rejected', style: 'danger' }
                 ],
                 color: 'bg-yellow-100 text-yellow-800'
             },
@@ -96,6 +105,14 @@ export const WORKFLOW_CONFIG: Record<Department, DepartmentConfig> = {
                     { id: 'send_approval', label: 'Send for Approval', targetDepartment: 'sales', targetStatus: 'pending_for_customer_approval', style: 'primary' }
                 ],
                 color: 'bg-purple-100 text-purple-800'
+            },
+            {
+                value: 'rejected',
+                label: 'Rejected',
+                allowedActions: [
+                    { id: 'send_approval', label: 'Send for Approval', targetDepartment: 'sales', targetStatus: 'pending_for_customer_approval', style: 'primary' }
+                ],
+                color: 'bg-red-100 text-red-800'
             },
             {
                 value: 'approved',

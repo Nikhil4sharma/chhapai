@@ -49,9 +49,10 @@ interface ProcessOrderDialogProps {
     onOpenChange: (open: boolean) => void;
     order: Order;
     item: OrderItem;
+    actionType?: 'process' | 'approve' | 'reject';
 }
 
-export function ProcessOrderDialog({ open, onOpenChange, order, item }: ProcessOrderDialogProps) {
+export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType = 'process' }: ProcessOrderDialogProps) {
     const { config } = useWorkflow();
     const { user } = useAuth();
     const { assignToUser, refreshOrders, assignToOutsource, markAsDispatched } = useOrders();
@@ -102,9 +103,16 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item }: ProcessO
                 targetStatus = 'dispatched'; // This triggers Finalize Mode in DispatchFlow?
                 // Actually if it's 'ready_for_dispatch', the next logical step is Dispatched.
             }
-            else {
+            // SMART SELECTION: Default Statuses based on Destination
+            if (targetDept === 'sales') {
+                targetStatus = 'pending_for_customer_approval';
+            } else if (targetDept === 'prepress') {
+                targetStatus = 'prepress_in_progress';
+            } else if (targetDept === 'production') {
+                targetStatus = 'in_production';
+            } else {
                 // Try to find first valid status in current dept
-                const deptConf = config[current];
+                const deptConf = config[targetDept];
                 if (deptConf?.statuses.length) targetStatus = deptConf.statuses[0].value;
             }
 
@@ -118,12 +126,40 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item }: ProcessO
             // Reset Flow Data
             setProductionStages(item.production_stage_sequence || []);
 
+            // AUTO-FILL PREVIOUS SENDER (Smart Redirection)
+            if (actionType === 'approve' || actionType === 'reject' || item.status === 'pending_for_customer_approval' || item.status === 'pending_client_approval') {
+                if (item.previous_department) {
+                    setSelectedDept(item.previous_department);
+
+                    // Specific Status based on Action
+                    if (actionType === 'approve') {
+                        setSelectedStatus('approved');
+                    } else if (actionType === 'reject') {
+                        // Use the new 'rejected' status for design items
+                        if (item.previous_department === 'design') setSelectedStatus('rejected');
+                        else if (item.previous_department === 'prepress') setSelectedStatus('prepress_in_progress');
+                    }
+                }
+
+                if (item.previous_assigned_to) {
+                    setSelectedUser(item.previous_assigned_to);
+                }
+            }
+
+            // DIRECT ACTION LOGIC: If triggered from specific dashboard button, set approvalAction immediately
+            if (actionType === 'approve') {
+                setApprovalAction('approve');
+            } else if (actionType === 'reject') {
+                setApprovalAction('reject');
+            }
+
         }
-    }, [open, item, config]);
+    }, [open, item, config, actionType]);
 
     // -- Computed --
     const currentDept = (item.assigned_department as Department) || 'sales';
-    const isApprovalMode = item.status === 'pending_for_customer_approval';
+    const isApprovalState = item.status === 'pending_for_customer_approval' || item.status === 'pending_client_approval';
+    const isApprovalMode = actionType === 'approve' || actionType === 'reject' || isApprovalState;
 
     // Determine which specialized flow to show
     const showProductionFlow = selectedDept === 'production' && !isApprovalMode && selectedStatus !== 'dispatched' && selectedStatus !== 'delivered';
@@ -138,6 +174,17 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item }: ProcessO
 
     const handleProcess = async () => {
         if (!user?.id || !order.id) return;
+
+        // 0. MANDATORY NOTES CHECK (Every action needs a note now for traceability)
+        if (!notes.trim()) {
+            toast({
+                title: "Note Required",
+                description: "Please provide a note or instruction for this transition.",
+                variant: "destructive"
+            });
+            return;
+        }
+
         setIsSubmitting(true);
         try {
             // 1. Handle Outsource
@@ -185,10 +232,18 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item }: ProcessO
                     finalNotes = `[${approvalAction.toUpperCase()}] ${finalNotes}`;
                 }
 
+                // If specialized actionType from props, use it
+                let statusToApply = selectedStatus;
+                if (actionType === 'approve' && isApprovalState) statusToApply = 'approved';
+                if (actionType === 'reject' && isApprovalState) {
+                    statusToApply = item.previous_department === 'prepress' ? 'prepress_in_progress' : 'design_in_progress';
+                }
+
                 const updateData: any = {
-                    status: selectedStatus,
+                    status: statusToApply,
                     current_stage: selectedDept,
                     assigned_department: selectedDept,
+                    assigned_to: selectedUser || null,
                     updated_at: new Date().toISOString(),
                     last_workflow_note: finalNotes
                 };
@@ -283,39 +338,102 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item }: ProcessO
             <DialogContent className="sm:max-w-[700px] p-0 gap-0 overflow-hidden shadow-2xl bg-background/95 backdrop-blur-xl border-border">
 
                 {/* Header */}
-                <div className={cn("relative p-6 pb-6 border-b border-border/40", isApprovalMode ? "bg-amber-50/50" : "bg-muted/20")}>
+                <div className={cn(
+                    "relative p-6 pb-6 border-b border-border/40 transition-colors duration-300",
+                    actionType === 'approve' ? "bg-green-50/50 dark:bg-green-950/20" :
+                        actionType === 'reject' ? "bg-red-50/50 dark:bg-red-950/20" :
+                            isApprovalMode ? "bg-amber-50/50" : "bg-muted/20"
+                )}>
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <Settings className="w-5 h-5 text-primary" />
-                            Process Order <span className="text-muted-foreground">•</span> {item.product_name}
+                        <DialogTitle className="flex items-center gap-2 text-xl tracking-tight">
+                            {actionType === 'approve' ? <CheckCircle2 className="w-5 h-5 text-green-600" /> :
+                                actionType === 'reject' ? <XCircle className="w-5 h-5 text-red-600" /> :
+                                    <Settings className="w-5 h-5 text-primary" />}
+                            {actionType === 'approve' ? "Approve Design" :
+                                actionType === 'reject' ? "Reject & Revision" : "Process Order"}
+                            <span className="text-muted-foreground/40 font-light mx-1">/</span>
+                            <span className="text-foreground/90 font-medium">{item.product_name}</span>
                         </DialogTitle>
-                        <DialogDescription>
-                            Current: <span className="font-medium text-foreground capitalize">{currentDept}</span> ({item.status?.replace(/_/g, ' ')})
+                        <DialogDescription className="text-sm font-medium opacity-80">
+                            Current: <span className="text-foreground capitalize">{currentDept}</span> • {item.status?.replace(/_/g, ' ')}
                         </DialogDescription>
                     </DialogHeader>
                 </div>
 
                 <div className="flex flex-col gap-6 p-6 overflow-y-auto max-h-[70vh]">
 
+                    {/* REVISION FEEDBACK (If rejected) */}
+                    {item.status === 'rejected' && item.last_workflow_note && (
+                        <div className="bg-red-50 dark:bg-red-950/20 border border-red-100 dark:border-red-900/30 p-4 rounded-xl flex gap-3 animate-in fade-in slide-in-from-top-1 duration-300">
+                            <RotateCcw className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                            <div className="space-y-1">
+                                <h4 className="text-xs font-bold text-red-700 dark:text-red-400 uppercase tracking-wider">Revision Feedback</h4>
+                                <p className="text-sm text-red-800 dark:text-red-300 leading-relaxed italic">
+                                    "{item.last_workflow_note}"
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
                     {/* 1. APPROVAL MODE */}
                     {isApprovalMode ? (
                         <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4">
-                                <Button
-                                    variant="outline"
-                                    className={cn("h-20 border-2", approvalAction === 'reject' && "border-red-500 bg-red-50")}
-                                    onClick={() => { setApprovalAction('reject'); setSelectedDept('design'); setSelectedStatus('design_in_progress'); }}
-                                >
-                                    Reject & Revision
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    className={cn("h-20 border-2", approvalAction === 'approve' && "border-green-500 bg-green-50")}
-                                    onClick={() => { setApprovalAction('approve'); setSelectedDept('design'); setSelectedStatus('customer_approved'); }}
-                                >
-                                    Approve Design
-                                </Button>
-                            </div>
+                            {/* IF ACTION TYPE IS 'PROCESS' OR generic, SHOW TOGGLES */}
+                            {actionType === 'process' && (
+                                <div className="grid grid-cols-2 gap-4">
+                                    <Button
+                                        variant="outline"
+                                        className={cn(
+                                            "h-24 border-2 flex flex-col gap-2 transition-all hover:scale-[1.02] active:scale-95",
+                                            approvalAction === 'reject'
+                                                ? "border-red-500 bg-red-50 text-red-700 shadow-sm"
+                                                : "border-muted hover:border-red-200"
+                                        )}
+                                        onClick={() => { setApprovalAction('reject'); setSelectedDept('design'); setSelectedStatus('design_in_progress'); }}
+                                    >
+                                        <XCircle className={cn("w-6 h-6", approvalAction === 'reject' ? "text-red-600" : "text-muted-foreground")} />
+                                        <span className="font-semibold">Reject & Revision</span>
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        className={cn(
+                                            "h-24 border-2 flex flex-col gap-2 transition-all hover:scale-[1.02] active:scale-95",
+                                            approvalAction === 'approve'
+                                                ? "border-green-500 bg-green-50 text-green-700 shadow-sm"
+                                                : "border-muted hover:border-green-200"
+                                        )}
+                                        onClick={() => { setApprovalAction('approve'); setSelectedDept('design'); setSelectedStatus('customer_approved'); }}
+                                    >
+                                        <CheckCircle2 className={cn("w-6 h-6", approvalAction === 'approve' ? "text-green-600" : "text-muted-foreground")} />
+                                        <span className="font-semibold">Approve Design</span>
+                                    </Button>
+                                </div>
+                            )}
+
+                            {/* FEEDBACK STATE (Confirming specific action) */}
+                            {actionType !== 'process' && (
+                                <div className={cn(
+                                    "p-6 rounded-2xl border flex items-center gap-4 transition-all animate-in fade-in zoom-in duration-300",
+                                    actionType === 'approve' ? "bg-green-50 border-green-100 text-green-800" : "bg-red-50 border-red-100 text-red-800"
+                                )}>
+                                    <div className={cn(
+                                        "w-12 h-12 rounded-full flex items-center justify-center shadow-sm",
+                                        actionType === 'approve' ? "bg-green-600 text-white" : "bg-red-600 text-white"
+                                    )}>
+                                        {actionType === 'approve' ? <CheckCircle2 className="w-6 h-6" /> : <XCircle className="w-6 h-6" />}
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-lg">
+                                            {actionType === 'approve' ? "Confirming Approval" : "Confirming Rejection"}
+                                        </h4>
+                                        <p className="text-sm opacity-80 leading-snug">
+                                            {actionType === 'approve'
+                                                ? "The client has approved this design. Moving forward."
+                                                : "Design needs changes. Sending back to Design team."}
+                                        </p>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     ) : isReadyToDispatch ? (
                         /* 2. DISPATCH DECISION (Sales View) */
@@ -334,6 +452,8 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item }: ProcessO
                                     {['sales', 'design', 'prepress', 'production', 'outsource'].filter(d => {
                                         // Exclude current department - users can't assign to their own department
                                         if (currentDept === d) return false;
+                                        // Fix: Design team cannot assign to Outsource
+                                        if (currentDept === 'design' && d === 'outsource') return false;
                                         return true;
                                     }).map(d => (
                                         <div key={d}>
@@ -385,9 +505,22 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item }: ProcessO
                                         <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as ProductStatus)}>
                                             <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
                                             <SelectContent>
-                                                {config[selectedDept]?.statuses.map(s => (
-                                                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                                                ))}
+                                                {config[selectedDept]?.statuses
+                                                    .filter(s => {
+                                                        // Filter logic based on user request:
+                                                        // Design -> Sales: only show pending_for_customer_approval AND pending_client_approval
+                                                        if (currentDept === 'design' && selectedDept === 'sales') {
+                                                            return s.value === 'pending_for_customer_approval' || s.value === 'pending_client_approval';
+                                                        }
+                                                        // Design -> Prepress: only show prepress_in_progress
+                                                        if (currentDept === 'design' && selectedDept === 'prepress') {
+                                                            return s.value === 'prepress_in_progress';
+                                                        }
+                                                        return true;
+                                                    })
+                                                    .map(s => (
+                                                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                                                    ))}
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -410,25 +543,47 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item }: ProcessO
                         </>
                     )}
 
-                    {/* Common Notes */}
+                    {/* Common Notes / Instructions */}
                     <div className="space-y-3">
-                        <Label className="text-xs uppercase font-semibold text-muted-foreground">
-                            Instructions for {selectedDept.charAt(0).toUpperCase() + selectedDept.slice(1)}
+                        <Label className="text-xs uppercase font-bold tracking-widest text-muted-foreground/80 flex items-center gap-1.5">
+                            <ScrollText className="w-3.5 h-3.5" />
+                            {actionType === 'reject' ? "Requirements for Revision" :
+                                actionType === 'approve' ? "Approval Note / Feedback" :
+                                    `Instructions for ${selectedDept}`}
                         </Label>
                         <Textarea
                             value={notes}
-                            onChange={e => setNotes(e.target.value)}
-                            placeholder={`Add ${selectedDept} requirements & instructions...`}
+                            onChange={(e) => setNotes(e.target.value)}
+                            placeholder={actionType === 'reject' ? "Explain what needs to be changed..." : "Add details or feedback..."}
+                            className="min-h-[140px] text-base resize-none bg-background/50 border-muted placeholder:text-muted-foreground/40 focus:ring-2 focus:ring-primary/20 transition-all rounded-xl"
                         />
                     </div>
 
                 </div>
 
-                <DialogFooter className="p-6 bg-muted/20 border-t">
-                    <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-                    <Button onClick={handleProcess} disabled={isSubmitting || !isValid || (!selectedStatus && !showOutsourceFlow && !showDispatchFinalize && !isReadyToDispatch)}>
-                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ArrowRight className="w-4 h-4 mr-2" />}
-                        Confirm Move
+                <DialogFooter className="p-6 bg-muted/30 border-t border-border/40 flex items-center justify-between sm:justify-between">
+                    <Button variant="ghost" onClick={() => onOpenChange(false)} className="px-6 rounded-full hover:bg-background/80 transition-all">
+                        Cancel
+                    </Button>
+                    <Button
+                        disabled={isSubmitting || (isApprovalMode && !approvalAction)}
+                        onClick={handleProcess}
+                        className={cn(
+                            "px-8 py-6 rounded-full font-bold shadow-xl transition-all hover:scale-[1.02] active:scale-95",
+                            actionType === 'approve' ? "bg-green-600 hover:bg-green-700 text-white" :
+                                actionType === 'reject' ? "bg-red-600 hover:bg-red-700 text-white" :
+                                    "bg-primary hover:bg-primary/90"
+                        )}
+                    >
+                        {isSubmitting ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        ) : (
+                            <>
+                                <ArrowRight className="w-4 h-4 mr-2" />
+                                {actionType === 'approve' ? "Confirm Approval" :
+                                    actionType === 'reject' ? "Confirm Rejection" : "Confirm Move"}
+                            </>
+                        )}
                     </Button>
                 </DialogFooter>
 

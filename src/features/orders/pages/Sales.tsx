@@ -111,18 +111,20 @@ export default function Sales() {
 
   // PRODUCT-CENTRIC: Get products (items) in sales stage
   const salesProducts = useMemo(() => {
-    const deptOrders = getOrdersForDepartment('sales');
-    return deptOrders
+    return orders
       .filter(order => !order.is_completed && !order.archived_from_wc)
       .flatMap(order =>
         order.items
           .filter(item => {
             const dept = (item.assigned_department || item.current_stage)?.toLowerCase();
-            return dept === 'sales';
+            const isPendingApproval =
+              item.status === 'pending_for_customer_approval' ||
+              item.status === 'pending_client_approval';
+            return dept === 'sales' || isPendingApproval;
           })
           .map(item => ({ order, item }))
       );
-  }, [orders, getOrdersForDepartment]);
+  }, [orders]);
 
   // Filter by selected user tab (for admin)
   const userFilteredSalesProducts = useMemo(() => {
@@ -265,7 +267,8 @@ export default function Sales() {
   // Pending Approval: Items in Sales stage but waiting for approval
   const pendingApprovalItems = useMemo(() => {
     return filteredSalesProducts.filter(({ item }) =>
-      item.status === 'pending_for_customer_approval'
+      item.status === 'pending_for_customer_approval' ||
+      item.status === 'pending_client_approval'
     );
   }, [filteredSalesProducts]);
 
