@@ -78,7 +78,7 @@ export default function Customers() {
     const processedCustomers = useMemo(() => {
         let result = customers.filter(c => {
             const searchLower = searchTerm.toLowerCase();
-            const fullName = `${c.first_name} ${c.last_name}`.toLowerCase();
+            const fullName = [c.first_name, c.last_name].filter(Boolean).join(' ').toLowerCase();
             const address = JSON.stringify(c.billing).toLowerCase();
 
             const matchesSearch =
@@ -130,7 +130,7 @@ export default function Customers() {
         const headers = ["ID", "Name", "Email", "Phone", "Total Spent", "Orders", "City", "Assigned To"];
         const rows = processedCustomers.map(c => [
             c.wc_id,
-            `${c.first_name} ${c.last_name}`,
+            [c.first_name, c.last_name].filter(Boolean).join(' '),
             c.email,
             c.phone,
             c.total_spent,
@@ -320,7 +320,7 @@ export default function Customers() {
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-2 mb-0.5">
                                                     <h3 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 truncate group-hover:text-blue-600 transition-colors">
-                                                        {customer.first_name || 'No Name'} {customer.last_name || ''}
+                                                        {[customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'No Name'}
                                                     </h3>
                                                     {customer.billing?.city && (
                                                         <Badge variant="outline" className="hidden xs:flex text-[10px] h-5 px-1.5 font-medium text-slate-500 border-slate-200">

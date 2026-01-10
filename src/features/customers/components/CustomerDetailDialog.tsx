@@ -102,7 +102,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
 
     // Display Name Logic
     const displayName = (customer.first_name || customer.last_name)
-        ? `${customer.first_name} ${customer.last_name}`.trim()
+        ? [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim()
         : (customer.email.split('@')[0] || 'Guest Customer');
 
     const addressString = [customer.billing?.city, customer.billing?.country].filter(Boolean).join(', ') || 'No location';

@@ -53,6 +53,21 @@ end $$;
 -- The user RPC code uses "specs jsonb". I will modify RPC to use 'specifications' if that's what we have.
 -- Let's assume we want to standardise on 'specifications'.
 
+do $$ 
+begin
+    -- Add last_workflow_note column if it doesn't exist
+    if not exists (
+        select 1 from information_schema.columns 
+        where table_schema = 'public' 
+        and table_name = 'order_items' 
+        and column_name = 'last_workflow_note'
+    ) then
+        alter table public.order_items add column last_workflow_note text;
+        comment on column public.order_items.last_workflow_note 
+        is 'Most recent workflow note/instruction for this item. May include [APPROVE] or [REJECT] prefixes.';
+    end if;
+end $$;
+
 -- 4. THE RPC FUNCTION
 create or replace function import_wc_order(payload jsonb)
 returns uuid
