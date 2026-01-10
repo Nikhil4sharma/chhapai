@@ -222,7 +222,7 @@ export default function Sales() {
 
   // Fetch sales users for admin tabs
   useEffect(() => {
-    if (isAdmin) {
+    if (isAdmin || role === 'sales') {
       const fetchSalesUsers = async () => {
         setLoadingUsers(true);
         try {

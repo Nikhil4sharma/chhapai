@@ -137,8 +137,18 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
   };
 
   // Status Badge Logic
+  // Status Badge Logic
   const statusLabel = statusConfig?.label || item.status?.replace(/_/g, ' ') || 'Unknown';
-  const statusColor = statusConfig?.color || 'bg-gray-100 text-gray-800';
+
+  let statusColor = statusConfig?.color || 'bg-slate-100 text-slate-800 border-slate-200';
+  if (item.status === 'completed' || item.current_stage === 'completed' || item.current_stage === 'delivered' || item.current_stage === 'dispatched') {
+    statusColor = 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
+  } else if (item.current_stage === 'new_order' || item.current_stage === 'pending_for_customer_approval') {
+    statusColor = 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800';
+  } else {
+    // Default / In Progress (Blue)
+    statusColor = 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800';
+  }
 
   // Current production substage label (Dynamic support)
   const currentSubstageLabel = useMemo(() => {
@@ -264,7 +274,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               <div className="flex flex-wrap gap-2">
                 {/* Manual Process Button - Always visible for authorized users? Or only if allowed actions exist? */}
                 {/* User asked for "Process Button". Let's verify permission first. Sales/Admin usually. */}
-                {(role === 'sales' || isAdmin || actions.length > 0) && (
+                {(role === 'sales' || isAdmin || actions.length > 0) && item.status !== 'completed' && item.current_stage !== 'completed' && (
                   <Button
                     size="sm"
                     onClick={(e) => {

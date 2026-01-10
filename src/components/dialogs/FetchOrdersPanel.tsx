@@ -203,74 +203,84 @@ export function FetchOrdersPanel({
 
     setIsImporting(true);
     setImportedCount(0);
+    let successCount = 0;
+    let errors: string[] = [];
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('Not authenticated');
-      }
+      if (!session) throw new Error('Not authenticated');
 
-      const orderIds = Array.from(selectedOrders);
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/woocommerce`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-        },
-        body: JSON.stringify({
-          action: 'import-orders',
-          order_ids: orderIds,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `Import failed: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.success) {
-        setImportedCount(data.imported || 0);
-
-        if (data.errors && data.errors.length > 0) {
-          toast({
-            title: "Import Completed with Errors",
-            description: `Imported ${data.imported} order(s). ${data.errors.length} error(s) occurred.`,
-            variant: "default",
+      // Process sequentially to avoid overwhelming rate limits
+      for (const orderId of selectedOrders) {
+        try {
+          // 1. Fetch Full Order Details from Edge Function (Proxy)
+          const detailResponse = await fetch(`${supabaseUrl}/functions/v1/woocommerce`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+              'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+            },
+            body: JSON.stringify({
+              action: 'get-order-details',
+              order_id: orderId,
+            }),
           });
-          console.error('Import errors:', data.errors);
-        } else {
-          toast({
-            title: "Import Successful",
-            description: `Successfully imported ${data.imported} order(s)`,
+
+          if (!detailResponse.ok) {
+            throw new Error(`Failed to fetch details for order ${orderId}`);
+          }
+
+          const detailData = await detailResponse.json();
+          if (!detailData.success || !detailData.payload) {
+            throw new Error(detailData.error || 'Invalid order data received');
+          }
+
+          // 2. Call RPC to Import (Atomic Transaction)
+          const { error: rpcError } = await supabase.rpc('import_wc_order', {
+            payload: detailData.payload
           });
+
+          if (rpcError) throw rpcError;
+
+          successCount++;
+          setImportedCount(prev => prev + 1);
+
+        } catch (err: any) {
+          console.error(`Error importing order ${orderId}:`, err);
+          errors.push(`Order #${orderId}: ${err.message}`);
         }
-
-        // Refresh orders list - wait a bit for database to update
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await refreshOrders();
-
-        // Show success message with order count
-        toast({
-          title: "Orders Imported Successfully",
-          description: `${data.imported} order(s) have been added. Page will refresh to show new orders.`,
-        });
-
-        // Reset selection and close dialog after delay
-        setSelectedOrders(new Set());
-        setTimeout(() => {
-          onOpenChange(false);
-          // Force page refresh to show new orders
-          window.location.reload();
-        }, 2000);
-      } else {
-        throw new Error(data.error || 'Import failed');
       }
+
+      // Feedback
+      if (errors.length > 0) {
+        toast({
+          title: "Import Completed with Errors",
+          description: `Imported ${successCount} orders. Failed: ${errors.length}. Check console for details.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Import Successful",
+          description: `Successfully imported ${successCount} orders.`,
+          variant: "default",
+        });
+      }
+
+      if (successCount > 0) {
+        // Refresh and Close
+        await refreshOrders();
+        setTimeout(() => {
+          setSelectedOrders(new Set());
+          onOpenChange(false);
+          window.location.reload();
+        }, 1500);
+      }
+
     } catch (error: any) {
-      console.error('Import error:', error);
+      console.error('Global Import error:', error);
       toast({
         title: "Import Failed",
         description: error.message || "Could not import orders",

@@ -40,7 +40,7 @@ export function UserWorkloadCard() {
                 console.log("Fetching profiles for workload card...");
                 const { data, error } = await supabase
                     .from('profiles')
-                    .select('id, full_name, avatar_url, department');
+                    .select('user_id, full_name, avatar_url, department'); // Fetch user_id
 
                 if (error) {
                     console.error("Error fetching profiles:", error);
@@ -49,7 +49,11 @@ export function UserWorkloadCard() {
                 if (data) {
                     console.log(`Fetched ${data.length} profiles.`);
                     const profileMap = data.reduce((acc, profile) => {
-                        acc[profile.id] = profile;
+                        // Use user_id as the key since assigned_to in orders refers to auth.users.id
+                        // handling potential missing user_id if that ever happens (though it shouldn't for valid profiles)
+                        if (profile.user_id) {
+                            acc[profile.user_id] = profile;
+                        }
                         return acc;
                     }, {} as Record<string, any>);
                     setProfiles(profileMap);

@@ -47,6 +47,9 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
     const { user, profile } = useAuth();
     const [activeTab, setActiveTab] = useState<'generate' | 'history'>('generate');
 
+    // Edit State
+    const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+
     // Form State
     const [purchaserName, setPurchaserName] = useState('');
     const [purchaserAddress, setPurchaserAddress] = useState('');
@@ -106,6 +109,35 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
         } finally {
             setIsLoadingHistory(false);
         }
+    };
+
+    const handleEdit = (invoice: SavedInvoice) => {
+        setPurchaserName(invoice.purchaser_details.name);
+        setPurchaserAddress(invoice.purchaser_details.address);
+        setPurchaserGst(invoice.purchaser_details.gst || '');
+        setProducts(invoice.items);
+        setShippingCharges(invoice.financials.shipping);
+        setGstRate(invoice.financials.gst_rate);
+        setEditingInvoiceId(invoice.id);
+        setActiveTab('generate');
+        toast({
+            title: 'Edit Mode',
+            description: `Editing Invoice ${invoice.pi_number}`,
+        });
+    };
+
+    const cancelEdit = () => {
+        setEditingInvoiceId(null);
+        setPurchaserName('');
+        setPurchaserAddress('');
+        setPurchaserGst('');
+        setProducts([{ description: '', quantity: 1, rate: 0 }]);
+        setShippingCharges(0);
+        setGstRate(0);
+        toast({
+            title: 'Cancelled',
+            description: 'Exited edit mode',
+        });
     };
 
     const handlePurchaserNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -199,12 +231,21 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
             setRecentPurchasers(updatedRecent);
             localStorage.setItem('pi_recent_purchasers', JSON.stringify(updatedRecent));
 
-            const piNumber = generatePINumber();
+            // Reuse PI number if editing, else generate new
+            let piNumber;
+            if (editingInvoiceId) {
+                // Find existing PI number from history
+                const existing = history.find(h => h.id === editingInvoiceId);
+                piNumber = existing?.pi_number || generatePINumber();
+            } else {
+                piNumber = generatePINumber();
+            }
+
             const currentDate = format(new Date(), 'dd.MM.yyyy');
             const issuePerson = profile?.full_name || user?.email || 'Sales Team';
 
             // 1. Generate PDF
-            generateProformaInvoice({
+            await generateProformaInvoice({
                 piNumber,
                 date: currentDate,
                 issuePerson,
@@ -216,22 +257,46 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
                 gstRate: gstRate,
             });
 
-            // 2. Save log to Supabase
-            const { error: dbError } = await supabase.from('proforma_invoices').insert({
-                pi_number: piNumber,
-                created_by: user?.id,
-                purchaser_details: {
-                    name: purchaserName,
-                    address: purchaserAddress,
-                    gst: purchaserGst
-                },
-                items: validProducts,
-                financials: {
-                    shipping: shippingCharges,
-                    gst_rate: gstRate,
-                    total: totalAmount
-                }
-            });
+            // 2. Save log to Supabase (Insert or Update)
+            let dbError;
+
+            if (editingInvoiceId) {
+                // UPDATE
+                const { error } = await supabase.from('proforma_invoices')
+                    .update({
+                        purchaser_details: {
+                            name: purchaserName,
+                            address: purchaserAddress,
+                            gst: purchaserGst
+                        },
+                        items: validProducts,
+                        financials: {
+                            shipping: shippingCharges,
+                            gst_rate: gstRate,
+                            total: totalAmount
+                        }
+                    })
+                    .eq('id', editingInvoiceId);
+                dbError = error;
+            } else {
+                // INSERT
+                const { error } = await supabase.from('proforma_invoices').insert({
+                    pi_number: piNumber,
+                    created_by: user?.id,
+                    purchaser_details: {
+                        name: purchaserName,
+                        address: purchaserAddress,
+                        gst: purchaserGst
+                    },
+                    items: validProducts,
+                    financials: {
+                        shipping: shippingCharges,
+                        gst_rate: gstRate,
+                        total: totalAmount
+                    }
+                });
+                dbError = error;
+            }
 
             if (dbError) {
                 console.error('Failed to log PI to database', dbError);
@@ -243,12 +308,15 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
             } else {
                 toast({
                     title: 'Success',
-                    description: `Proforma Invoice ${piNumber} generated & saved`,
+                    description: editingInvoiceId
+                        ? `Proforma Invoice ${piNumber} updated`
+                        : `Proforma Invoice ${piNumber} generated & saved`,
                     className: 'bg-green-500 text-white',
                 });
             }
 
             // Reset form
+            setEditingInvoiceId(null);
             setPurchaserName('');
             setPurchaserAddress('');
             setPurchaserGst('');
@@ -258,7 +326,9 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
 
             if (activeTab === 'history') fetchHistory();
 
-            onOpenChange(false);
+            // Switch to history tab to show the update
+            setActiveTab('history');
+
         } catch (error) {
             console.error('Error generating PI:', error);
             toast({
@@ -329,7 +399,7 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
                                     value="generate"
                                     className="data-[state=active]:bg-white dark:data-[state=active]:bg-slate-800 data-[state=active]:text-indigo-600 dark:data-[state=active]:text-indigo-400 font-medium"
                                 >
-                                    Generate New
+                                    {editingInvoiceId ? 'Edit Invoice' : 'Generate New'}
                                 </TabsTrigger>
                                 <TabsTrigger
                                     value="history"
@@ -578,10 +648,13 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
                                 <DialogFooter>
                                     <Button
                                         variant="outline"
-                                        onClick={() => onOpenChange(false)}
+                                        onClick={() => {
+                                            if (editingInvoiceId) cancelEdit();
+                                            else onOpenChange(false);
+                                        }}
                                         className="border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
                                     >
-                                        Cancel
+                                        {editingInvoiceId ? 'Cancel Edit' : 'Cancel'}
                                     </Button>
                                     <Button
                                         onClick={handleGenerate}
@@ -591,12 +664,12 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
                                         {isGenerating ? (
                                             <>
                                                 <Loader2 className="w-4 h-4 animate-spin" />
-                                                Generating...
+                                                {editingInvoiceId ? 'Updating...' : 'Generating...'}
                                             </>
                                         ) : (
                                             <>
                                                 <Download className="w-4 h-4" />
-                                                Generate PDF
+                                                {editingInvoiceId ? 'Update & Regenerate' : 'Generate PDF'}
                                             </>
                                         )}
                                     </Button>
@@ -646,14 +719,26 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
 
                                                     <div className="flex items-center gap-4">
                                                         <span className="text-sm font-bold text-slate-900 dark:text-slate-100">₹ {invoice.financials.total.toFixed(2)}</span>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="ghost"
-                                                            onClick={() => handleRedownload(invoice)}
-                                                            className="h-9 w-9 p-0 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-950 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
-                                                        >
-                                                            <Download className="w-4 h-4" />
-                                                        </Button>
+                                                        <div className="flex items-center gap-1">
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                onClick={() => handleRedownload(invoice)}
+                                                                title="Download PDF"
+                                                                className="h-9 w-9 p-0 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-950 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+                                                            >
+                                                                <Download className="w-4 h-4" />
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                onClick={() => handleEdit(invoice)}
+                                                                title="Edit Invoice"
+                                                                className="h-9 w-9 p-0 rounded-full hover:bg-indigo-50 dark:hover:bg-indigo-950 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400"
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-pencil w-4 h-4"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             ))}

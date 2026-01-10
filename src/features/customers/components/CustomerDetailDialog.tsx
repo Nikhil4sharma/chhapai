@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Mail, Phone, MapPin, Copy, ExternalLink, Package, ShoppingBag, Calendar, ArrowUpRight, TrendingUp, User, CreditCard, Truck, ChevronDown } from 'lucide-react';
+import { Mail, Phone, MapPin, Copy, ExternalLink, Package, ShoppingBag, Calendar, ArrowUpRight, TrendingUp, User, CreditCard, Truck, ChevronDown, X } from 'lucide-react';
 import { WCCustomer, WCOrder, fetchCustomerOrders } from '@/services/woocommerce';
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
@@ -117,6 +117,15 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                 {/* Header Section */}
                 <div className="bg-white dark:bg-slate-900 border-b shrink-0 relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+
+                    <button
+                        onClick={() => onOpenChange(false)}
+                        className="absolute right-4 top-4 z-50 p-2 rounded-full bg-white/80 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors shadow-sm ring-1 ring-slate-200 dark:ring-slate-700"
+                        aria-label="Close"
+                    >
+                        <X className="h-4 w-4" />
+                    </button>
+
                     <div className="p-4 sm:p-6 pb-4 relative z-10">
                         <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
                             <div className="flex gap-4 sm:gap-5 items-center w-full sm:w-auto">

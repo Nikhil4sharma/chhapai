@@ -340,12 +340,32 @@ export default function Customers() {
 
                                             {/* Mobile Actions Trigger (Absolute positioned or flexed) */}
                                             <div className="sm:hidden ml-auto">
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-slate-400" onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setSelectedCustomer(customer);
-                                                }}>
-                                                    <MoreHorizontal className="h-4 w-4" />
-                                                </Button>
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-slate-400" onClick={(e) => e.stopPropagation()}>
+                                                            <MoreHorizontal className="h-4 w-4" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end" className="w-48 rounded-xl">
+                                                        <DropdownMenuItem onClick={() => { setSelectedCustomer(customer); setDetailOpen(true); }}>
+                                                            View Profile
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem onClick={() => { setCustomerToAssign(customer); setAssignDialogOpen(true); }}>
+                                                            Assign Manager
+                                                        </DropdownMenuItem>
+                                                        {(isAdmin || role === 'sales') && (
+                                                            <>
+                                                                <DropdownMenuSeparator />
+                                                                <DropdownMenuItem
+                                                                    onClick={() => deleteCustomer(customer.id)}
+                                                                    className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                                                                >
+                                                                    Delete Customer
+                                                                </DropdownMenuItem>
+                                                            </>
+                                                        )}
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
                                             </div>
                                         </div>
 

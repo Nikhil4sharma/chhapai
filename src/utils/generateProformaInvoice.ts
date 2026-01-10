@@ -17,257 +17,273 @@ export interface ProformaInvoiceData {
     purchaserGst?: string;
     products: ProductLine[];
     shippingCharges: number;
-    gstRate: number; // Changed from includeGst boolean
+    gstRate: number;
 }
 
-export const generateProformaInvoice = (data: ProformaInvoiceData): void => {
+export const generateProformaInvoice = async (data: ProformaInvoiceData): Promise<void> => {
     const doc = new jsPDF('p', 'mm', 'a4');
     const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
+
+    // Load logo
+    const logoUrl = '/logo.png';
+    const logoBase64 = await new Promise<string>((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.drawImage(img, 0, 0);
+                resolve(canvas.toDataURL('image/png'));
+            } else {
+                resolve('');
+            }
+        };
+        img.onerror = () => resolve('');
+        img.src = logoUrl;
+    });
 
     let yPos = 15;
 
-    // Use thinner line width for validation
-    // Company Header
-    doc.setFontSize(15);
+    // 1. HEADER SECTION
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
     doc.text('GENIE PRINTS PVT. LTD.', 15, yPos);
 
-    doc.setFontSize(10);
     doc.setFont('helvetica', 'normal');
-    yPos += 5;
-    doc.text('Plot No.163, Industrial Area,', 15, yPos);
-    yPos += 5;
-    doc.text('Phase-1, Chandigarh', 15, yPos);
-    yPos += 5;
-    doc.text('GST: 04AACCG9646F1ZM', 15, yPos);
-    yPos += 5;
-    doc.text('PAN NO : AACCG9646F', 15, yPos);
-    yPos += 5;
-    doc.text('State Name : Chandigarh | Code:04', 15, yPos);
-    yPos += 5;
-    doc.text('E-Mail : accounts@chhapai.in', 15, yPos);
-    yPos += 5;
-    doc.text('Contact No. : +91 9878 155 155', 15, yPos);
+    const companyDetails = [
+        'Plot No.163, Industrial Area,',
+        'Phase-1, Chandigarh',
+        'GST: 04AACCG9646F1ZM',
+        'PAN NO : AACCG9646F',
+        'State Name : Chandigarh | Code:04',
+        'E-Mail : accounts@chhapai.in',
+        'Contact No. : +91 9878 155 155'
+    ];
 
-    // Logo - Load from public folder
-    const logoImg = new Image();
-    logoImg.src = '/logo.png';
-    doc.addImage(logoImg, 'PNG', pageWidth - 45, 15, 30, 30);
+    yPos += 5;
+    companyDetails.forEach(line => {
+        doc.text(line, 15, yPos);
+        yPos += 5;
+    });
 
-    // Title
-    yPos += 10;
-    doc.setFontSize(16);
+    // Right Side: Logo
+    if (logoBase64) {
+        doc.addImage(logoBase64, 'PNG', pageWidth - 55, 10, 40, 40);
+    }
+
+    yPos = Math.max(yPos, 60);
+
+    // 2. TITLE
+    doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     const title = 'PROFORMA INVOICE';
     const titleWidth = doc.getTextWidth(title);
     doc.text(title, (pageWidth - titleWidth) / 2, yPos);
-
-    yPos += 10;
-
-
-    // Invoice Details Table
-    const detailsStartY = yPos;
-
-    // Purchaser Info (Left)
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Purchaser Name & Address:', 15, yPos);
-
-    // PI Details (Right)
-    doc.text('PI No:', pageWidth / 2 + 10, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text(data.piNumber, pageWidth / 2 + 40, yPos);
+    doc.line((pageWidth - titleWidth) / 2, yPos + 1, (pageWidth + titleWidth) / 2, yPos + 1);
 
     yPos += 5;
 
-    // GST Number (Above name as requested)
-    if (data.purchaserGst) {
-        doc.setFont('helvetica', 'bold');
-        doc.text('GST ' + data.purchaserGst, 15, yPos);
-    }
+    // 3. INFO GRID - Only Company Names and GST Numbers Bold
+    const purchaserInfo = `${data.purchaserName}\n\n${data.purchaserAddress}\n\nGST ${data.purchaserGst || 'N/A'}`;
 
-    // Date (Right side)
-    doc.setFont('helvetica', 'bold');
-    doc.text('Date:', pageWidth / 2 + 10, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text(data.date, pageWidth / 2 + 40, yPos);
+    // Supplier info - only company name and GSTIN bold
+    const companyInfoFull = `Genie Prints Pvt. Ltd.
+Plot No.163, Industrial Area, Phase-1
+GSTIN: 04AACCG9646F1ZM
+State Name: Chandigarh | Code:04
+E-Mail: accounts@chhapai.in
+Bank Name: Bank of Baroda O/D
+A/C No.:18140400018771
+IFSC Code : BARB0KHURDX`;
 
-    yPos += 5;
+    // Bill To info - only company name and GST bold
+    const billToInfo = `${data.purchaserName}
 
-    // Purchaser Name (Below GST)
-    doc.setFont('helvetica', 'bold');
-    doc.text(data.purchaserName, 15, yPos);
+${data.purchaserAddress}
 
-    // Issue Person (Right side)
-    doc.setFont('helvetica', 'bold');
-    doc.text('Issue Person :', pageWidth / 2 + 10, yPos);
-    doc.setFont('helvetica', 'normal');
-    doc.text(data.issuePerson, pageWidth / 2 + 40, yPos);
-
-    // Address (Below Name)
-    doc.setFont('helvetica', 'normal');
-    const addressOnlyLines = doc.splitTextToSize(data.purchaserAddress, pageWidth / 2 - 25);
-    doc.text(addressOnlyLines, 15, yPos + 5);
-
-    // Update Y pos based on address length
-    const addressHeight = Math.max(addressOnlyLines.length * 5, 5);
-    yPos += addressHeight + 15;
-
-    // Supplier Info
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Supplier:', 15, yPos);
-    doc.text('Bill To:', pageWidth / 2 + 10, yPos);
-
-    // Track separate Y positions for left and right columns
-    let leftYPos = yPos + 6;
-    let rightYPos = yPos + 6;
-
-    // Left column (Supplier)
-    // REORDERED: GST First, then Name, then Address
-    doc.setFont('helvetica', 'bold'); // Highlight GSTIN
-    doc.text('GSTIN: 04AACCG9646F1ZM', 15, leftYPos);
-    leftYPos += 5;
-
-    doc.setFont('helvetica', 'bold');
-    doc.text('Genie Prints Pvt. Ltd.', 15, leftYPos);
-    leftYPos += 5;
-
-    doc.setFont('helvetica', 'normal');
-    doc.text('Plot No.163, Industrial Area, Phase-1', 15, leftYPos);
-    leftYPos += 5;
-
-    doc.text('State Name: Chandigarh | Code:04', 15, leftYPos);
-    leftYPos += 5;
-    doc.text('E-Mail: accounts@chhapai.in', 15, leftYPos);
-    leftYPos += 5;
-    doc.text('Bank Name: Bank of Baroda O/D', 15, leftYPos);
-    leftYPos += 5;
-    doc.text('A/C No.:18140400018771', 15, leftYPos);
-    leftYPos += 5;
-    doc.text('IFSC Code : BARB0KHURDX', 15, leftYPos);
-
-    // Right column (Bill To)
-    if (data.purchaserGst) {
-        doc.setFont('helvetica', 'bold');
-        doc.text('GST ' + data.purchaserGst, pageWidth / 2 + 10, rightYPos);
-        rightYPos += 5;
-    }
-
-    doc.setFont('helvetica', 'bold');
-    doc.text(data.purchaserName.toUpperCase(), pageWidth / 2 + 10, rightYPos);
-    rightYPos += 5;
-
-    doc.setFont('helvetica', 'normal');
-    const billToAddress = doc.splitTextToSize(data.purchaserAddress, pageWidth / 2 - 25);
-    doc.text(billToAddress, pageWidth / 2 + 10, rightYPos);
-    rightYPos += billToAddress.length * 5;
-
-    // Use the maximum of left and right Y positions to continue
-    yPos = Math.max(leftYPos, rightYPos) + 5;
-
-    // Product Table
-    const tableData = data.products.map((product, index) => [
-        (index + 1).toString(),
-        product.description,
-        product.quantity.toString(),
-        product.rate.toFixed(2),
-        (product.quantity * product.rate).toFixed(2)
-    ]);
-
-    // Calculate totals
-    const subtotal = data.products.reduce((sum, p) => sum + (p.quantity * p.rate), 0);
-    const taxableAmount = subtotal + data.shippingCharges;
-    const gstAmount = taxableAmount * (data.gstRate / 100);
-    const totalInvoice = taxableAmount + gstAmount;
-
-    // Add empty rows for spacing
-    for (let i = 0; i < Math.max(0, 5 - data.products.length); i++) {
-        tableData.push(['', '', '', '', '']);
-    }
-
-    // Add summary rows
-    // Using ₹ symbol (UTF-8) - ensure jsPDF handles it or standard font mapping
-    const currency = '₹';
-    tableData.push(['', 'Taxable Amount', '', '', `${currency} ${taxableAmount.toFixed(2)}`]);
-
-    let numSummaryRows = 2; // Taxable Amount, Total Invoice
-    if (data.gstRate > 0) {
-        tableData.push(['', `GST ${data.gstRate}%`, '', '', `${currency} ${gstAmount.toFixed(2)}`]);
-        numSummaryRows++;
-    }
-
-    if (data.shippingCharges > 0) {
-        tableData.push(['', 'Shipping Charges', '', '', `${currency} ${data.shippingCharges.toFixed(2)}`]);
-        numSummaryRows++;
-    }
-
-    tableData.push(['', '', '', 'Total Invoice', `${currency} ${totalInvoice.toFixed(2)}/-`]);
+GST ${data.purchaserGst || 'N/A'}`;
 
     autoTable(doc, {
         startY: yPos,
+        theme: 'grid',
+        body: [
+            [
+                { content: 'Purchaser Name & Address:', styles: { fontStyle: 'bold' } },
+                { content: 'P.I No:', styles: { fontStyle: 'bold' } },
+                { content: data.piNumber, styles: { fontStyle: 'normal' } }
+            ],
+            [
+                { content: purchaserInfo, rowSpan: 2, styles: { fontStyle: 'bold' } },
+                { content: 'Date:', styles: { fontStyle: 'bold' } },
+                { content: data.date, styles: { fontStyle: 'normal' } }
+            ],
+            [
+                { content: 'Issue Person :', styles: { fontStyle: 'bold' } },
+                { content: data.issuePerson, styles: { fontStyle: 'normal' } }
+            ],
+            [
+                { content: 'Supplier:', styles: { fontStyle: 'bold' } },
+                { content: 'Bill To:', colSpan: 2, styles: { fontStyle: 'bold' } }
+            ],
+            [
+                { content: companyInfoFull, styles: { fontStyle: 'normal' } },
+                { content: billToInfo, colSpan: 2, styles: { fontStyle: 'normal' } }
+            ]
+        ],
+        styles: {
+            lineColor: [0, 0, 0],
+            lineWidth: 0.3,
+            textColor: [0, 0, 0],
+            fontSize: 9,
+            cellPadding: 2,
+            overflow: 'linebreak'
+        },
+        columnStyles: {
+            0: { cellWidth: pageWidth * 0.55 },
+            1: { cellWidth: 25 },
+            2: { cellWidth: 'auto' }
+        },
+        willDrawCell: (hookData) => {
+            // Clear default text drawing for the Supplier/Bill To row (index 4)
+            // so we can draw it manually with selective bolding in didDrawCell
+            if (hookData.row.index === 4 && (hookData.column.index === 0 || hookData.column.index === 1)) {
+                // By emptying cell.text, autoTable won't draw anything here
+                // but still draws the border and background
+                hookData.cell.text = [];
+            }
+        },
+        didDrawCell: (hookData) => {
+            // Draw text manually with selective bolding for Supplier and Bill To
+            if (hookData.row.index === 4) {
+                const cell = hookData.cell;
+                // Get the original content from our body data at this cell
+                // Index 132 or 133 in the body array matches row index 4
+                const content = hookData.column.index === 0 ? companyInfoFull : billToInfo;
+                if (!content) return;
+
+                const lines = content.split('\n');
+                let currentY = cell.y + 2.5;
+
+                doc.setFontSize(9);
+                lines.forEach((line, idx) => {
+                    // First line (company name) and GSTIN line should be bold
+                    if (idx === 0 || line.toUpperCase().includes('GST')) {
+                        doc.setFont('helvetica', 'bold');
+                    } else {
+                        doc.setFont('helvetica', 'normal');
+                    }
+                    // Draw the line manually
+                    doc.text(line, cell.x + 2, currentY);
+                    currentY += 4;
+                });
+            }
+        }
+    });
+
+    // 4. PRODUCTS TABLE WITH INTEGRATED TOTALS
+    const finalY = (doc as any).lastAutoTable.finalY - 0.3;
+
+    // Prepare product rows
+    const minRows = 5;
+    const tableRows = data.products.map((p, i) => [
+        (i + 1).toString() + '.',
+        p.description,
+        p.quantity.toString(),
+        p.rate.toFixed(2),
+        (p.quantity * p.rate).toFixed(2)
+    ]);
+
+    // Add empty rows
+    for (let i = tableRows.length; i < minRows; i++) {
+        tableRows.push(['', '', '', '', '']);
+    }
+
+    // Calculations
+    const subtotal = data.products.reduce((sum, p) => sum + (p.quantity * p.rate), 0);
+    const taxableAmount = subtotal + data.shippingCharges;
+    const gstAmount = taxableAmount * (data.gstRate / 100);
+    const totalBeforeRound = taxableAmount + gstAmount;
+    const roundedTotal = Math.round(totalBeforeRound);
+    const roundOff = roundedTotal - totalBeforeRound;
+
+    const currency = '₹';
+
+    // Add totals rows integrated into the table
+    tableRows.push(['', 'Shipping', '', '', data.shippingCharges > 0 ? data.shippingCharges.toFixed(2) : '']);
+    tableRows.push(['', 'Taxable Amount', '', '', taxableAmount.toFixed(2)]);
+
+    if (data.gstRate > 0) {
+        tableRows.push(['', `GST ${data.gstRate}%`, '', '', gstAmount.toFixed(2)]);
+    }
+
+    tableRows.push(['', 'Round Off', '', '', roundOff >= 0 ? `+${roundOff.toFixed(2)}` : roundOff.toFixed(2)]);
+    tableRows.push(['', '', '', 'Total Invoice', `${roundedTotal.toFixed(2)}/-`]);
+
+    autoTable(doc, {
+        startY: finalY,
         head: [['S.No.', 'Item Description', 'Qty', 'Rate', 'Amount']],
-        body: tableData,
+        body: tableRows,
         theme: 'grid',
         styles: {
+            lineColor: [0, 0, 0],
+            lineWidth: 0.3,
+            textColor: [0, 0, 0],
             fontSize: 10,
-            cellPadding: 4, // Increased padding
-            lineWidth: 0.1, // Thin border
-            lineColor: [220, 220, 220], // Light gray borders
-            textColor: [50, 50, 50]
+            cellPadding: 3,
+            valign: 'middle'
         },
         headStyles: {
-            fillColor: [248, 249, 250], // Very light gray header
+            fillColor: [255, 255, 255],
             textColor: [0, 0, 0],
             fontStyle: 'bold',
-            lineWidth: 0.1,
-            lineColor: [200, 200, 200],
-            halign: 'center'
-        },
-        bodyStyles: {
-            lineWidth: 0.1,
-            lineColor: [230, 230, 230],
+            halign: 'center',
+            lineWidth: 0.3,
+            lineColor: [0, 0, 0]
         },
         columnStyles: {
             0: { cellWidth: 15, halign: 'center' },
             1: { cellWidth: 'auto', halign: 'left' },
             2: { cellWidth: 20, halign: 'center' },
-            3: { cellWidth: 30, halign: 'right' },
-            4: { cellWidth: 35, halign: 'right', fontStyle: 'bold' }, // Amount bold?
+            3: { cellWidth: 25, halign: 'left' },
+            4: { cellWidth: 35, halign: 'left' }
         },
         didParseCell: (hookData) => {
-            // Bold the last row (Total)
-            if (hookData.row.index === tableData.length - 1) {
-                hookData.cell.styles.fontStyle = 'bold';
-                hookData.cell.styles.fillColor = [245, 245, 245]; // Slight highlight for total
-            }
-            // Bold summary rows
-            let summaryRowCount = 2; // Taxable + Total
-            if (data.gstRate > 0) summaryRowCount++;
-            if (data.shippingCharges > 0) summaryRowCount++;
+            const rowIndex = hookData.row.index;
+            const totalRowsBeforeTotals = minRows;
 
-            if (hookData.row.index >= tableData.length - summaryRowCount) {
+            // Bold the totals rows
+            if (rowIndex >= totalRowsBeforeTotals) {
                 hookData.cell.styles.fontStyle = 'bold';
             }
-        },
+
+            // Last row (Total Invoice) - extra bold and different alignment
+            if (rowIndex === tableRows.length - 1) {
+                if (hookData.column.index === 3 || hookData.column.index === 4) {
+                    hookData.cell.styles.halign = 'right';
+                }
+            }
+        }
     });
 
     // Footer Notes
-    const finalY = (doc as any).lastAutoTable.finalY + 10;
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Please Note:', 15, finalY);
+    const footerY = (doc as any).lastAutoTable.finalY + 10;
 
-    doc.setFont('helvetica', 'normal');
-    doc.text('- 100% advance to be paid.', 20, finalY + 5);
-    doc.text('- Shipping will be as per actual.', 20, finalY + 10);
+    if (footerY < doc.internal.pageSize.getHeight() - 40) {
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.text('Please Note:', 15, footerY);
 
-    // Download
+        doc.setFont('helvetica', 'normal');
+        doc.text('- 100% advance to be paid.', 15, footerY + 5);
+        doc.text('- Shipping will be as per actual.', 15, footerY + 10);
+    }
+
     doc.save(`Proforma_Invoice_${data.piNumber}.pdf`);
 };
 
-// Generate unique PI number
 export const generatePINumber = (): string => {
     const date = new Date();
     const year = date.getFullYear();

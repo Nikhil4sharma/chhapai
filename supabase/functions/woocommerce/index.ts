@@ -76,6 +76,16 @@ function buildFullAddress(addr: any): string {
   return parts.join(', ');
 }
 
+// Helper to normalize order numbers for comparison
+function normalizeOrderNumber(orderNum: string | number | null | undefined): string {
+  if (!orderNum) return '';
+  const str = orderNum.toString().trim();
+  // Remove WC- or MAN- prefix if present
+  const withoutPrefix = str.replace(/^(WC|MAN)-/i, '');
+  // Return just the numeric part
+  return withoutPrefix.replace(/\D/g, '');
+}
+
 serve(async (req: Request) => {
   // Handle CORS preflight requests FIRST - before any other processing
   // This MUST be the first thing we check
@@ -417,33 +427,68 @@ serve(async (req: Request) => {
       console.log('[WooCommerce] Fetching order by number:', orderNumber);
 
       // Fetch order from WooCommerce by number
+      const requestedOrderNumber = orderNumber.toString().trim();
+      const requestedNormalized = normalizeOrderNumber(requestedOrderNumber);
+
       const searchParams = new URLSearchParams();
-      searchParams.append('number', orderNumber.toString());
-      searchParams.append('per_page', '1');
+      searchParams.append('number', requestedOrderNumber);
+      searchParams.append('per_page', '10');
 
       const apiUrl = `${storeUrl}/wp-json/wc/v3/orders?${searchParams.toString()}`;
       const auth = btoa(`${consumerKey}:${consumerSecret}`);
 
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      let wooOrders: any[] = [];
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('[WooCommerce] Order fetch failed:', response.status, errorText);
-        return new Response(JSON.stringify({
-          found: false,
-          error: `Failed to fetch order: ${response.status}`
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      // STRATEGY 1: Exact Number Match
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/json' },
         });
+
+        if (response.ok) {
+          const res = await response.json();
+          if (Array.isArray(res)) wooOrders = res;
+        }
+      } catch (e) {
+        console.warn("Strategy 1 failed", e);
       }
 
-      const wooOrders = await response.json();
+      // STRATEGY 2: Recent Orders Fallback
+      if (wooOrders.length === 0) {
+        try {
+          const fallbackParams = new URLSearchParams();
+          fallbackParams.append('per_page', '50');
+          fallbackParams.append('orderby', 'date');
+          fallbackParams.append('order', 'desc');
+          const fallbackResponse = await fetch(`${storeUrl}/wp-json/wc/v3/orders?${fallbackParams.toString()}`, {
+            headers: { 'Authorization': `Basic ${auth}` }
+          });
+          if (fallbackResponse.ok) {
+            const res = await fallbackResponse.json();
+            wooOrders = res.filter((o: any) => normalizeOrderNumber(o.number || o.id) === requestedNormalized);
+          }
+        } catch (e) {
+          console.warn("Strategy 2 failed", e);
+        }
+      }
+
+      // STRATEGY 3: Direct ID Fetch
+      if (wooOrders.length === 0 && /^\d+$/.test(requestedNormalized)) {
+        try {
+          const idResponse = await fetch(`${storeUrl}/wp-json/wc/v3/orders/${requestedNormalized}`, {
+            headers: { 'Authorization': `Basic ${auth}` }
+          });
+          if (idResponse.ok) {
+            const o = await idResponse.json();
+            if (normalizeOrderNumber(o.number || o.id) === requestedNormalized) {
+              wooOrders = [o];
+            }
+          }
+        } catch (e) {
+          console.warn("Strategy 3 failed", e);
+        }
+      }
 
       if (!wooOrders || wooOrders.length === 0) {
         console.log('[WooCommerce] Order not found:', orderNumber);
@@ -454,7 +499,14 @@ serve(async (req: Request) => {
         });
       }
 
-      const wooOrder = wooOrders[0];
+      // Exact Match Filtering
+      const wooOrder = wooOrders.find((o: any) => normalizeOrderNumber(o.number || o.id) === requestedNormalized);
+
+      if (!wooOrder) {
+        return new Response(JSON.stringify({ found: false }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
       // Parse product meta for specifications
       const parseProductSpecs = (lineItem: any) => {
@@ -1434,6 +1486,58 @@ serve(async (req: Request) => {
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
+    }
+
+    // --- NEW: Get Full Order Details (for RPC Import) ---
+    if (action === 'get-order-details') {
+      const { order_id } = body; // WC Order ID
+      if (!order_id) return new Response(JSON.stringify({ error: 'order_id required' }), { status: 400, headers: corsHeaders });
+
+      let storeUrl = runtimeCredentials.storeUrl || Deno.env.get('WOOCOMMERCE_STORE_URL');
+      let consumerKey = runtimeCredentials.consumerKey || Deno.env.get('WOOCOMMERCE_CONSUMER_KEY');
+      let consumerSecret = runtimeCredentials.consumerSecret || Deno.env.get('WOOCOMMERCE_CONSUMER_SECRET');
+      const auth = btoa(`${consumerKey}:${consumerSecret}`);
+
+      try {
+        const response = await fetch(`${storeUrl}/wp-json/wc/v3/orders/${order_id}`, {
+          headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        if (!response.ok) throw new Error(`Failed to fetch order: ${response.status}`);
+        const order = await response.json();
+
+        // Sanitize / Minimize payload for RPC if needed, or send full
+        // We'll normalize slightly to ensure consistent keys for RPC
+        const payload = {
+          order_id: order.id.toString(),
+          status: order.status,
+          payment_status: order.status === 'completed' || order.status === 'processing' ? 'paid' : 'pending', // simplified
+          total: order.total,
+          customer: {
+            id: order.customer_id ? order.customer_id.toString() : `guest-${order.billing.email}`,
+            name: `${order.billing.first_name} ${order.billing.last_name}`,
+            email: order.billing.email,
+            phone: order.billing.phone,
+            address: [order.billing.address_1, order.billing.city, order.billing.state].filter(Boolean).join(', ')
+          },
+          items: order.line_items.map((i: any) => ({
+            name: i.name,
+            quantity: i.quantity,
+            price: i.total,
+            specs: parseProductMeta(i.meta_data).specifications
+          }))
+        };
+
+        return new Response(JSON.stringify({ success: true, payload }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+
+      } catch (err: any) {
+        return new Response(JSON.stringify({ error: err.message }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
     }
 
     return new Response(JSON.stringify({ error: 'Invalid action' }), {

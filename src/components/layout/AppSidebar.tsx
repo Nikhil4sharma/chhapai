@@ -199,7 +199,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           icon: Building2,
           badge: badges.counts.outsource,
           badgeVariant: badges.urgentCounts.outsource > 0 ? 'priority-red' : 'default',
-          roles: ['admin', 'outsource', 'super_admin']
+          roles: ['admin', 'outsource', 'sales', 'super_admin']
         },
         {
           label: 'Dispatch',
@@ -207,7 +207,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           icon: Truck,
           badge: badges.counts.dispatch,
           badgeVariant: badges.urgentCounts.dispatch > 0 ? 'priority-red' : 'default',
-          roles: ['admin', 'dispatch', 'super_admin']
+          roles: ['admin', 'dispatch', 'sales', 'super_admin']
         },
       ]
     },

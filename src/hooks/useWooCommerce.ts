@@ -133,9 +133,15 @@ export function useWooCommerce() {
 
             setCustomers(prev => prev.filter(c => c.id !== id));
             toast.success("Customer removed successfully");
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error deleting customer:', error);
-            toast.error("Failed to delete customer");
+            // Show meaningful error to user (e.g. Foreign Key violation)
+            const msg = error?.message || "Failed to delete customer";
+            if (msg.includes("foreign key")) {
+                toast.error("Cannot delete: Customer has linked orders/data.");
+            } else {
+                toast.error(msg);
+            }
         }
     };
 
