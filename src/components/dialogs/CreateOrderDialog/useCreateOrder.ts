@@ -531,7 +531,7 @@ export function useCreateOrder(
                     assigned_user: finalUser,
                     created_by: user.id,
                     current_department: finalDept,
-                    status: initialStatus,
+                    order_status: initialStatus,
                     department_timeline: {
                         sales: {
                             status: 'completed',
@@ -610,11 +610,11 @@ export function useCreateOrder(
                     customer_id: finalCustomerId,
                     priority: computedPriority,
                     delivery_date: deliveryDate ? deliveryDate.toISOString() : null,
-                    notes: globalNotes,
+                    global_notes: globalNotes,
                     created_by: user.id,
                     total_amount: finalTotal,
                     tax_amount: taxAmount,
-                    status: initialStatus,
+                    order_status: initialStatus,
                     assigned_user: finalUser,
                     source: 'manual',
                     current_department: finalDept,
