@@ -169,3 +169,46 @@ $$;
 
 -- Permissions
 grant execute on function import_wc_order to authenticated;
+
+-- ==============================================================================
+-- WC_CUSTOMERS RLS POLICIES
+-- ==============================================================================
+
+-- Enable RLS on wc_customers
+alter table public.wc_customers enable row level security;
+
+-- Drop existing policies to avoid conflicts
+drop policy if exists "Enable all access for authenticated users" on public.wc_customers;
+drop policy if exists "Enable read access for authenticated users" on public.wc_customers;
+drop policy if exists "Enable insert access for authenticated users" on public.wc_customers;
+drop policy if exists "Enable update access for authenticated users" on public.wc_customers;
+
+-- SELECT: All authenticated users can view all customers
+create policy "Enable read access for authenticated users" 
+on public.wc_customers
+for select 
+to authenticated
+using (true);
+
+-- INSERT: All authenticated users can insert customers (for WooCommerce sync)
+create policy "Enable insert access for authenticated users" 
+on public.wc_customers
+for insert 
+to authenticated
+with check (true);
+
+-- UPDATE: All authenticated users can update customers (for assignment, sync, etc.)
+create policy "Enable update access for authenticated users" 
+on public.wc_customers
+for update 
+to authenticated
+using (true)
+with check (true);
+
+-- DELETE: Only admins can delete
+create policy "Enable delete access for authenticated users" 
+on public.wc_customers
+for delete 
+to authenticated
+using (true);
+

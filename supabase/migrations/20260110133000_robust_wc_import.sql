@@ -60,10 +60,11 @@ declare
   v_order_id uuid;
 begin
   -- 1️⃣ CUSTOMER UPSERT
-  insert into wc_customers (wc_customer_id, first_name, email, phone, billing)
+  insert into wc_customers (wc_customer_id, first_name, last_name, email, phone, billing)
   values (
     payload->'customer'->>'id',
-    split_part(payload->'customer'->>'name', ' ', 1), -- Mapping name to first_name roughly
+    split_part(payload->'customer'->>'name', ' ', 1), -- First name
+    substr(payload->'customer'->>'name', length(split_part(payload->'customer'->>'name', ' ', 1)) + 2), -- Last name
     payload->'customer'->>'email',
     payload->'customer'->>'phone',
     jsonb_build_object(
@@ -77,6 +78,7 @@ begin
   on conflict (wc_customer_id)
   do update set
     first_name = excluded.first_name,
+    last_name = excluded.last_name,
     email = excluded.email,
     phone = excluded.phone,
     billing = excluded.billing
@@ -97,7 +99,7 @@ begin
     payload->>'order_id',
     v_customer_id,
     payload->>'status',
-    payload->>'payment_status',
+    'pending',  -- Always pending for imports, manual payment update required
     (payload->>'total')::numeric,
     'woocommerce',
     now(),
@@ -106,7 +108,6 @@ begin
   on conflict (wc_order_id)
   do update set
     status = excluded.status,
-    payment_status = excluded.payment_status,
     total_amount = excluded.total_amount,
     updated_at = now()
   returning id into v_order_id;

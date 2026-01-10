@@ -772,9 +772,18 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       )
       .subscribe();
 
+    // CRITICAL: Add 200ms polling for timeline to ensure instant updates
+    // This supplements Supabase realtime for guaranteed updates
+    const timelinePollingInterval = setInterval(() => {
+      if (initialFetchComplete && isMounted && fetchTimelineRef.current) {
+        fetchTimelineRef.current();
+      }
+    }, 200); // Poll every 200ms for instant timeline updates
+
     return () => {
       isMounted = false; // Mark as unmounted
       if (debounceTimer) clearTimeout(debounceTimer);
+      clearInterval(timelinePollingInterval); // Clear polling interval
       unsubscribeOrders();
       unsubscribeItems();
       supabase.removeChannel(timelineChannel);
