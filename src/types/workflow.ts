@@ -24,7 +24,7 @@ export type OutsourceStatus =
     | 'received';
 
 export type ProductionStatus =
-    | 'in_production'
+    | 'production_in_progress'
     | 'ready_for_dispatch'
     | 'dispatched'
     | 'delivered';
@@ -149,7 +149,7 @@ export const WORKFLOW_CONFIG: Record<Department, DepartmentConfig> = {
                 value: 'approved',
                 label: 'Approved',
                 allowedActions: [
-                    { id: 'assign_production', label: 'Handoff to Production', targetDepartment: 'production', targetStatus: 'in_production', style: 'primary' }
+                    { id: 'assign_production', label: 'Handoff to Production', targetDepartment: 'production', targetStatus: 'production_in_progress', style: 'primary' }
                 ],
                 color: 'bg-green-100 text-green-800'
             }
@@ -171,7 +171,7 @@ export const WORKFLOW_CONFIG: Record<Department, DepartmentConfig> = {
                 value: 'received',
                 label: 'Received',
                 allowedActions: [
-                    { id: 'assign_production', label: 'Handoff to Production', targetDepartment: 'production', targetStatus: 'in_production', style: 'primary' }
+                    { id: 'assign_production', label: 'Handoff to Production', targetDepartment: 'production', targetStatus: 'production_in_progress', style: 'primary' }
                 ],
                 color: 'bg-green-100 text-green-800'
             }
@@ -182,8 +182,8 @@ export const WORKFLOW_CONFIG: Record<Department, DepartmentConfig> = {
         label: 'Production',
         statuses: [
             {
-                value: 'in_production',
-                label: 'In Production',
+                value: 'production_in_progress',
+                label: 'Production In Progress',
                 allowedActions: [
                     { id: 'mark_ready', label: 'Ready for Dispatch', targetStatus: 'ready_for_dispatch', style: 'primary' }
                 ],

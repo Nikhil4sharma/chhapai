@@ -1,0 +1,86 @@
+// ACTION: Fetch Single Order by Number (for Create Order Dialog)
+// INSERT THIS BEFORE LINE 859 (before 'if (action === 'import-orders')')
+
+if (action === 'order-by-number') {
+  const { orderNumber } = body;
+
+  if (!orderNumber) {
+    return new Response(JSON.stringify({
+      error: 'orderNumber is required'
+    }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+
+  console.log(`[WooCommerce] Fetching order by number: ${orderNumber}`);
+
+  const auth = btoa(`${consumerKey}:${consumerSecret}`);
+
+  try {
+    // Try to fetch by order number first
+    const response = await fetch(`${storeUrl}/wp-json/wc/v3/orders?number=${orderNumber}`, {
+      headers: { 'Authorization': `Basic ${auth}` }
+    });
+
+    if (!response.ok) {
+      throw new Error(`WooCommerce API error: ${response.status} ${response.statusText}`);
+    }
+
+    const orders = await response.json();
+
+    if (orders && orders.length > 0) {
+      const order = orders[0];
+      
+      // Format the order data for frontend
+      const formattedOrder = {
+        found: true,
+        order: {
+          id: order.id,
+          order_number: order.number,
+          status: order.status,
+          payment_status: order.payment_method_title || 'pending',
+          order_total: order.total,
+          currency: order.currency,
+          order_date: order.date_created,
+          customer_id: order.customer_id,
+          customer_name: `${order.billing.first_name} ${order.billing.last_name}`.trim(),
+          customer_email: order.billing.email,
+          customer_phone: order.billing.phone,
+          billing_address: `${order.billing.address_1} ${order.billing.address_2}`.trim(),
+          billing_city: order.billing.city,
+          billing_state: order.billing.state,
+          billing_pincode: order.billing.postcode,
+          shipping_address: `${order.shipping.address_1} ${order.shipping.address_2}`.trim(),
+          line_items: order.line_items.map((item: any) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+            total: item.total,
+            sku: item.sku,
+            meta_data: item.meta_data
+          }))
+        }
+      };
+
+      return new Response(JSON.stringify(formattedOrder), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    } else {
+      return new Response(JSON.stringify({
+        found: false,
+        message: 'No WooCommerce order found. You can create a manual order.'
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+  } catch (error: any) {
+    console.error('[WooCommerce] Order fetch error:', error);
+    return new Response(JSON.stringify({
+      error: error.message || 'Failed to fetch order from WooCommerce'
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  }
+}

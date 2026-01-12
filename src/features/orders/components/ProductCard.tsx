@@ -140,7 +140,15 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
 
   // Status Badge Logic
   // Status Badge Logic
-  const statusLabel = statusConfig?.label || item.status?.replace(/_/g, ' ') || 'Unknown';
+  // Status Badge Logic
+  let statusLabel = statusConfig?.label || item.status?.replace(/_/g, ' ') || 'Unknown';
+
+  // OVERRIDE: If in Production, show the current Sub-stage Name as status
+  const isProduction = item.department === 'production' || item.current_stage === 'production';
+  if (isProduction && item.current_substage) {
+    const stageLabel = productionStages.find(s => s.key === item.current_substage)?.label || item.current_substage;
+    statusLabel = stageLabel;
+  }
   const isPendingApproval = item.status === 'pending_for_customer_approval' || item.status === 'pending_client_approval';
 
   let statusColor = statusConfig?.color || 'bg-slate-100 text-slate-800 border-slate-200';
@@ -317,7 +325,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   </div>
                 )}
 
-                {(role === 'sales' || isAdmin || actions.length > 0) && item.status !== 'completed' && item.current_stage !== 'completed' && !isPendingApproval && (
+                {(role === 'sales' || isAdmin || role === item.assigned_department || role === item.current_stage || actions.length > 0) && item.status !== 'completed' && item.current_stage !== 'completed' && !isPendingApproval && (
                   <Button
                     size="sm"
                     onClick={(e) => {
@@ -339,7 +347,15 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                     ) : item.status === 'approved' && role === 'design' ? (
                       <><ArrowRight className="w-4 h-4 mr-2" /> Handoff to Prepress</>
                     ) : (
-                      <><Play className="w-3 h-3 mr-1.5" /> Process</>
+                      // Dynamic Production Label
+                      isProduction && item.current_substage && item.substage_status ? (
+                        <>
+                          {item.substage_status === 'in_progress' ? <CheckCircle className="w-3 h-3 mr-1.5" /> : <Play className="w-3 h-3 mr-1.5" />}
+                          {item.substage_status === 'in_progress' ? `Complete ${statusLabel}` : `Start ${statusLabel}`}
+                        </>
+                      ) : (
+                        <><Play className="w-3 h-3 mr-1.5" /> Process</>
+                      )
                     )}
                   </Button>
                 )}

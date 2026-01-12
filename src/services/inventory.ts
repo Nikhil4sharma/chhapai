@@ -255,6 +255,23 @@ export const releaseJobMaterial = async (materialId: string, userId: string) => 
     return true;
 };
 
+/**
+ * Fetch materials allocated to a specific job
+ */
+export const getJobMaterials = async (jobId: string) => {
+    const { data, error } = await supabase
+        .from('job_materials')
+        .select(`
+            *,
+            paper:paper_inventory(*)
+        `)
+        .eq('job_id', jobId)
+        .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return data;
+};
+
 
 
 

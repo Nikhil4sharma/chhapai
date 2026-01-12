@@ -13,11 +13,13 @@ import { VendorDetails, OutsourceJobDetails } from '@/types/order';
 import { supabase } from '@/integrations/supabase/client';
 
 interface OutsourceFlowProps {
+    initialQty?: number;
+    initialWorkType?: string;
     onDataChange: (data: { vendor: VendorDetails, job: OutsourceJobDetails, saveVendor: boolean }) => void;
     onValidChange: (isValid: boolean) => void;
 }
 
-export function OutsourceFlow({ onDataChange, onValidChange }: OutsourceFlowProps) {
+export function OutsourceFlow({ initialQty, initialWorkType, onDataChange, onValidChange }: OutsourceFlowProps) {
     // Vendor State
     const [vendors, setVendors] = useState<any[]>([]);
     const [loadingVendors, setLoadingVendors] = useState(false);
@@ -29,9 +31,9 @@ export function OutsourceFlow({ onDataChange, onValidChange }: OutsourceFlowProp
     const [saveNewVendor, setSaveNewVendor] = useState(true);
 
     // Job State
-    const [workType, setWorkType] = useState('Printing & Finishing');
-    const [expectedDate, setExpectedDate] = useState<Date | undefined>(undefined);
-    const [qtySent, setQtySent] = useState<number>(0);
+    const [workType, setWorkType] = useState(initialWorkType || 'Printing & Finishing');
+    const [expectedDate, setExpectedDate] = useState<Date | undefined>(new Date(Date.now() + 86400000 * 2)); // Default +2 days
+    const [qtySent, setQtySent] = useState<number>(initialQty || 0);
 
     // Fetch Vendors
     useEffect(() => {

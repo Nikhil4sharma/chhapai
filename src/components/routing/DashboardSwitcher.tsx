@@ -4,15 +4,19 @@ import { lazy } from 'react';
 // Lazy load to avoid circular deps or bundle bloat, matching App.tsx strategy
 const Dashboard = lazy(() => import("@/features/dashboard/pages/Dashboard"));
 const Sales = lazy(() => import("@/features/orders/pages/Sales"));
+const Production = lazy(() => import("@/features/orders/pages/Production"));
+const Design = lazy(() => import("@/features/orders/pages/Design"));
+const Prepress = lazy(() => import("@/features/orders/pages/Prepress"));
 
 export function DashboardSwitcher() {
     const { role } = useAuth();
 
-    // If role is sales, show the Sales Dashboard as default
-    if (role === 'sales') {
-        return <Sales />;
-    }
+    // Role-based Dashboard Routing
+    if (role === 'sales') return <Sales />;
+    if (role === 'production') return <Production />;
+    if (role === 'design') return <Design />;
+    if (role === 'prepress') return <Prepress />;
 
-    // Otherwise show the Main Dashboard
+    // Otherwise show the Main Dashboard (Admin / Generic)
     return <Dashboard />;
 }

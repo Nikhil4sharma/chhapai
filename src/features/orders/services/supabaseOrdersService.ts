@@ -278,7 +278,7 @@ export async function updateOrderItemStage(
       sales: 'new_order',
       design: 'design_in_progress',
       prepress: 'prepress_in_progress',
-      production: 'in_production',
+      production: 'production_in_progress',
       outsource: 'outsource_in_progress',
       dispatch: 'dispatched',
       completed: 'completed',

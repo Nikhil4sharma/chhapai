@@ -120,7 +120,8 @@ export default function Sales() {
             const isPendingApproval =
               item.status === 'pending_for_customer_approval' ||
               item.status === 'pending_client_approval';
-            return dept === 'sales' || isPendingApproval;
+            const isReadyForDispatch = item.status === 'ready_for_dispatch';
+            return dept === 'sales' || isPendingApproval || isReadyForDispatch;
           })
           .map(item => ({ order, item }))
       );
@@ -270,6 +271,11 @@ export default function Sales() {
       item.status === 'pending_for_customer_approval' ||
       item.status === 'pending_client_approval'
     );
+  }, [filteredSalesProducts]);
+
+  // Ready to Dispatch items (Waiting for Sales decision)
+  const readyToDispatchItems = useMemo(() => {
+    return filteredSalesProducts.filter(({ item }) => item.status === 'ready_for_dispatch');
   }, [filteredSalesProducts]);
 
   // Completed Orders: Order is completed or item is completed/dispatched
@@ -696,6 +702,12 @@ export default function Sales() {
                   {pendingApprovalItems.length}
                 </Badge>
               </TabsTrigger>
+              <TabsTrigger value="ready_dispatch" className="flex gap-2">
+                Ready to Dispatch
+                <Badge variant={readyToDispatchItems.length > 0 ? "default" : "secondary"} className={readyToDispatchItems.length > 0 ? "bg-blue-600 hover:bg-blue-700" : ""}>
+                  {readyToDispatchItems.length}
+                </Badge>
+              </TabsTrigger>
               <TabsTrigger value="completed" className="flex gap-2">
                 Completed Orders
                 <Badge variant="secondary">{completedSalesItems.length}</Badge>
@@ -763,6 +775,12 @@ export default function Sales() {
                     </>
                   );
                 })()}
+              </div>
+            </TabsContent>
+
+            <TabsContent value="ready_dispatch" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
+                {renderProductList(readyToDispatchItems, "No items ready for dispatch")}
               </div>
             </TabsContent>
 
@@ -905,6 +923,6 @@ export default function Sales() {
           onOpenChange={setPiDialogOpen}
         />
       </div>
-    </TooltipProvider>
+    </TooltipProvider >
   );
 }

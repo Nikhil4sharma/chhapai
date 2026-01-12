@@ -193,7 +193,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           icon: Building2,
           badge: badges.counts.outsource,
           badgeVariant: badges.urgentCounts.outsource > 0 ? 'priority-red' : 'default',
-          roles: ['admin', 'outsource', 'sales', 'super_admin']
+          roles: ['admin', 'outsource', 'sales', 'production', 'prepress', 'super_admin']
         },
         {
           label: 'Dispatch',

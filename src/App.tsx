@@ -142,7 +142,7 @@ const App = () => (
                             </ProtectedRoute>
                           } />
                           <Route path="/outsource" element={
-                            <ProtectedRoute allowedRoles={['admin', 'sales', 'prepress', 'super_admin']}>
+                            <ProtectedRoute allowedRoles={['admin', 'sales', 'prepress', 'production', 'super_admin']}>
                               <Suspense fallback={<PageLoader />}>
                                 <Outsource />
                               </Suspense>

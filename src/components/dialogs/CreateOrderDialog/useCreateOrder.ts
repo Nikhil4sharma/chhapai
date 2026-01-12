@@ -301,10 +301,15 @@ export function useCreateOrder(
                 // Normalize for comparison sanity check
                 // We assume normalizeOrderNumberForComparison is available in scope or imports
                 const requestedNormalized = normalizeOrderNumberForComparison ? normalizeOrderNumberForComparison(trimmedOrderNumber) : trimmedOrderNumber.replace(/\D/g, '');
-                const receivedNormalized = normalizeOrderNumberForComparison ? normalizeOrderNumberForComparison(data.order.order_number) : data.order.order_number.toString().replace(/\D/g, '');
+                const receivedNormalizedNumber = normalizeOrderNumberForComparison ? normalizeOrderNumberForComparison(data.order.order_number) : data.order.order_number.toString().replace(/\D/g, '');
+                const receivedNormalizedId = data.order.id.toString();
 
-                if (receivedNormalized && requestedNormalized && receivedNormalized !== requestedNormalized) {
-                    setWooCommerceError(`Order number mismatch: Expected ${trimmedOrderNumber}, but got ${data.order.order_number}`);
+                // Relaxed Validation: Match either Number OR ID
+                const matchesNumber = receivedNormalizedNumber && requestedNormalized && receivedNormalizedNumber === requestedNormalized;
+                const matchesId = receivedNormalizedId && requestedNormalized && receivedNormalizedId === requestedNormalized;
+
+                if (!matchesNumber && !matchesId) {
+                    setWooCommerceError(`Order number mismatch: Expected ${trimmedOrderNumber}, but got ${data.order.order_number} (ID: ${data.order.id})`);
                     setWooCommerceCheckStatus('error');
                     return;
                 }
@@ -488,7 +493,7 @@ export function useCreateOrder(
             let initialStatus = 'new_order';
             if (finalDept === 'design') initialStatus = 'design_in_progress';
             else if (finalDept === 'prepress') initialStatus = 'prepress_in_progress';
-            else if (finalDept === 'production') initialStatus = 'in_production';
+            else if (finalDept === 'production') initialStatus = 'production_in_progress';
             else if (finalDept === 'outsource') initialStatus = 'sent_to_vendor';
 
             let orderId: string;

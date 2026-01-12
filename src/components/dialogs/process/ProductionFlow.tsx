@@ -7,7 +7,7 @@ import { PaperInventory } from '@/services/inventory';
 import { useWorkflow } from '@/contexts/WorkflowContext';
 import { CheckCircle2, Layers, ScrollText, GripVertical, Plus, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { DragDropContext, Droppable, Draggable, DropResult } from 'react-beautiful-dnd';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 
 interface ProductionFlowProps {
     initialStages?: string[];

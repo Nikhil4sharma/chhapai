@@ -44,6 +44,10 @@ import { cn } from '@/lib/utils';
 import { ProductionFlow } from './process/ProductionFlow';
 import { DispatchFlow } from './process/DispatchFlow';
 import { OutsourceFlow } from './process/OutsourceFlow';
+import { ProductionStageControl } from '@/features/orders/components/ProductionStageControl';
+import { PRODUCTION_STEPS, SubStage } from '@/types/order';
+import { WORKFLOW_CONFIG } from '@/types/workflow';
+import { MaterialManagement } from '@/features/orders/components/MaterialManagement';
 
 interface ProcessOrderDialogProps {
     open: boolean;
@@ -68,6 +72,9 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
     // -- Data Collection State --
 
     const [productionStages, setProductionStages] = useState<string[]>([]);
+    const [currentSubstage, setCurrentSubstage] = useState<string | null>(null);
+    const [substageStatus, setSubstageStatus] = useState<'pending' | 'in_progress' | 'completed'>('pending');
+
     const [paperSelection, setPaperSelection] = useState<{ paper: any, qty: number } | null>(null);
     const [dispatchData, setDispatchData] = useState<any>(null);
     const [outsourceData, setOutsourceData] = useState<any>(null);
@@ -94,7 +101,7 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                 targetStatus = 'design_in_progress';
             }
             // Logic: Production (In Prod) -> Ready for Dispatch
-            else if (current === 'production' && status === 'in_production') {
+            else if (current === 'production' && status === 'production_in_progress') {
                 targetDept = 'production';
                 targetStatus = 'ready_for_dispatch';
             }
@@ -110,7 +117,7 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
             } else if (targetDept === 'prepress') {
                 targetStatus = 'prepress_in_progress';
             } else if (targetDept === 'production') {
-                targetStatus = 'in_production';
+                targetStatus = 'production_in_progress';
             } else {
                 // Try to find first valid status in current dept
                 const deptConf = config[targetDept];
@@ -125,7 +132,14 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
             setIsValid(true);
 
             // Reset Flow Data
-            setProductionStages(item.production_stage_sequence || []);
+            // FIX: Default to all PRODUCTION_STEPS if sequence is empty, ensuring 'Packing' and others are present by default
+            const initialStages = (item.production_stage_sequence && item.production_stage_sequence.length > 0)
+                ? item.production_stage_sequence
+                : PRODUCTION_STEPS.map(s => s.key);
+
+            setProductionStages(initialStages);
+            setCurrentSubstage(item.current_substage || null);
+            setSubstageStatus(item.substage_status || 'pending'); // Ensure substage_status is available in types/item
 
             // AUTO-FILL PREVIOUS SENDER (Smart Redirection)
             if (actionType === 'approve' || actionType === 'reject' || item.status === 'pending_for_customer_approval' || item.status === 'pending_client_approval') {
@@ -273,6 +287,21 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
 
                 if (showProductionFlow) {
                     updateData.production_stage_sequence = productionStages;
+
+                    // Auto-init first stage if not set (Setup Mode)
+                    if (productionStages.length > 0) {
+                        if (!currentSubstage || !productionStages.includes(currentSubstage)) {
+                            updateData.current_substage = productionStages[0];
+                            updateData.substage_status = 'pending';
+                        } else {
+                            if (currentSubstage) updateData.current_substage = currentSubstage;
+                            if (substageStatus) updateData.substage_status = substageStatus;
+                        }
+                    } else {
+                        // Clear if empty
+                        updateData.current_substage = null;
+                        updateData.substage_status = null;
+                    }
                 }
 
                 // CRITICAL: Save History when sending to Sales for Approval
@@ -293,6 +322,25 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                     if (dispatchData?.status === 'dispatch_pending') {
                         updateData.current_stage = 'production'; // Send back to Prod per specs
                         updateData.assigned_department = 'production';
+                    }
+
+                    // SAVE Dispatch Info to ORDERS table (Order Level)
+                    if (dispatchData) {
+                        const dispatchUpdate: any = {};
+                        if (dispatchData.courier_company) {
+                            dispatchUpdate.dispatch_info = {
+                                ...order.dispatch_info,
+                                courier_company: dispatchData.courier_company,
+                                is_express: dispatchData.is_express
+                            };
+                            dispatchUpdate.shipping_method = 'courier';
+                        } else if (dispatchData.mode === 'pickup') {
+                            dispatchUpdate.shipping_method = 'pickup';
+                        }
+
+                        if (Object.keys(dispatchUpdate).length > 0) {
+                            await supabase.from('orders').update(dispatchUpdate).eq('id', order.id);
+                        }
                     }
                 }
 
@@ -338,6 +386,9 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
         dispatch: Truck
     };
 
+    // Define config for current selected department
+    const workflowConfigForDept = WORKFLOW_CONFIG[selectedDept as keyof typeof WORKFLOW_CONFIG] || WORKFLOW_CONFIG.sales;
+
     // AVAILABLE USER FETCHING
     const [availableUsers, setAvailableUsers] = useState<{ id: string, name: string }[]>([]);
     useEffect(() => {
@@ -364,6 +415,26 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
         };
         fetchUsers();
     }, [selectedDept, isApprovalMode]);
+
+    // Auto-advance to "Ready for Dispatch" if last stage completed
+    useEffect(() => {
+        if (substageStatus === 'completed' && currentSubstage && productionStages.length > 0) {
+            const currentIndex = productionStages.indexOf(currentSubstage);
+            if (currentIndex === productionStages.length - 1) {
+                // Last stage completed
+                if (workflowConfigForDept) {
+                    const readyStatus = workflowConfigForDept.statuses.find(s => s.value === 'ready_for_dispatch');
+                    if (readyStatus) {
+                        setSelectedStatus('ready_for_dispatch');
+                    }
+                }
+            } else {
+                // Optional: Auto-move to next stage? 
+                // User might want manual control. Staying on "completed" allows them to review before moving.
+                // But we could set the "Next" stage as active if we wanted.
+            }
+        }
+    }, [substageStatus, currentSubstage, productionStages, workflowConfigForDept]);
 
 
     return (
@@ -478,44 +549,99 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                     ) : (
                         /* 3. STANDARD FLOW */
                         <>
-                            {/* Department Select */}
-                            <div className="space-y-3">
-                                <Label className="text-xs uppercase font-semibold text-muted-foreground">Select Destination</Label>
-                                <RadioGroup value={selectedDept} onValueChange={(v) => setSelectedDept(v as Department)} className="grid grid-cols-3 gap-3">
-                                    {['sales', 'design', 'prepress', 'production', 'outsource'].filter(d => {
-                                        // Exclude current department - users can't assign to their own department
-                                        if (currentDept === d) return false;
-                                        // Fix: Design team cannot assign to Outsource
-                                        if (currentDept === 'design' && d === 'outsource') return false;
-                                        return true;
-                                    }).map(d => (
-                                        <div key={d}>
-                                            <RadioGroupItem value={d} id={d} className="peer sr-only" />
-                                            <Label htmlFor={d} className={cn(
-                                                "flex flex-col items-center p-3 rounded-lg border-2 border-muted hover:bg-muted/50 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:text-primary transition-all",
-                                                selectedDept === d && "ring-1 ring-primary"
-                                            )}>
-                                                <span className="capitalize font-medium">{d}</span>
-                                            </Label>
-                                        </div>
-                                    ))}
-                                </RadioGroup>
-                            </div>
+                            {/* Department Select - HIDE for Production Flow */}
+                            {!showProductionFlow && (
+                                <div className="space-y-3">
+                                    <Label className="text-xs uppercase font-semibold text-muted-foreground">Select Destination</Label>
+                                    <RadioGroup value={selectedDept} onValueChange={(v) => setSelectedDept(v as Department)} className="grid grid-cols-3 gap-3">
+                                        {['sales', 'design', 'prepress', 'production', 'outsource'].filter(d => {
+                                            // Exclude current department - users can't assign to their own department
+                                            if (currentDept === d) return false;
+                                            // Fix: Design team cannot assign to Outsource
+                                            if (currentDept === 'design' && d === 'outsource') return false;
+                                            return true;
+                                        }).map(d => (
+                                            <div key={d}>
+                                                <RadioGroupItem value={d} id={d} className="peer sr-only" />
+                                                <Label htmlFor={d} className={cn(
+                                                    "flex flex-col items-center p-3 rounded-lg border-2 border-muted hover:bg-muted/50 cursor-pointer peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:text-primary transition-all",
+                                                    selectedDept === d && "ring-1 ring-primary"
+                                                )}>
+                                                    <span className="capitalize font-medium">{d}</span>
+                                                </Label>
+                                            </div>
+                                        ))}
+                                    </RadioGroup>
+                                </div>
+                            )}
+
+
 
                             {/* DYNAMIC SUB-COMPONENTS */}
 
-                            {/* Production Builder */}
+                            {/* Production Builder & Execution */}
                             {showProductionFlow && (
-                                <ProductionFlow
-                                    initialStages={productionStages}
-                                    onStagesChange={setProductionStages}
-                                    onMaterialChange={(p, q) => setPaperSelection({ paper: p, qty: q })}
-                                />
+                                <>
+                                    {/* Material Management Section - Visible to both */}
+                                    <div className="mb-6">
+                                        <MaterialManagement
+                                            orderId={order.id}
+                                            userId={user?.id || ''}
+                                        />
+                                    </div>
+
+                                    {/* 
+                                      LOGIC SPLIT:
+                                      1. Setup Mode (Assigning TO Production): Show Builder
+                                      2. Execution Mode (Working IN Production): Show Control
+                                    */}
+                                    {(currentDept !== 'production') ? (
+                                        <ProductionFlow
+                                            initialStages={productionStages}
+                                            onStagesChange={setProductionStages}
+                                            onMaterialChange={(p, q) => setPaperSelection({ paper: p, qty: q })}
+                                        />
+                                    ) : (
+                                        <ProductionStageControl
+                                            stages={productionStages}
+                                            currentSubstage={currentSubstage}
+                                            substageStatus={substageStatus}
+                                            onStateChange={(substage, status) => {
+                                                // 1. Update Current State
+                                                setCurrentSubstage(substage);
+                                                setSubstageStatus(status);
+
+                                                // 2. Auto-Advance Logic
+                                                if (status === 'completed') {
+                                                    const idx = productionStages.indexOf(substage);
+
+                                                    // If last stage (e.g., Packing), set status to ready_for_dispatch
+                                                    if (idx === productionStages.length - 1) {
+                                                        setSelectedStatus('ready_for_dispatch');
+                                                        // Explicitly set for UI feedback
+                                                        toast({ title: "Production Complete", description: "All stages finished. Status set to Ready for Dispatch.", className: "bg-green-500 text-white" });
+                                                    }
+                                                    // If there is a next stage, advance to it after a short delay
+                                                    else if (idx !== -1 && idx < productionStages.length - 1) {
+                                                        const nextStage = productionStages[idx + 1];
+                                                        setTimeout(() => {
+                                                            setCurrentSubstage(nextStage);
+                                                            setSubstageStatus('pending');
+                                                        }, 600); // Short delay for user to see the "Check" animation
+                                                    }
+                                                }
+                                            }}
+                                        />
+                                    )}
+                                </>
                             )}
 
                             {/* Outsource Flow */}
+                            {/* Outsource Flow */}
                             {showOutsourceFlow && (
                                 <OutsourceFlow
+                                    initialQty={item.quantity}
+                                    initialWorkType={item.product_name} // Good default? Or generic?
                                     onDataChange={setOutsourceData}
                                     onValidChange={setIsValid}
                                 />
@@ -530,33 +656,41 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                                 />
                             )}
 
-                            {/* Status & User (Generic) - Hide if specialized flow handles it entirely (like Outsource) */}
-                            {!showOutsourceFlow && !showDispatchFinalize && (
+                            {/* Status & User (Generic) */}
+                            {/* Hide ONLY if we are in Execution Mode (Production doing work) OR Outsource/Dispatch Flow */}
+                            {/* But SHOW if we represent Prepress assigning TO Production (Setup Mode) */}
+                            {(!showOutsourceFlow && !showDispatchFinalize && !(showProductionFlow && currentDept === 'production')) && (
                                 <div className="grid grid-cols-2 gap-6">
-                                    <div className="space-y-3">
-                                        <Label className="text-xs uppercase font-semibold text-muted-foreground">Status</Label>
-                                        <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as ProductStatus)}>
-                                            <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
-                                            <SelectContent>
-                                                {config[selectedDept]?.statuses
-                                                    .filter(s => {
-                                                        // Filter logic based on user request:
-                                                        // Design -> Sales: only show pending_for_customer_approval AND pending_client_approval
-                                                        if (currentDept === 'design' && selectedDept === 'sales') {
-                                                            return s.value === 'pending_for_customer_approval' || s.value === 'pending_client_approval';
-                                                        }
-                                                        // Design -> Prepress: only show prepress_in_progress
-                                                        if (currentDept === 'design' && selectedDept === 'prepress') {
-                                                            return s.value === 'prepress_in_progress';
-                                                        }
-                                                        return true;
-                                                    })
-                                                    .map(s => (
-                                                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                                                    ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
+                                    {/* Status Select - Hide if in Production Flow Setup (Auto-managed) */}
+                                    {!showProductionFlow ? (
+                                        <div className="space-y-3">
+                                            <Label className="text-xs uppercase font-semibold text-muted-foreground">Status</Label>
+                                            <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as ProductStatus)}>
+                                                <SelectTrigger><SelectValue placeholder="Select Status" /></SelectTrigger>
+                                                <SelectContent>
+                                                    {config[selectedDept]?.statuses
+                                                        .filter(s => {
+                                                            // Filter logic based on user request:
+                                                            // Design -> Sales: only show pending_for_customer_approval AND pending_client_approval
+                                                            if (currentDept === 'design' && selectedDept === 'sales') {
+                                                                return s.value === 'pending_for_customer_approval' || s.value === 'pending_client_approval';
+                                                            }
+                                                            // Design -> Prepress: only show prepress_in_progress
+                                                            if (currentDept === 'design' && selectedDept === 'prepress') {
+                                                                return s.value === 'prepress_in_progress';
+                                                            }
+                                                            return true;
+                                                        })
+                                                        .map(s => (
+                                                            <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                                                        ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    ) : (
+                                        // Hidden spacer to keep grid alignment if needed, or just null
+                                        <div className="hidden" />
+                                    )}
                                     <div className="space-y-3">
                                         <Label className="text-xs uppercase font-semibold text-muted-foreground">Assign User</Label>
                                         <Select value={selectedUser} onValueChange={setSelectedUser}>

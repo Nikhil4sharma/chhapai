@@ -104,6 +104,7 @@ export interface OrderItem {
   created_at: Date;
   updated_at: Date;
   production_stage_sequence?: string[];
+  substage_status?: 'pending' | 'in_progress' | 'completed'; // [NEW] Track status of current substage
   outsource_info?: OutsourceInfo;
 }
 
@@ -114,6 +115,7 @@ export interface Order {
   customer_id?: string;
   customer: Customer;
   shipping?: ShippingDetails;
+  shipping_method?: 'courier' | 'pickup'; // [NEW]
   financials?: OrderFinancials;
   woo_order_id?: number;
   order_status?: string;
@@ -126,6 +128,7 @@ export interface Order {
   priority_computed: Priority;
   items: OrderItem[];
   archived_from_wc?: boolean; // True if order was archived from WooCommerce sync
+  dispatch_info?: DispatchInfo; // Added to fix TS error
   last_seen_in_wc_sync?: Date; // Timestamp when order was last seen in WooCommerce sync
   meta?: {
     wp_order_id?: number;

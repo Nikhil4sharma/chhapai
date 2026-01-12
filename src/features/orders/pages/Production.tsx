@@ -90,48 +90,39 @@ export default function Production() {
       .flatMap(order =>
         order.items
           .filter(item => {
-            // CRITICAL: Exclude items in dispatch stage - they should only show in Dispatch page
-            if (item.current_stage === 'dispatch') {
-              return false;
-            }
-
-            // CRITICAL: Exclude items that are dispatched or completed - they should only show in Dispatch page
-            if (item.current_stage === 'completed' || item.is_dispatched) {
-              return false;
-            }
-
-            // NOTE: Items in packing substage SHOULD show in Production page
-            // They will move to dispatch stage only after packing is completed
-
             // Filter by assigned_department AND current_stage
             const itemDept = (item.assigned_department || '').toLowerCase().trim();
             const itemStage = (item.current_stage || '').toLowerCase().trim();
-            const isProductionItem = itemDept === deptLower || itemStage === deptLower;
+            const deptLower = 'production';
+
+            // Check if item belongs to production
+            const isProductionItem = itemDept === deptLower || itemStage === deptLower || item.status === 'ready_for_dispatch';
 
             if (!isProductionItem) return false;
 
-            // If user has assigned production_stage, only show items in that stage
-            if (!isAdmin && profile?.production_stage) {
-              if (item.current_substage !== profile.production_stage) {
-                return false;
-              }
+            // Exclude items that are fully completed/dispatched (They go to 'Completed' or History)
+            // But keep them if they are just "Ready for Dispatch" or in "Dispatch" stage but not yet "is_dispatched"
+            if (item.is_dispatched || item.current_stage === 'completed') {
+              // Optional: Allow viewing completed if we want? 
+              // logic says "return false" for main list. 
+              // But let's stick to hiding completed to keep list clean.
+              return false;
             }
 
-            // CRITICAL FIX: Visibility logic (CORRECTED)
-            // - Admin sees ALL items in production department
-            // - Sales sees ALL items in production department
-            // - Department users see ALL items in their department (regardless of assigned_to)
-            // - assigned_to does NOT control department-level visibility
-            // - assigned_to is only used for "Assigned to Me" tab filtering
+            // Allow Dispatch Pending items to be seen?
+            // If we strictly hide 'dispatch' stage, then once it moves to dispatch, it disappears from Production dashboard.
+            // That might be intended if there is a separate Dispatch Team.
+            // But if Production IS Dispatch, they need to see it.
+            // user role 'production' should see 'dispatch' items?
+            // "Production department ko unke order nhi dikh rhe" -> "Production department can't see THEIR orders".
 
-            if (isAdmin || role === 'sales') {
-              return true; // Admin and Sales see everything
-            }
+            // If the item is in 'production' stage, it definitely should show.
 
-            // Department users ALWAYS see items in their department
-            // assigned_to does NOT filter out items from department view
-            // This ensures department-wide visibility (read-only for assigned items)
-            return isProductionUser;
+            // Visibility check for users
+            if (isAdmin || role === 'sales') return true;
+
+            // Production users see everything in production
+            return true;
           })
           .map(item => ({
             order,

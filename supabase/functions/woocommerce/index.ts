@@ -171,6 +171,8 @@ serve(async (req: Request) => {
 
     // Get WooCommerce credentials (prefer runtime if recently updated, else from env)
     let storeUrl = runtimeCredentials.storeUrl || Deno.env.get('WOOCOMMERCE_STORE_URL');
+    if (storeUrl) storeUrl = storeUrl.replace(/\/$/, ''); // Sanitize trailing slash
+
     let consumerKey = runtimeCredentials.consumerKey || Deno.env.get('WOOCOMMERCE_CONSUMER_KEY');
     let consumerSecret = runtimeCredentials.consumerSecret || Deno.env.get('WOOCOMMERCE_CONSUMER_SECRET');
 
@@ -410,6 +412,8 @@ serve(async (req: Request) => {
       });
     }
 
+
+
     if (action === 'order-by-number') {
       // Fetch a single WooCommerce order by order number for autofill
       const { orderNumber } = body;
@@ -481,12 +485,45 @@ serve(async (req: Request) => {
           });
           if (idResponse.ok) {
             const o = await idResponse.json();
-            if (normalizeOrderNumber(o.number || o.id) === requestedNormalized) {
+            // RELAXED CHECK: Match either the Order Number OR the ID
+            const matchId = normalizeOrderNumber(o.id) === requestedNormalized;
+            const matchNumber = normalizeOrderNumber(o.number) === requestedNormalized;
+
+            if (matchId || matchNumber) {
               wooOrders = [o];
             }
           }
         } catch (e) {
           console.warn("Strategy 3 failed", e);
+        }
+      }
+
+      // STRATEGY 4: Broader Search Fallback (Matches ID, matching numeric strings in meta)
+      if (wooOrders.length === 0) {
+        try {
+          const searchParams = new URLSearchParams();
+          searchParams.append('search', requestedOrderNumber); // Try raw input
+          searchParams.append('per_page', '10');
+          searchParams.append('status', 'any');
+
+          const searchResponse = await fetch(`${storeUrl}/wp-json/wc/v3/orders?${searchParams.toString()}`, {
+            headers: { 'Authorization': `Basic ${auth}` }
+          });
+
+          if (searchResponse.ok) {
+            const res = await searchResponse.json();
+            // Filter strictly to ensure we don't return partial matches
+            // RELAXED FILTER: Check ID, Number, or raw string match
+            const match = res.find((o: any) =>
+              normalizeOrderNumber(o.number) === requestedNormalized ||
+              normalizeOrderNumber(o.id) === requestedNormalized ||
+              o.id.toString() === requestedOrderNumber ||
+              o.number === requestedOrderNumber
+            );
+            if (match) wooOrders = [match];
+          }
+        } catch (e) {
+          console.warn("Strategy 4 failed", e);
         }
       }
 
@@ -499,8 +536,11 @@ serve(async (req: Request) => {
         });
       }
 
-      // Exact Match Filtering
-      const wooOrder = wooOrders.find((o: any) => normalizeOrderNumber(o.number || o.id) === requestedNormalized);
+      // Final Exact Match Filtering (Double Check)
+      const wooOrder = wooOrders.find((o: any) =>
+        normalizeOrderNumber(o.number) === requestedNormalized ||
+        normalizeOrderNumber(o.id) === requestedNormalized
+      );
 
       if (!wooOrder) {
         return new Response(JSON.stringify({ found: false }), {
@@ -559,6 +599,362 @@ serve(async (req: Request) => {
       });
     }
 
+    // ACTION: Sync Processing Orders (Auto-Run)
+    if (action === 'sync-processing') {
+      const auth = btoa(`${consumerKey}:${consumerSecret}`);
+      const page = 1;
+      const perPage = 20;
+
+      console.log(`[WooCommerce] Auto-syncing processing orders...`);
+
+      const response = await fetch(`${storeUrl}/wp-json/wc/v3/orders?status=processing&page=${page}&per_page=${perPage}`, {
+        headers: { 'Authorization': `Basic ${auth}` }
+      });
+
+      if (!response.ok) {
+        throw new Error(`WooCommerce API error: ${response.status} ${response.statusText}`);
+      }
+
+      const orders = await response.json();
+      const results = {
+        total: orders.length,
+        imported: 0,
+        skipped: 0,
+        errors: [] as string[]
+      };
+
+      for (const order of orders) {
+        try {
+          // 1. Check if already imported
+          const { data: existing } = await supabase
+            .from('woocommerce_imports')
+            .select('id')
+            .or(`woocommerce_order_id.eq.${order.id},order_number.eq.${order.number}`)
+            .maybeSingle();
+
+          if (existing) {
+            results.skipped++;
+            continue;
+          }
+
+          // 2. Find Assignable User (by Billing Email)
+          let assignedUserId = null;
+          if (order.billing?.email) {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('user_id')
+              .eq('email', order.billing.email)
+              .maybeSingle();
+
+            if (profile) assignedUserId = profile.user_id;
+          }
+
+          // 3. Prepare Order Data
+          const orderData = {
+            order_id: normalizeOrderNumber(order.number || order.id),
+            woo_order_id: order.id,
+            total_amount: parseFloat(order.total),
+            status: 'new_order',
+            payment_status: 'pending',
+            customer_name: `${order.billing.first_name} ${order.billing.last_name}`.trim(),
+            customer_email: order.billing.email,
+            customer_phone: order.billing.phone,
+            assigned_to: assignedUserId,
+            assigned_department: 'sales',
+            shipping_address: buildFullAddress(order.shipping),
+            billing_address: buildFullAddress(order.billing),
+            is_from_woocommerce: true,
+            dispatch_info: {},
+            shipping_method: 'pickup'
+          };
+
+          // 4. Insert Order
+          const { data: insertedOrder, error: insertError } = await supabase
+            .from('orders')
+            .insert(orderData)
+            .select()
+            .single();
+
+          if (insertError) throw insertError;
+
+          // 5. Insert Items
+          const items = order.line_items.map((item: any) => ({
+            order_id: insertedOrder.id,
+            product_name: item.name,
+            quantity: item.quantity,
+            unit_price: item.price,
+            total_price: item.total,
+            sku: item.sku,
+            status: 'new_order',
+            assigned_department: 'sales',
+            priority: 'normal'
+          }));
+
+          if (items.length > 0) {
+            const { error: itemsError } = await supabase
+              .from('order_items')
+              .insert(items);
+            if (itemsError) throw itemsError;
+          }
+
+          // 6. Record Import
+          await supabase.from('woocommerce_imports').insert({
+            woocommerce_order_id: order.id,
+            order_number: order.number,
+            imported_at: new Date().toISOString()
+          });
+
+          results.imported++;
+
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`Failed to import order ${order.id}:`, msg);
+          results.errors.push(`Order ${order.id}: ${msg}`);
+        }
+      }
+
+      return new Response(JSON.stringify(results), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // ACTION: Sync Processing Orders (Auto-Run)
+    if (action === 'sync-processing') {
+      const auth = btoa(`${consumerKey}:${consumerSecret}`);
+      const page = 1;
+      const perPage = 20;
+
+      console.log(`[WooCommerce] Auto-syncing processing orders...`);
+
+      const response = await fetch(`${storeUrl}/wp-json/wc/v3/orders?status=processing&page=${page}&per_page=${perPage}`, {
+        headers: { 'Authorization': `Basic ${auth}` }
+      });
+
+      if (!response.ok) {
+        throw new Error(`WooCommerce API error: ${response.status} ${response.statusText}`);
+      }
+
+      const orders = await response.json();
+      const results = {
+        total: orders.length,
+        imported: 0,
+        skipped: 0,
+        errors: [] as string[]
+      };
+
+      for (const order of orders) {
+        try {
+          // 1. Check if already imported AND still exists in orders table
+          // First check if order exists in orders table
+          const { data: existingOrder } = await supabase
+            .from('orders')
+            .select('id')
+            .eq('woo_order_id', order.id)
+            .maybeSingle();
+
+          if (existingOrder) {
+            // Order exists in system, skip
+            results.skipped++;
+            continue;
+          }
+
+          // Also check woocommerce_imports to avoid re-creating if import record exists
+          // but only if the order still exists (checked above)
+          const { data: importRecord } = await supabase
+            .from('woocommerce_imports')
+            .select('id')
+            .or(`woocommerce_order_id.eq.${order.id},order_number.eq.${order.number}`)
+            .maybeSingle();
+
+          // If import record exists but order doesn't, clean up the orphaned record
+          if (importRecord && !existingOrder) {
+            await supabase
+              .from('woocommerce_imports')
+              .delete()
+              .eq('id', importRecord.id);
+            console.log(`Cleaned orphaned import record for order ${order.id}`);
+          }
+
+          // 2. Find Assignable User (by Billing Email)
+          let assignedUserId = null;
+          if (order.billing?.email) {
+            const { data: profile } = await supabase
+              .from('profiles')
+              .select('user_id')
+              .eq('email', order.billing.email)
+              .maybeSingle();
+
+            if (profile) assignedUserId = profile.user_id;
+          }
+
+          // 3. Prepare Order Data
+          const orderData = {
+            order_id: normalizeOrderNumber(order.number || order.id),
+            woo_order_id: order.id,
+            total_amount: parseFloat(order.total),
+            status: 'new_order',
+            payment_status: 'pending',
+            customer_name: `${order.billing.first_name} ${order.billing.last_name}`.trim(),
+            customer_email: order.billing.email,
+            customer_phone: order.billing.phone,
+            assigned_to: assignedUserId,
+            assigned_department: 'sales',
+            shipping_address: buildFullAddress(order.shipping),
+            billing_address: buildFullAddress(order.billing),
+            is_from_woocommerce: true,
+            dispatch_info: {},
+            shipping_method: 'pickup'
+          };
+
+          // 4. Insert Order
+          const { data: insertedOrder, error: insertError } = await supabase
+            .from('orders')
+            .insert(orderData)
+            .select()
+            .single();
+
+          if (insertError) throw insertError;
+
+          // 5. Insert Items
+          const items = order.line_items.map((item: any) => ({
+            order_id: insertedOrder.id,
+            product_name: item.name,
+            quantity: item.quantity,
+            unit_price: item.price,
+            total_price: item.total,
+            sku: item.sku,
+            status: 'new_order',
+            assigned_department: 'sales',
+            priority: 'normal'
+          }));
+
+          if (items.length > 0) {
+            const { error: itemsError } = await supabase
+              .from('order_items')
+              .insert(items);
+            if (itemsError) throw itemsError;
+          }
+
+          // 6. Record Import
+          await supabase.from('woocommerce_imports').insert({
+            woocommerce_order_id: order.id,
+            order_number: order.number,
+            imported_at: new Date().toISOString()
+          });
+
+          results.imported++;
+
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`Failed to import order ${order.id}:`, msg);
+          results.errors.push(`Order ${order.id}: ${msg}`);
+        }
+      }
+
+      return new Response(JSON.stringify(results), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // ACTION: Fetch Single Order by Number (for Create Order Dialog)
+    if (action === 'order-by-number') {
+      const { orderNumber } = body;
+
+      if (!orderNumber) {
+        return new Response(JSON.stringify({
+          error: 'orderNumber is required'
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`[WooCommerce] Fetching order by number: ${orderNumber}`);
+
+      const auth = btoa(`${consumerKey}:${consumerSecret}`);
+
+      try {
+        // Try to fetch by order number first
+        let response = await fetch(`${storeUrl}/wp-json/wc/v3/orders?number=${orderNumber}`, {
+          headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        if (!response.ok) {
+          throw new Error(`WooCommerce API error: ${response.status} ${response.statusText}`);
+        }
+
+        let orders = await response.json();
+
+        // If not found by number, try fetching by ID directly
+        if (!orders || orders.length === 0) {
+          console.log(`[WooCommerce] Order not found by number, trying by ID: ${orderNumber}`);
+          response = await fetch(`${storeUrl}/wp-json/wc/v3/orders/${orderNumber}`, {
+            headers: { 'Authorization': `Basic ${auth}` }
+          });
+
+          if (response.ok) {
+            const order = await response.json();
+            if (order && order.id) {
+              orders = [order]; // Wrap single order in array for consistent processing
+            }
+          }
+        }
+
+        if (orders && orders.length > 0) {
+          const order = orders[0];
+
+          // Format the order data for frontend
+          const formattedOrder = {
+            found: true,
+            order: {
+              id: order.id,
+              order_number: order.number,
+              status: order.status,
+              payment_status: order.payment_method_title || 'pending',
+              order_total: order.total,
+              currency: order.currency,
+              order_date: order.date_created,
+              customer_id: order.customer_id,
+              customer_name: `${order.billing.first_name} ${order.billing.last_name}`.trim(),
+              customer_email: order.billing.email,
+              customer_phone: order.billing.phone,
+              billing_address: `${order.billing.address_1} ${order.billing.address_2}`.trim(),
+              billing_city: order.billing.city,
+              billing_state: order.billing.state,
+              billing_pincode: order.billing.postcode,
+              shipping_address: `${order.shipping.address_1} ${order.shipping.address_2}`.trim(),
+              line_items: order.line_items.map((item: any) => ({
+                name: item.name,
+                quantity: item.quantity,
+                price: item.price,
+                total: item.total,
+                sku: item.sku,
+                meta_data: item.meta_data
+              }))
+            }
+          };
+
+          return new Response(JSON.stringify(formattedOrder), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        } else {
+          return new Response(JSON.stringify({
+            found: false,
+            message: 'No WooCommerce order found. You can create a manual order.'
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+      } catch (error: any) {
+        console.error('[WooCommerce] Order fetch error:', error);
+        return new Response(JSON.stringify({
+          error: error.message || 'Failed to fetch order from WooCommerce'
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
     if (action === 'import-orders') {
       // Import selected WooCommerce orders into Supabase
       const { order_ids } = body; // Array of WooCommerce order IDs to import
@@ -598,6 +994,8 @@ serve(async (req: Request) => {
           const apiUrl = `${storeUrl}/wp-json/wc/v3/orders/${idStr}`;
           const auth = btoa(`${consumerKey}:${consumerSecret}`);
 
+
+
           const response = await fetch(apiUrl, {
             method: 'GET',
             headers: {
@@ -622,6 +1020,21 @@ serve(async (req: Request) => {
           if (existingOrder) {
             console.log(`Order ${idStr} already imported (ID: ${existingOrder.order_id})`);
             return { error: `Order ${idStr}: Already imported (Order ID: ${existingOrder.order_id})` };
+          }
+
+          // Also check and clean orphaned import records
+          const { data: importRecord } = await adminSupabase
+            .from('woocommerce_imports')
+            .select('id')
+            .or(`woocommerce_order_id.eq.${idStr},order_number.eq.${wooOrder.number}`)
+            .maybeSingle();
+
+          if (importRecord && !existingOrder) {
+            await adminSupabase
+              .from('woocommerce_imports')
+              .delete()
+              .eq('id', importRecord.id);
+            console.log(`Cleaned orphaned import record for order ${idStr}`);
           }
 
           // FIX: Use numeric order ID only (no WC- prefix)
