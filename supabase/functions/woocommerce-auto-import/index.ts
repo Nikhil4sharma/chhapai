@@ -175,12 +175,27 @@ serve(async (req: Request) => {
 
                 // Find assigned user by customer email
                 let assignedUserId = null;
-                if (wooOrder.billing?.email) {
-                    const { data: profile } = await supabase
+                const customerEmail = wooOrder.billing?.email?.toLowerCase() || '';
+
+                if (customerEmail) {
+                    // 1. Try strict profile matches first (Standard)
+                    let { data: profile } = await supabase
                         .from('profiles')
                         .select('user_id')
-                        .ilike('email', wooOrder.billing.email)
+                        .ilike('email', customerEmail)
                         .maybeSingle();
+
+                    // 2. Manual Mappings (Overrides/Fallbacks)
+                    if (!profile) {
+                        if (customerEmail.includes('chd+1@chhapai.in')) {
+                            const { data: nikhil } = await supabase.from('profiles').select('user_id').ilike('full_name', '%Nikhil Sharma%').limit(1).maybeSingle();
+                            profile = nikhil;
+                        }
+                        else if (customerEmail.includes('work@chhapai.in')) {
+                            const { data: jaskaran } = await supabase.from('profiles').select('user_id').ilike('full_name', '%Jaskaran%').limit(1).maybeSingle();
+                            profile = jaskaran;
+                        }
+                    }
 
                     if (profile) assignedUserId = profile.user_id;
                 }

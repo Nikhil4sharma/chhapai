@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Package, Trash2, Plus, X } from 'lucide-react';
-import { PaperSelector } from '@/features/inventory/components/PaperSelector';
+
 import { ProductItem as ProductItemType } from './types';
 import { DEFAULT_SPEC_KEYS } from './utils';
 
@@ -119,45 +119,7 @@ export function ProductItem({
                         />
                     </div>
 
-                    {/* Material Selection (Inventory) */}
-                    <div className="sm:col-span-12 space-y-3 rounded-xl p-4 bg-slate-50/50 dark:bg-slate-900/30 border border-slate-100 dark:border-slate-800/50">
-                        <div className="flex items-center gap-2 mb-1">
-                            <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
-                            <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Inventory Allocation</span>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <div className="space-y-1.5">
-                                <Label htmlFor={`paper_${index}`} className="text-xs font-semibold text-slate-600 dark:text-slate-400">Select Paper Material</Label>
-                                <PaperSelector
-                                    value={product.paperId}
-                                    requiredQty={product.paperRequired || 0}
-                                    onSelect={(paper) => {
-                                        updateProduct(index, 'paperId', paper?.id);
-                                    }}
-                                />
-                            </div>
-                            <div className="space-y-1.5">
-                                <Label htmlFor={`paper_qty_${index}`} className="text-xs font-semibold text-slate-600 dark:text-slate-400">Est. Sheets Required</Label>
-                                <div className="relative">
-                                    <Input
-                                        id={`paper_qty_${index}`}
-                                        type="number"
-                                        min="0"
-                                        placeholder="0"
-                                        value={product.paperRequired || ''}
-                                        onChange={(e) => updateProduct(index, 'paperRequired', parseInt(e.target.value) || 0)}
-                                        disabled={!product.paperId}
-                                        className="h-10 border-slate-200 dark:border-slate-800 focus:ring-amber-500 focus:border-amber-500 transition-all font-mono"
-                                    />
-                                    {product.paperId && (
-                                        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-amber-600 dark:text-amber-400">
-                                            SHEETS
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+
                 </div>
 
                 {/* Specifications */}

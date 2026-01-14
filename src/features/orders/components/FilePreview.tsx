@@ -277,8 +277,8 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     return [...files].sort((a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime());
   }, [files]);
 
-  // Split logic: Show max 4 latest, rest in history
-  const MAX_VISIBLE = 4;
+  // Split logic: Show ONLY 1 latest, rest in history
+  const MAX_VISIBLE = 1;
   const recentFiles = sortedFiles.slice(0, MAX_VISIBLE);
   const olderFiles = sortedFiles.slice(MAX_VISIBLE);
 

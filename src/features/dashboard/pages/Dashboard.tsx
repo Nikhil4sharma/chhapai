@@ -9,6 +9,7 @@ import { OrderCard } from '@/features/orders/components/OrderCard';
 import { ProductCard } from '@/features/orders/components/ProductCard';
 import { useOrders } from '@/features/orders/context/OrderContext';
 import { useAuth } from '@/features/auth/context/AuthContext';
+import { Order, OrderItem } from '@/types/order';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -63,6 +64,40 @@ export default function Dashboard() {
   const [activePage, setActivePage] = useState(1);
   const [urgentPage, setUrgentPage] = useState(1);
   const [completedPage, setCompletedPage] = useState(1);
+
+  // -- FILTERS STATE --
+  const [filterDept, setFilterDept] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterUser, setFilterUser] = useState<string>('all');
+
+  // Derive unique users for filter dropdown
+  const uniqueUsers = useMemo(() => {
+    const users = new Map<string, string>();
+    allOrders.forEach(o => {
+      if (o.assigned_user && o.assigned_user_name) users.set(o.assigned_user, o.assigned_user_name);
+    });
+    return Array.from(users.entries());
+  }, [allOrders]);
+
+  // Helper to apply filters
+  const applyFilters = (products: { order: Order; item: OrderItem }[]) => {
+    return products.filter(({ order, item }) => {
+      // Department Filter
+      if (filterDept !== 'all') {
+        const d = filterDept.toLowerCase();
+        // Check assigned_department, current_stage, or dim item.department
+        const matches = (item.assigned_department || '').toLowerCase() === d ||
+          (item.current_stage || '').toLowerCase() === d;
+        if (!matches) return false;
+      }
+      // Status Filter
+      if (filterStatus !== 'all' && item.status !== filterStatus) return false;
+      // User Filter (Manager)
+      if (filterUser !== 'all' && order.assigned_user !== filterUser) return false;
+
+      return true;
+    });
+  };
 
   // Sort and filter state
   const [sortBy, setSortBy] = useState<SortOption>('newest');
@@ -643,7 +678,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          <Tabs defaultValue={role === 'design' ? "in_progress" : "active"} className="w-full">
+          <Tabs defaultValue={role === 'sales' ? "my_orders" : (role === 'design' ? "in_progress" : "active")} className="w-full">
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
               <TabsList className="bg-slate-100 dark:bg-slate-800 p-1 rounded-full overflow-x-auto max-w-full flex-wrap justify-start h-auto min-h-[40px]">
                 {role === 'design' ? (
@@ -655,6 +690,14 @@ export default function Dashboard() {
                     <TabsTrigger value="completed" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">Completed</TabsTrigger>
                     <TabsTrigger value="all" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">All Active</TabsTrigger>
                   </>
+                ) : role === 'sales' ? (
+                  <>
+                    <TabsTrigger value="my_orders" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">My Orders</TabsTrigger>
+                    <TabsTrigger value="all_orders" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">All Orders</TabsTrigger>
+                    <TabsTrigger value="ready_for_dispatch" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">Ready to Dispatch</TabsTrigger>
+                    <TabsTrigger value="urgent" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm text-red-500 data-[state=active]:text-red-600 transition-all duration-200">Urgent</TabsTrigger>
+                    <TabsTrigger value="completed" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm transition-all duration-200">Completed</TabsTrigger>
+                  </>
                 ) : (
                   <>
                     <TabsTrigger value="active" className="rounded-full px-4 data-[state=active]:bg-white dark:data-[state=active]:bg-slate-700 shadow-sm">Active</TabsTrigger>
@@ -665,7 +708,58 @@ export default function Dashboard() {
               </TabsList>
 
               {/* Sort/Filter Controls - Compact */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+
+                {/* Department Filter (Sales/Admin) */}
+                {(isAdmin || role === 'sales') && (
+                  <Select value={filterDept} onValueChange={setFilterDept}>
+                    <SelectTrigger className="w-[120px] h-9 rounded-full text-xs font-medium border-slate-200 dark:border-slate-800">
+                      <Filter className="h-3 w-3 mr-2 opacity-50" />
+                      <SelectValue placeholder="Dept" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Depts</SelectItem>
+                      <SelectItem value="sales">Sales</SelectItem>
+                      <SelectItem value="design">Design</SelectItem>
+                      <SelectItem value="prepress">Prepress</SelectItem>
+                      <SelectItem value="production">Production</SelectItem>
+                      <SelectItem value="dispatch">Dispatch</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
+
+                {/* Status Filter */}
+                <Select value={filterStatus} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="w-[120px] h-9 rounded-full text-xs font-medium border-slate-200 dark:border-slate-800">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="new_order">New Order</SelectItem>
+                    <SelectItem value="design_in_progress">Design</SelectItem>
+                    <SelectItem value="prepress_in_progress">Prepress</SelectItem>
+                    <SelectItem value="production_in_progress">Production</SelectItem>
+                    <SelectItem value="ready_for_dispatch">Ready to Dispatch</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {/* User/Manager Filter (Sales/Admin) */}
+                {(isAdmin || role === 'sales') && (
+                  <Select value={filterUser} onValueChange={setFilterUser}>
+                    <SelectTrigger className="w-[120px] h-9 rounded-full text-xs font-medium border-slate-200 dark:border-slate-800">
+                      <User className="h-3 w-3 mr-2 opacity-50" />
+                      <SelectValue placeholder="Manager" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Managers</SelectItem>
+                      {uniqueUsers.map(([id, name]) => (
+                        <SelectItem key={id} value={id}>{name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
                 <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
                   <SelectTrigger className="w-[140px] h-9 rounded-full text-xs font-medium border-slate-200 dark:border-slate-800">
                     <ArrowUpDown className="h-3 w-3 mr-2 opacity-50" />
@@ -707,7 +801,11 @@ export default function Dashboard() {
                   {/* Assigned to Me */}
                   <TabsContent value="assigned_to_me" className="h-full">
                     <ProductGrid
-                      products={processedProducts.filter(({ item }) => item.assigned_to === user?.id)}
+                      products={processedProducts.filter(({ item }) =>
+                        item.assigned_to === user?.id &&
+                        item.status !== 'completed' &&
+                        item.current_stage === 'design'
+                      )}
                       page={activePage}
                       setPage={setActivePage}
                       emptyMessage="No active designs assigned to you"
@@ -727,7 +825,16 @@ export default function Dashboard() {
                   {/* Completed */}
                   <TabsContent value="completed" className="h-full">
                     <ProductGrid
-                      products={completedProducts}
+                      products={allOrders.flatMap(o => o.items.filter(i =>
+                        // Include items where Design is done (stage > design) OR global order completed
+                        (
+                          ['prepress', 'production', 'dispatch', 'outsource'].includes(i.current_stage) ||
+                          o.is_completed ||
+                          i.status === 'completed' ||
+                          i.current_stage === 'completed'
+                        ) &&
+                        (i.need_design || i.assigned_department === 'design') // Ensure it was a design task
+                      ).map(i => ({ order: o, item: i }))).sort((a, b) => new Date(b.order.created_at).getTime() - new Date(a.order.created_at).getTime())}
                       page={completedPage}
                       setPage={setCompletedPage}
                       emptyMessage="No completed designs history"
@@ -744,8 +851,68 @@ export default function Dashboard() {
                     />
                   </TabsContent>
                 </>
+              ) : role === 'sales' ? (
+                /* SALES DASHBOARD CONTENT */
+                <>
+                  {/* My Orders: Assigned to current user */}
+                  <TabsContent value="my_orders" className="h-full">
+                    <ProductGrid
+                      products={applyFilters(allOrders
+                        .filter(o => !o.is_completed && o.assigned_user === user?.id)
+                        .flatMap(o => o.items.map(i => ({ order: o, item: i }))))}
+                      page={activePage}
+                      setPage={setActivePage}
+                      emptyMessage="No active orders assigned to you"
+                    />
+                  </TabsContent>
+
+                  {/* All Orders: All Active orders */}
+                  <TabsContent value="all_orders" className="h-full">
+                    <ProductGrid
+                      products={applyFilters(allOrders
+                        .filter(o => !o.is_completed)
+                        .flatMap(o => o.items.map(i => ({ order: o, item: i }))))}
+                      page={activePage}
+                      setPage={setActivePage}
+                      emptyMessage="No active orders found"
+                    />
+                  </TabsContent>
+
+                  {/* Ready to Dispatch */}
+                  <TabsContent value="ready_for_dispatch" className="h-full">
+                    <ProductGrid
+                      products={applyFilters(allOrders.flatMap(o => o.items.filter(i =>
+                        (i.current_stage === 'production' && i.status === 'ready_for_dispatch') ||
+                        i.current_stage === 'dispatch'
+                      ).map(i => ({ order: o, item: i }))))}
+                      page={activePage}
+                      setPage={setActivePage}
+                      emptyMessage="No orders ready for dispatch"
+                    />
+                  </TabsContent>
+
+                  {/* Urgent (Sales view) */}
+                  <TabsContent value="urgent" className="h-full">
+                    <ProductGrid
+                      products={applyFilters(urgentProducts)}
+                      page={urgentPage}
+                      setPage={setUrgentPage}
+                      emptyMessage="No urgent items"
+                    />
+                  </TabsContent>
+
+                  {/* Completed (Sales view) */}
+                  <TabsContent value="completed" className="h-full">
+                    <ProductGrid
+                      products={applyFilters(completedProducts)}
+                      page={completedPage}
+                      setPage={setCompletedPage}
+                      emptyMessage="No completed orders history"
+                    />
+                  </TabsContent>
+                </>
               ) : (
-                // STANDARD DASHBOARD CONTENT
+                // STANDARD DASHBOARD CONTENT (Admin / Production / Helper)
                 <>
                   <TabsContent value="active" className="h-full">
                     <ProductGrid

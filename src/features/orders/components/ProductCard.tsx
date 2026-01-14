@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import {
   Calendar, Image as ImageIcon, Eye, User, Building2,
@@ -33,6 +34,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { OrderTimeline } from '@/features/orders/components/OrderTimeline';
 import { AddNoteDialog } from '@/components/dialogs/AddNoteDialog';
 import { workflowService } from '@/services/workflowService';
+import { useWorkflow } from '@/contexts/WorkflowContext';
+import { ProcessOrderDialog } from '@/components/dialogs/ProcessOrderDialog';
+import { ProductionHandoffDialog } from './ProductionHandoffDialog';
+import { updateItemSpecifications } from '@/features/orders/services/supabaseOrdersService';
 
 interface ProductCardProps {
   order: Order;
@@ -41,44 +46,32 @@ interface ProductCardProps {
   productSuffix?: string;
 }
 
-/* New import */
-import { useWorkflow } from '@/contexts/WorkflowContext';
-
-import { ProcessOrderDialog } from '@/components/dialogs/ProcessOrderDialog';
-
 export function ProductCard({ order, item, className, productSuffix }: ProductCardProps) {
-  const { user, isAdmin, role } = useAuth(); // profile not used
+  const { user, isAdmin, role } = useAuth();
   const navigate = useNavigate();
   const {
     assignToUser,
     uploadFile,
-    updateItemStage, // Conserved for legacy or specific overrides
     assignToOutsource,
     refreshOrders,
-    deleteOrder,
     getTimelineForOrder,
-    addNote,
-    startSubstage,
-    completeSubstage,
-    sendToProduction
+    addNote
   } = useOrders();
 
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [noteDialogOpen, setNoteDialogOpen] = useState(false);
-
-  // Dialog states
   const [assignUserDialogOpen, setAssignUserDialogOpen] = useState(false);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [designBriefOpen, setDesignBriefOpen] = useState(false);
   const [outsourceDialogOpen, setOutsourceDialogOpen] = useState(false);
   const [processDialogOpen, setProcessDialogOpen] = useState(false);
-  const [dialogActionType, setDialogActionType] = useState<'process' | 'approve' | 'reject'>('process');
+  const [productionHandoffOpen, setProductionHandoffOpen] = useState(false);
+  const [dialogActionType, setDialogActionType] = useState<'process' | 'approve' | 'reject' | 'send_for_approval'>('process');
 
-  // Workflow: Get Status Config & Available Actions
-  const currentDept = item.department || item.current_stage || 'sales';
-  const { config, productionStages } = useWorkflow(); // Get dynamic config and stages
+  // State to control which department users to show in Assign Dialog
+  const [targetAssignDept, setTargetAssignDept] = useState<string | null>(null);
 
-  // PASS CONFIG HERE
+  const { config, productionStages } = useWorkflow();
   const statusConfig = workflowService.getStatusConfig(item, config);
   const actions = useMemo(() => {
     return workflowService.getAvailableActions(item, role as UserRole, config);
@@ -87,63 +80,114 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
   const handleWorkflowAction = async (actionId: string) => {
     if (!order.id || !user?.id) return;
     try {
-      // Handle actions that require specific Dialogs
-      if (actionId === 'assign_design' || actionId === 'assign_prepress' || actionId === 'assign_production') {
-        // If the action implies a department move, we can just move it. 
-        // But if we want to assign a USER, we might show a dialog.
-        // For now, let's just move the product using the Service.
-        // The Service will handle the Department change.
-      }
-
-      // Some actions might need data input (like Assign Outsource)
       if (actionId === 'assign_outsource') {
         setOutsourceDialogOpen(true);
         return;
       }
-
       if (actionId === 'process_order' || actionId === 'assign_design') {
-        // Open the comprehensive Process Dialog for these major moves
         setProcessDialogOpen(true);
         return;
       }
-
-      if (actionId === 'assign_user') { // Hypothetical action if we added it to workflow
+      if (actionId === 'assign_user') {
         setAssignUserDialogOpen(true);
         return;
       }
 
-      // Default: Execute Move
       await workflowService.moveProduct(
         order.id,
         item.item_id,
         actionId,
         user.id,
-        'Current User', // TODO: Get name
-        config, // Pass config
+        'Current User',
+        config,
         ''
       );
 
       await refreshOrders();
       toast({ title: 'Success', description: 'Product status updated' });
-
     } catch (error) {
       console.error('Workflow Action Failed:', error);
       toast({ title: 'Error', description: 'Failed to update status', variant: 'destructive' });
     }
   };
 
+  const handleQuickSendForApproval = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!order.id || !item.item_id) return;
+
+    try {
+      const notes = "Sent for client approval";
+      const targetDept = 'sales';
+      const targetStatus = 'pending_for_customer_approval'; // Or 'pending_client_approval' based on config?
+      const assignedUser = order.assigned_user;
+
+      const { error: updateError } = await supabase
+        .from('order_items')
+        .update({
+          status: targetStatus,
+          current_stage: targetDept,
+          assigned_department: targetDept,
+          assigned_to: assignedUser,
+          previous_department: item.assigned_department || 'design',
+          previous_assigned_to: user?.id || null,
+          updated_at: new Date().toISOString(),
+          last_workflow_note: notes
+        })
+        .eq('id', item.item_id);
+
+      if (updateError) throw updateError;
+
+      await supabase.from('timeline').insert({
+        order_id: order.id,
+        item_id: item.item_id,
+        product_name: item.product_name,
+        stage: targetDept,
+        action: 'status_changed',
+        performed_by: user?.id,
+        performed_by_name: 'Current User',
+        notes: `[Auto-Forward] ${notes}\nAssigned to Manager: ${order.assigned_user_name || 'Sales Team'}`
+      });
+
+      await refreshOrders();
+      toast({
+        title: 'Sent for Approval',
+        description: `Item sent to Sales${order.assigned_user_name ? ` (${order.assigned_user_name})` : ''} for approval.`
+      });
+
+    } catch (error) {
+      console.error('Quick Approval Failed:', error);
+      toast({ title: 'Error', description: 'Failed to send for approval', variant: 'destructive' });
+    }
+  };
+
+  const handleHandoffToPrepress = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setTargetAssignDept('prepress');
+    setAssignUserDialogOpen(true);
+  };
+
+  const handleDesignComplete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    await handleWorkflowAction('design_complete');
+  };
+
+
+  const handleHandoffToProduction = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setProductionHandoffOpen(true);
+  };
+
+  const handleOutsourceClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOutsourceDialogOpen(true);
+  };
 
   const handleOrderClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     navigate(`/orders/${order.order_id}`);
   };
 
-  // Status Badge Logic
-  // Status Badge Logic
-  // Status Badge Logic
   let statusLabel = statusConfig?.label || item.status?.replace(/_/g, ' ') || 'Unknown';
-
-  // OVERRIDE: If in Production, show the current Sub-stage Name as status
   const isProduction = item.department === 'production' || item.current_stage === 'production';
   if (isProduction && item.current_substage) {
     const stageLabel = productionStages.find(s => s.key === item.current_substage)?.label || item.current_substage;
@@ -157,26 +201,12 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
   } else if (item.status === 'new_order' || isPendingApproval) {
     statusColor = 'bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800';
   } else {
-    // Default / In Progress (Blue)
     statusColor = 'bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800';
   }
-
-  // Current production substage label (Dynamic support)
-  const currentSubstageLabel = useMemo(() => {
-    if (!item.current_substage) return null;
-    // Try to find in dynamic productionStages first
-    const dynamicStage = productionStages.find(s => s.key === item.current_substage);
-    if (dynamicStage) return dynamicStage.label;
-
-    // Fallback to static list
-    const staticStage = PRODUCTION_STEPS.find(s => s.key === item.current_substage);
-    return staticStage?.label || item.current_substage;
-  }, [item.current_substage, productionStages]);
 
   return (
     <TooltipProvider>
       <Card className={cn("transition-all overflow-hidden border border-border/70 bg-card", className)}>
-        {/* Priority bar */}
         <div
           className={cn(
             "h-1 w-full",
@@ -188,7 +218,6 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
 
         <CardContent className="p-3">
           <div className="flex flex-col gap-3">
-            {/* Header */}
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-center gap-2 flex-wrap">
                 <button
@@ -206,32 +235,30 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   </Badge>
                 )}
 
-                {/* Visual Department Badge */}
                 <Badge variant="outline" className="uppercase tracking-wide text-[10px] px-2 py-1 flex items-center gap-1">
-                  {/* Add Icons based on Department? */}
                   {item.department || item.current_stage}
                 </Badge>
 
-                {/* Status Badge */}
                 <Badge className={cn("text-[11px] px-2 py-1", statusColor)}>
                   {statusLabel}
                 </Badge>
               </div>
             </div>
 
-            {/* Title */}
             <div className="flex flex-wrap items-center gap-2">
               <h3 className="font-semibold text-lg text-foreground leading-tight">
                 {item.product_name}
               </h3>
             </div>
 
-            {/* Info grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Quantity</p>
-                <p className="font-medium text-base">{item.quantity}</p>
-              </div>
+              {role !== 'design' && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Quantity</p>
+                  <p className="font-medium text-base">{item.quantity}</p>
+                </div>
+              )}
+
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Delivery</p>
                 <div className="flex items-center gap-2">
@@ -243,12 +270,38 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               </div>
             </div>
 
-            {/* Specifications */}
-            <div className="bg-muted/40 border border-border/60 rounded-md p-3">
-              <ProductSpecifications item={item} compact />
-            </div>
+            {/* Design Specific: Last Workflow Note (Apple Style) */}
+            {role === 'design' && item.last_workflow_note && (
+              <div className="mt-4 group relative overflow-hidden rounded-2xl bg-gradient-to-br from-orange-50/80 to-amber-50/50 dark:from-orange-950/20 dark:to-amber-950/10 border border-orange-100/60 dark:border-orange-900/30 p-4 transition-all hover:shadow-md">
+                <div className="flex gap-3.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/80 dark:bg-white/5 shadow-sm ring-1 ring-orange-200/50 dark:ring-orange-800/30 backdrop-blur-md">
+                    <AlertCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                  </div>
+                  <div className="space-y-1.5 pt-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-orange-800/70 dark:text-orange-200/70">
+                        Design Instruction
+                      </span>
+                      <span className="h-1 w-1 rounded-full bg-orange-400/50" />
+                      <span className="text-[10px] text-orange-700/50 dark:text-orange-300/50">
+                        From Sales
+                      </span>
+                    </div>
+                    <p className="text-[13px] leading-relaxed font-medium text-orange-950 dark:text-orange-50/90">
+                      {item.last_workflow_note}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
 
-            {/* Assigned user info */}
+            {/* Specifications - Hidden for Design */}
+            {role !== 'design' && (
+              <div className="bg-muted/40 border border-border/60 rounded-md p-3">
+                <ProductSpecifications item={item} compact />
+              </div>
+            )}
+
             <div className="flex items-center gap-3 flex-wrap text-xs pt-1">
               <div className="flex items-center gap-1.5 py-1 px-2 bg-muted/30 rounded-full border border-border/40">
                 <User className="h-3.5 w-3.5 text-muted-foreground" />
@@ -262,7 +315,6 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               </div>
             </div>
 
-            {/* Outsource Info */}
             {item.outsource_info && (
               <div className="p-2 bg-secondary/50 rounded text-xs border border-border/60">
                 <div className="flex items-center gap-1 mb-1">
@@ -272,7 +324,6 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               </div>
             )}
 
-            {/* File Thumbnails */}
             <div className="pt-2 border-t border-border/40">
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1">
                 <FilePreview
@@ -288,14 +339,9 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               </div>
             </div>
 
-            {/* Workflow Actions */}
             <div className="flex flex-col gap-3 pt-2 border-t border-border/40">
 
-              {/* Primary Workflow Actions */}
               <div className="flex flex-wrap gap-2">
-                {/* Manual Process Button - Always visible for authorized users? Or only if allowed actions exist? */}
-                {/* User asked for "Process Button". Let's verify permission first. Sales/Admin usually. */}
-                {/* Approve/Reject Buttons for Sales (when pending approval) */}
                 {isPendingApproval && (isAdmin || role === 'sales') && (
                   <div className="flex gap-2.5 w-full pt-1">
                     <Button
@@ -325,54 +371,126 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   </div>
                 )}
 
-                {(role === 'sales' || isAdmin || role === item.assigned_department || role === item.current_stage || actions.length > 0) && item.status !== 'completed' && item.current_stage !== 'completed' && !isPendingApproval && (
-                  <Button
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDialogActionType('process');
-                      setProcessDialogOpen(true);
-                    }}
-                    className={cn(
-                      "text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9",
-                      item.status === 'rejected' && role === 'design'
-                        ? "bg-red-600 hover:bg-red-700 text-white"
-                        : item.status === 'approved' && role === 'design'
-                          ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                          : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
-                    )}
-                  >
-                    {item.status === 'rejected' && role === 'design' ? (
-                      <><RotateCcw className="w-4 h-4 mr-2" /> Revision</>
-                    ) : item.status === 'approved' && role === 'design' ? (
-                      <><ArrowRight className="w-4 h-4 mr-2" /> Handoff to Prepress</>
-                    ) : (
-                      // Dynamic Production Label
-                      isProduction && item.current_substage && item.substage_status ? (
-                        <>
-                          {item.substage_status === 'in_progress' ? <CheckCircle className="w-3 h-3 mr-1.5" /> : <Play className="w-3 h-3 mr-1.5" />}
-                          {item.substage_status === 'in_progress' ? `Complete ${statusLabel}` : `Start ${statusLabel}`}
-                        </>
-                      ) : (
-                        <><Play className="w-3 h-3 mr-1.5" /> Process</>
-                      )
-                    )}
-                  </Button>
-                )}
+                {(() => {
+                  const canShowAction = (role === 'sales' || isAdmin || role === item.assigned_department || role === item.current_stage || actions.length > 0) && item.status !== 'completed' && item.current_stage !== 'completed' && !isPendingApproval;
 
-                {/* Other Actions - Keep them or hide? User implies Process button handles everything. 
-                      Partial Hiding: If we have Process Button, maybe we don't need "Assign to Design".
-                      But "Assign to Outsource" is specific.
-                      Let's keeping them for now but give visual priority to Process.
-                   */}
-                {/* 
-                  {actions.map((action, idx) => ( ... ))}
-                   */}
+                  if (!canShowAction) return null;
+
+                  const isSendForApproval = (role === 'design' || role === 'prepress') && item.status !== 'approved' && item.status !== 'rejected';
+
+                  // Default Send for Approval button
+                  if (isSendForApproval) {
+                    return (
+                      <Button
+                        size="sm"
+                        onClick={handleQuickSendForApproval}
+                        className="text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9 bg-amber-600 hover:bg-amber-700 text-white"
+                      >
+                        <Send className="w-3 h-3 mr-1.5" /> Send for Approval
+                      </Button>
+                    );
+                  }
+
+                  // Design & Prepress - Rejected State (Revision)
+                  if ((role === 'design' || role === 'prepress') && item.status === 'rejected') {
+                    return (
+                      <Button
+                        size="sm"
+                        onClick={handleQuickSendForApproval}
+                        className="text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9 bg-red-600 hover:bg-red-700 text-white"
+                      >
+                        <RotateCcw className="w-4 h-4 mr-2" /> Revision
+                      </Button>
+                    );
+                  }
+
+                  // Design Role - Specific Buttons logic (Approved/Handoff)
+                  if (role === 'design') {
+                    if (item.status === 'approved') {
+                      return (
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={handleHandoffToPrepress}
+                            className="text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9 bg-indigo-600 hover:bg-indigo-700 text-white"
+                          >
+                            <ArrowRight className="w-4 h-4 mr-2" /> Handoff to Prepress
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={handleDesignComplete}
+                            className="text-xs flex-shrink-0 justify-start font-bold shadow-sm border border-border transition-all active:scale-95 rounded-full px-4 h-9"
+                          >
+                            <CheckCircle className="w-4 h-4 mr-2" /> Design Complete
+                          </Button>
+                        </div>
+                      );
+                    }
+                  }
+
+                  // Prepress Role - Specific Buttons logic (Approved)
+                  if (role === 'prepress' && item.status === 'approved') {
+                    return (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={handleHandoffToProduction}
+                          className="text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9 bg-orange-600 hover:bg-orange-700 text-white"
+                        >
+                          <ArrowRight className="w-4 h-4 mr-2" /> Send for Production
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleOutsourceClick}
+                          className="text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9 bg-pink-600 hover:bg-pink-700 text-white"
+                        >
+                          <Building2 className="w-4 h-4 mr-2" /> Send to Outsource
+                        </Button>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <Button
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDialogActionType('process');
+                        setProcessDialogOpen(true);
+                      }}
+                      className={cn(
+                        "text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9",
+                        item.status === 'rejected' && role === 'design'
+                          ? "bg-red-600 hover:bg-red-700 text-white"
+                          : item.status === 'approved' && role === 'design'
+                            ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                            : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
+                      )}
+                    >
+                      {item.status === 'rejected' && role === 'design' ? (
+                        <><RotateCcw className="w-4 h-4 mr-2" /> Revision</>
+                      ) : item.status === 'approved' && role === 'design' ? (
+                        <><ArrowRight className="w-4 h-4 mr-2" /> Handoff to Prepress</>
+                      ) : (
+                        isProduction && item.current_substage && item.substage_status ? (
+                          <>
+                            {item.substage_status === 'in_progress' ? <CheckCircle className="w-3 h-3 mr-1.5" /> : <Play className="w-3 h-3 mr-1.5" />}
+                            {item.substage_status === 'in_progress' ? `Complete ${statusLabel}` : `Start ${statusLabel}`}
+                          </>
+                        ) : (
+                          <><Play className="w-3 h-3 mr-1.5" /> Process</>
+                        )
+                      )}
+                    </Button>
+                  );
+                })()}
+
               </div>
 
               {/* Utility Toolbar */}
               <div className="flex items-center justify-start flex-wrap gap-2 relative z-20 pointer-events-auto">
-                {/* Dynamic Brief Button based on Department */}
+                {/* Brief - Visible for relevant stages (Design/Prepress/Production) */}
                 {['design', 'prepress', 'production'].includes(item.current_stage) && (
                   <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setDesignBriefOpen(true); }} className="h-8 px-3 text-xs">
                     <Palette className={cn(
@@ -385,23 +503,32 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   </Button>
                 )}
 
-                <Button variant="ghost" size="sm" onClick={handleOrderClick} className="h-8 px-3 text-xs">
-                  <Eye className="h-3 w-3 mr-1" /> View
-                </Button>
+                {/* View - Hidden for Design */}
+                {role !== 'design' && (
+                  <Button variant="ghost" size="sm" onClick={handleOrderClick} className="h-8 px-3 text-xs">
+                    <Eye className="h-3 w-3 mr-1" /> View
+                  </Button>
+                )}
 
+                {/* Upload - Visible for Everyone (including Design) */}
                 <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setUploadDialogOpen(true); }} className="h-8 px-3 text-xs">
                   <Upload className="h-3 w-3 mr-1" /> Upload
                 </Button>
 
-                <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setNoteDialogOpen(true); }} className="h-8 px-3 text-xs">
-                  <FileText className="h-3 w-3 mr-1" /> Note
-                </Button>
+                {/* Note - Hidden for Design */}
+                {role !== 'design' && (
+                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setNoteDialogOpen(true); }} className="h-8 px-3 text-xs">
+                    <FileText className="h-3 w-3 mr-1" /> Note
+                  </Button>
+                )}
 
-                <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setTimelineOpen(true); }} className="h-8 px-3 text-xs">
-                  <Clock className="h-3 w-3 mr-1" /> Timeline
-                </Button>
+                {/* Timeline - Hidden for Design */}
+                {role !== 'design' && (
+                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setTimelineOpen(true); }} className="h-8 px-3 text-xs">
+                    <Clock className="h-3 w-3 mr-1" /> Timeline
+                  </Button>
+                )}
 
-                {/* Explicit Assign User Button for Admin/Sales */}
                 {(isAdmin || role === 'sales') && (
                   <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setAssignUserDialogOpen(true); }} className="h-8 px-3 text-xs">
                     <User className="h-3 w-3 mr-1" /> Users
@@ -413,8 +540,106 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
         </CardContent>
       </Card>
 
-      {/* Keep Dialogs for Utilities */}
-      <AssignUserDialog open={assignUserDialogOpen} onOpenChange={setAssignUserDialogOpen} department={item.department || item.current_stage} currentUserId={item.assigned_to} onAssign={async (userId, userName) => { if (!order.id) return; await assignToUser(order.id, item.item_id, userId, userName); await refreshOrders(); }} />
+      <ProductionHandoffDialog
+        open={productionHandoffOpen}
+        onOpenChange={setProductionHandoffOpen}
+        productName={item.product_name}
+        orderId={order.order_id} // Display ID
+        onConfirm={async (data) => {
+          // 1. Save Paper if selected
+          if (data.paper) {
+            try {
+              await supabase.from('job_materials').insert({
+                job_id: order.id, // Use UUID
+                paper_id: data.paper.id,
+                sheets_allocated: item.quantity, // Default allocation
+                status: 'reserved',
+              });
+              toast({ title: 'Paper Allocated', description: `${data.paper.name} reserved.` });
+            } catch (err) {
+              console.error("Error allocating paper", err);
+              toast({ title: "Allocation Failed", variant: "destructive", description: "Could not reserve paper." });
+            }
+          }
+
+          // 2. Save Stages
+          if (data.stages.length > 0) {
+            try {
+              await updateItemSpecifications(order.id, item.item_id, { production_stages: data.stages });
+            } catch (err) {
+              console.error("Error saving stages", err);
+            }
+          }
+
+          // 3. Proceed to Assignment
+          setTargetAssignDept('production');
+          setAssignUserDialogOpen(true);
+        }}
+      />
+      <AssignUserDialog
+        open={assignUserDialogOpen}
+        onOpenChange={setAssignUserDialogOpen}
+        department={targetAssignDept || item.department || item.current_stage}
+        currentUserId={item.assigned_to}
+        onAssign={async (userId, userName) => {
+          if (!order.id) return;
+
+          const finish = async () => {
+            await refreshOrders();
+            setAssignUserDialogOpen(false);
+            setTargetAssignDept(null);
+            toast({ title: 'Assigned', description: `Assigned to ${userName}` });
+          };
+
+          if (!targetAssignDept) {
+            await assignToUser(order.id, item.item_id, userId, userName);
+            await finish();
+            return;
+          }
+
+          if (targetAssignDept === 'prepress') {
+            try {
+              await workflowService.moveProduct(
+                order.id,
+                item.item_id,
+                'assign_prepress',
+                user?.id || '',
+                'Current User',
+                config,
+                `Handoff to Prepress (Assigned to ${userName})`
+              );
+
+              await assignToUser(order.id, item.item_id, userId, userName);
+
+              toast({ title: 'Handoff Successful', description: `Moved to Prepress and assigned to ${userName}` });
+              await finish();
+            } catch (e) {
+              console.error("Handoff failed", e);
+              toast({ title: 'Handoff Failed', variant: 'destructive' });
+            }
+          } else if (targetAssignDept === 'production') {
+            try {
+              await workflowService.moveProduct(
+                order.id,
+                item.item_id,
+                'assign_production',
+                user?.id || '',
+                'Current User',
+                config,
+                `Handoff to Production (Assigned to ${userName})`
+              );
+
+              await assignToUser(order.id, item.item_id, userId, userName);
+
+              toast({ title: 'Handoff Successful', description: `Moved to Production and assigned to ${userName}` });
+              await finish();
+            } catch (e) {
+              console.error("Handoff to Production failed", e);
+              toast({ title: 'Handoff Failed', variant: 'destructive' });
+            }
+          }
+        }}
+      />
       <UploadFileDialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen} orderId={order.order_id} itemId={item.item_id} onUpload={async (file) => { await uploadFile(order.order_id, item.item_id, file); await refreshOrders(); }} />
       <Dialog open={timelineOpen} onOpenChange={setTimelineOpen}>
         <DialogContent className="max-w-3xl h-[70vh] flex flex-col">
@@ -425,7 +650,6 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
       <AddNoteDialog open={noteDialogOpen} onOpenChange={setNoteDialogOpen} onAdd={async (note) => { await addNote(order.order_id, note); await refreshOrders(); }} />
       {outsourceDialogOpen && <OutsourceAssignmentDialog open={outsourceDialogOpen} onOpenChange={setOutsourceDialogOpen} productName={item.product_name} quantity={item.quantity} onAssign={async (vendor, job) => { if (!order.id) return; await assignToOutsource(order.id, item.item_id, vendor, job); await refreshOrders(); setOutsourceDialogOpen(false); }} />}
 
-      {/* Process Dialog */}
       <ProcessOrderDialog open={processDialogOpen} onOpenChange={setProcessDialogOpen} order={order} item={item} actionType={dialogActionType} />
 
       <DesignBriefDialog

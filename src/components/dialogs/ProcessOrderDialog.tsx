@@ -54,7 +54,7 @@ interface ProcessOrderDialogProps {
     onOpenChange: (open: boolean) => void;
     order: Order;
     item: OrderItem;
-    actionType?: 'process' | 'approve' | 'reject';
+    actionType?: 'process' | 'approve' | 'reject' | 'send_for_approval';
 }
 
 export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType = 'process' }: ProcessOrderDialogProps) {
@@ -111,8 +111,13 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
             // Ready for Dispatch -> Dispatched
             else if (current === 'production' && status === 'ready_for_dispatch') {
                 targetDept = 'production';
-                targetStatus = 'dispatched'; // This triggers Finalize Mode in DispatchFlow?
-                // Actually if it's 'ready_for_dispatch', the next logical step is Dispatched.
+                targetStatus = 'dispatched';
+            }
+
+            // SPECIFIC ACTION LOGIC: Send for Approval
+            if (actionType === 'send_for_approval') {
+                targetDept = 'sales';
+                targetStatus = 'pending_for_customer_approval';
             }
             // SMART SELECTION: Default Statuses based on Destination
             if (targetDept === 'sales') {
@@ -129,7 +134,14 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
 
             setSelectedDept(targetDept);
             setSelectedStatus(targetStatus);
-            setSelectedUser(item.assigned_to || '');
+
+            // Auto-select User: If sending for approval, send to Order Manager (Sales Rep)
+            if (actionType === 'send_for_approval' && order.assigned_user) {
+                setSelectedUser(order.assigned_user);
+            } else {
+                setSelectedUser(item.assigned_to || '');
+            }
+
             setNotes('');
             setApprovalAction(null);
             setIsValid(true);
@@ -469,7 +481,8 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                                 actionType === 'reject' ? <XCircle className="w-5 h-5 text-red-600" /> :
                                     <Settings className="w-5 h-5 text-primary" />}
                             {actionType === 'approve' ? "Approve Design" :
-                                actionType === 'reject' ? "Reject & Revision" : "Process Order"}
+                                actionType === 'reject' ? "Reject & Revision" :
+                                    actionType === 'send_for_approval' ? "Send for Approval" : "Process Order"}
                             <span className="text-muted-foreground/40 font-light mx-1">/</span>
                             <span className="text-foreground/90 font-medium">{item.product_name}</span>
                         </DialogTitle>
@@ -733,7 +746,8 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                             <ScrollText className="w-3.5 h-3.5" />
                             {actionType === 'reject' ? "Requirements for Revision" :
                                 actionType === 'approve' ? "Approval Note / Feedback" :
-                                    `Instructions for ${selectedDept}`}
+                                    actionType === 'send_for_approval' ? "Note for Sales Team" :
+                                        `Instructions for ${selectedDept}`}
                         </Label>
                         <Textarea
                             value={notes}
@@ -765,7 +779,8 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                             <>
                                 <ArrowRight className="w-4 h-4 mr-2" />
                                 {actionType === 'approve' ? "Confirm Approval" :
-                                    actionType === 'reject' ? "Confirm Rejection" : "Confirm Move"}
+                                    actionType === 'reject' ? "Confirm Rejection" :
+                                        actionType === 'send_for_approval' ? "Send to Sales" : "Confirm Move"}
                             </>
                         )}
                     </Button>
