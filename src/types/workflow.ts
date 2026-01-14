@@ -1,4 +1,4 @@
-export type Department = 'sales' | 'design' | 'prepress' | 'production' | 'outsource';
+export type Department = 'sales' | 'design' | 'prepress' | 'production' | 'outsource' | 'dispatch';
 
 export type SalesStatus =
     | 'new_order'
@@ -26,6 +26,7 @@ export type OutsourceStatus =
 export type ProductionStatus =
     | 'production_in_progress'
     | 'ready_for_dispatch'
+    | 'dispatch_pending'
     | 'dispatched'
     | 'delivered';
 
@@ -210,6 +211,34 @@ export const WORKFLOW_CONFIG: Record<Department, DepartmentConfig> = {
                 label: 'Delivered',
                 allowedActions: [],
                 color: 'bg-gray-100 text-gray-800'
+            }
+        ]
+    },
+    dispatch: {
+        id: 'dispatch',
+        label: 'Dispatch',
+        statuses: [
+            {
+                value: 'ready_for_dispatch',
+                label: 'Ready for Dispatch',
+                allowedActions: [
+                    { id: 'mark_dispatched', label: 'Mark Dispatched', targetStatus: 'dispatched', style: 'primary' }
+                ],
+                color: 'bg-blue-100 text-blue-800'
+            },
+            {
+                value: 'dispatched',
+                label: 'Dispatched',
+                allowedActions: [
+                    { id: 'mark_delivered', label: 'Mark Delivered', targetStatus: 'delivered', style: 'success' }
+                ],
+                color: 'bg-indigo-100 text-indigo-800'
+            },
+            {
+                value: 'delivered',
+                label: 'Delivered',
+                allowedActions: [],
+                color: 'bg-green-100 text-green-800'
             }
         ]
     }

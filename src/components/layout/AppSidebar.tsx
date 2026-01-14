@@ -201,7 +201,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           icon: Truck,
           badge: badges.counts.dispatch,
           badgeVariant: badges.urgentCounts.dispatch > 0 ? 'priority-red' : 'default',
-          roles: ['admin', 'dispatch', 'sales', 'super_admin']
+          roles: ['admin', 'dispatch', 'sales', 'production', 'super_admin']
         },
       ]
     },

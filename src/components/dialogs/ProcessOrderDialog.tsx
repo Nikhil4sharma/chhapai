@@ -85,6 +85,9 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
     // -- Approval Mode State --
     const [approvalAction, setApprovalAction] = useState<'approve' | 'reject' | null>(null);
 
+    // -- Auto-Submit State for Packing Complete --
+    const [autoSubmitPacking, setAutoSubmitPacking] = useState(false);
+
     // -- Initialization --
     useEffect(() => {
         if (open) {
@@ -153,7 +156,7 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                         setSelectedStatus('approved');
                     } else if (actionType === 'reject') {
                         if (item.previous_department === 'design') setSelectedStatus('rejected');
-                        else if (item.previous_department === 'prepress') setSelectedStatus('prepress_in_progress');
+                        else if (item.previous_department === 'prepress') setSelectedStatus('rejected');
                     }
                 } else {
                     // FALLBACK INTUITIVE LOGIC (If previous is missing or is sales)
@@ -436,6 +439,18 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
         }
     }, [substageStatus, currentSubstage, productionStages, workflowConfigForDept]);
 
+    // Auto-submit when packing is complete
+    useEffect(() => {
+        if (autoSubmitPacking && !isSubmitting) {
+            // Small delay for user to see completion animation
+            const timer = setTimeout(() => {
+                handleProcess();
+                setAutoSubmitPacking(false); // Reset flag
+            }, 1000);
+            return () => clearTimeout(timer);
+        }
+    }, [autoSubmitPacking, isSubmitting]);
+
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -615,11 +630,13 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                                                 if (status === 'completed') {
                                                     const idx = productionStages.indexOf(substage);
 
-                                                    // If last stage (e.g., Packing), set status to ready_for_dispatch
+                                                    // If last stage (e.g., Packing), set status to ready_for_dispatch and move to dispatch
                                                     if (idx === productionStages.length - 1) {
                                                         setSelectedStatus('ready_for_dispatch');
+                                                        setSelectedDept('dispatch');
+                                                        setAutoSubmitPacking(true); // Trigger auto-submit
                                                         // Explicitly set for UI feedback
-                                                        toast({ title: "Production Complete", description: "All stages finished. Status set to Ready for Dispatch.", className: "bg-green-500 text-white" });
+                                                        toast({ title: "Packing Complete!", description: "Moving to Dispatch automatically...", className: "bg-green-500 text-white" });
                                                     }
                                                     // If there is a next stage, advance to it after a short delay
                                                     else if (idx !== -1 && idx < productionStages.length - 1) {

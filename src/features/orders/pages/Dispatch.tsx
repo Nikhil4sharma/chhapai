@@ -27,8 +27,10 @@ export default function Dispatch() {
             }
 
             // Logic for "Dispatch" Department View
-            // 1. Ready for Dispatch (Production marked it ready)
-            const isReady = item.status === 'ready_for_dispatch' || item.status === 'dispatch_pending';
+            // 1. Ready for Dispatch (Production marked it ready OR assigned to dispatch)
+            const isReady = item.status === 'ready_for_dispatch'
+              || item.status === 'dispatch_pending'
+              || item.assigned_department === 'dispatch';
 
             // 2. Already Dispatched
             const isDispatched = item.is_dispatched || item.status === 'dispatched' || item.current_stage === 'dispatch';
