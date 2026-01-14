@@ -184,7 +184,11 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                 </div>
 
                 {/* Tabs Section */}
-                <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden">
+                <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden"
+                    onValueChange={(val) => {
+                        if (val === 'ledger') fetchFinanceData();
+                    }}
+                >
                     <div className="px-6 bg-white dark:bg-slate-900 border-b">
                         <TabsList className="w-full justify-start h-auto p-0 bg-transparent space-x-6">
                             <TabsTrigger value="overview" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-blue-600 rounded-none px-1 py-3 text-slate-500 data-[state=active]:text-blue-600 font-medium transition-all">Overview</TabsTrigger>

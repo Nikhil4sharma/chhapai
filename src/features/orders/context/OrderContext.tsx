@@ -2948,11 +2948,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       }
 
       toast({ title: "Success", description: "Order assigned successfully" });
+      await fetchOrders(false, true); // Refresh to populate assigned_user_name
     } catch (error) {
       console.error('Error assigning order:', error);
       toast({ title: "Error", description: "Failed to assign order", variant: "destructive" });
       // Revert optimistic update
-      await fetchOrders(false, true); // Refresh to get true state
+      await fetchOrders(false, true); // Refresh to get true state (name etc)
     }
   }, [fetchOrders, logActivity, user?.id]);
 

@@ -420,8 +420,9 @@ export function useCreateOrder(
 
         setIsWooCommerceOrder(true);
         setShowPreviewCard(false);
+        if (isAdmin) setSelectedDepartment('sales');
         toast({ title: "Order Imported", description: "Form populated from WooCommerce. Review and click Create." });
-    }, [wooOrderData, orderNumber, user]);
+    }, [wooOrderData, orderNumber, user, isAdmin]);
 
 
     // Product Helpers
@@ -486,7 +487,9 @@ export function useCreateOrder(
             const { data: profile } = await supabase.from('profiles').select('full_name').eq('user_id', user.id).single();
             const userName = profile?.full_name || user.email || 'Unknown';
             const finalDept = isAdmin ? selectedDepartment : 'sales';
-            const finalUser = isAdmin ? selectedUser : null;
+            // Auto-assign creating user (Sales) if not Admin.
+            // If Admin, use selected user.
+            const finalUser = isAdmin ? selectedUser : user.id;
             const computedPriority = computePriority(deliveryDate);
 
             // Determine Status
@@ -503,7 +506,7 @@ export function useCreateOrder(
                 const rpcPayload = {
                     order_id: orderNumber.trim(), // Use the CONFIRMED order number
                     status: wooOrderData.status || 'processing',
-                    payment_status: wooOrderData.payment_status || 'pending',
+                    payment_status: 'pending', // Force pending to allow manual payment tracking
                     total: isWooCommerceOrder ? (wooOrderData.order_total || 0) : 0,
                     customer: {
                         id: wooOrderData.customer_id?.toString() || `guest-${customerData.email}`,
@@ -537,6 +540,7 @@ export function useCreateOrder(
                     created_by: user.id,
                     current_department: finalDept,
                     order_status: initialStatus,
+                    order_total: isWooCommerceOrder ? (wooOrderData.order_total || 0) : 0, // Ensure total is set
                     department_timeline: {
                         sales: {
                             status: 'completed',
@@ -617,8 +621,8 @@ export function useCreateOrder(
                     delivery_date: deliveryDate ? deliveryDate.toISOString() : null,
                     global_notes: globalNotes,
                     created_by: user.id,
-                    total_amount: finalTotal,
-                    tax_amount: taxAmount,
+                    order_total: finalTotal, // Fixed col name
+                    tax_amount: taxAmount, // Keeping if exists, but order_total is key
                     order_status: initialStatus,
                     assigned_user: finalUser,
                     source: 'manual',

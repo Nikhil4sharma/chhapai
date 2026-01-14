@@ -190,7 +190,7 @@ export function CreateOrderDialog({
                     </Button>
                     <Button
                         onClick={handleCreate}
-                        disabled={isCreating || isCheckingDuplicate || !!orderNumberError || !orderNumber.trim()}
+                        disabled={isCreating}
                         className="h-11 px-8 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold shadow-lg shadow-blue-500/25 transition-all hover:scale-[1.02] active:scale-[0.98]"
                     >
                         {isCreating ? (

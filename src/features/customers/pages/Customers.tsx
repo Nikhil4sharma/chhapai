@@ -18,6 +18,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuLabel
 } from '@/components/ui/dropdown-menu';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
     Search,
     Download,
@@ -163,7 +164,7 @@ export default function Customers() {
             if (error) throw error;
 
             toast.success(`Assigned to ${userName}`);
-            refetch(); // Refresh list to show new assignment
+            await refetch(); // Refresh list to show new assignment
         } catch (err: any) {
             console.error('Assignment failed', err);
             toast.error('Failed to assign customer');
@@ -225,286 +226,300 @@ export default function Customers() {
                                     className="pl-10 h-11 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 focus:ring-2 focus:ring-blue-500/20 rounded-xl transition-all shadow-sm hover:shadow-md"
                                 />
                             </div>
-                            <div className="flex gap-2 text-sm overflow-x-auto pb-1 sm:pb-0 scrollbar-hide">
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="outline" className="h-11 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800">
-                                            <Filter className="mr-2 h-4 w-4 text-slate-500" />
-                                            Filter: <span className="ml-1 font-semibold text-slate-700 dark:text-slate-300 capitalize">{filter.replace('-', ' ')}</span>
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-48 rounded-xl p-1.5">
-                                        <DropdownMenuItem onClick={() => setFilter('all')} className="rounded-lg">All Customers</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setFilter('high-value')} className="rounded-lg">High Value</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setFilter('repeat')} className="rounded-lg">Repeat Customers</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setFilter('my-customers')} className="rounded-lg">My Customers</DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
 
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <Button variant="outline" className="h-11 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800">
-                                            <ArrowUpDown className="mr-2 h-4 w-4 text-slate-500" />
-                                            Sort: <span className="ml-1 font-semibold text-slate-700 dark:text-slate-300 capitalize">{sortBy.replace('-', ' ')}</span>
-                                        </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-48 rounded-xl p-1.5">
-                                        <DropdownMenuItem onClick={() => setSortBy('date-new')} className="rounded-lg">Newest First</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setSortBy('date-old')} className="rounded-lg">Oldest First</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setSortBy('spent-high')} className="rounded-lg">Highest Spender</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setSortBy('orders-high')} className="rounded-lg">Most Frequent</DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => setSortBy('name-asc')} className="rounded-lg">Name (A-Z)</DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
+                            <div className="flex flex-col sm:flex-row gap-2 items-center">
+                                <Tabs defaultValue="all" onValueChange={(val) => setFilter(val as any)} className="w-full sm:w-auto">
+                                    <TabsList className="grid w-full sm:w-[300px] grid-cols-2 h-11 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
+                                        <TabsTrigger value="all" className="rounded-lg">All Customers</TabsTrigger>
+                                        <TabsTrigger value="my-customers" className="rounded-lg">My Customers</TabsTrigger>
+                                    </TabsList>
+                                </Tabs>
 
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button variant="outline" onClick={handleDownloadCSV} size="icon" className="h-11 w-11 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0">
-                                            <Download className="h-4 w-4 text-slate-500" />
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>Export CSV</TooltipContent>
-                                </Tooltip>
+                                <div className="flex gap-2 text-sm overflow-x-auto pb-1 sm:pb-0 scrollbar-hide">
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="outline" className="h-11 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800">
+                                                <Filter className="mr-2 h-4 w-4 text-slate-500" />
+                                                <span className="hidden sm:inline">Filter:</span>
+                                                <span className="ml-1 font-semibold text-slate-700 dark:text-slate-300 capitalize">{['high-value', 'repeat'].includes(filter) ? filter.replace('-', ' ') : 'None'}</span>
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-48 rounded-xl p-1.5">
+                                            <DropdownMenuItem onClick={() => setFilter('all')} className="rounded-lg">None</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setFilter('high-value')} className="rounded-lg">High Value</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setFilter('repeat')} className="rounded-lg">Repeat Customers</DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <Button variant="outline" className="h-11 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800">
+                                                <ArrowUpDown className="mr-2 h-4 w-4 text-slate-500" />
+                                                Sort: <span className="ml-1 font-semibold text-slate-700 dark:text-slate-300 capitalize">{sortBy.replace('-', ' ')}</span>
+                                            </Button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-48 rounded-xl p-1.5">
+                                            <DropdownMenuItem onClick={() => setSortBy('date-new')} className="rounded-lg">Newest First</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setSortBy('date-old')} className="rounded-lg">Oldest First</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setSortBy('spent-high')} className="rounded-lg">Highest Spender</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setSortBy('orders-high')} className="rounded-lg">Most Frequent</DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => setSortBy('name-asc')} className="rounded-lg">Name (A-Z)</DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button variant="outline" onClick={handleDownloadCSV} size="icon" className="h-11 w-11 rounded-xl border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 shrink-0">
+                                                <Download className="h-4 w-4 text-slate-500" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>Export CSV</TooltipContent>
+                                    </Tooltip>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    {/* Customers List - Premium Card Layout */}
-                    <div className="space-y-4">
-                        {isWCLoading ? (
-                            // Skeleton Loader
-                            Array(5).fill(0).map((_, i) => (
-                                <div key={i} className="flex items-center gap-4 p-4 bg-white dark:bg-slate-900 rounded-2xl animate-pulse">
-                                    <div className="h-12 w-12 rounded-full bg-slate-200 dark:bg-slate-800" />
-                                    <div className="space-y-2 flex-1">
-                                        <div className="h-4 w-1/3 bg-slate-200 dark:bg-slate-800 rounded" />
-                                        <div className="h-3 w-1/4 bg-slate-100 dark:bg-slate-900 rounded" />
-                                    </div>
-                                </div>
-                            ))
-                        ) : processedCustomers.length === 0 ? (
-                            <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800">
-                                <div className="h-16 w-16 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                                    <Users className="h-8 w-8 text-slate-300 dark:text-slate-600" />
-                                </div>
-                                <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">No customers found</h3>
-                                <p className="text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-                                    Try adjusting your search terms or filters.
-                                </p>
-                                <Button
-                                    variant="link"
-                                    onClick={() => { setSearchTerm(''); setFilter('all'); }}
-                                    className="mt-4 text-blue-600 hover:text-blue-700"
-                                >
-                                    Clear all filters
-                                </Button>
-                            </div>
-                        ) : (
-                            <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 hover:shadow-lg transition-all duration-500 overflow-hidden">
-                                {processedCustomers.map((customer) => (
-                                    <div
-                                        key={customer.id}
-                                        className="group flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-6 p-4 sm:p-5 border-b border-slate-50 dark:border-slate-800/50 last:border-0 hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors"
-                                    >
-                                        {/* Avatar & Key Info */}
-                                        <div
-                                            className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0 cursor-pointer w-full sm:w-auto"
-                                            onClick={() => { setSelectedCustomer(customer); setDetailOpen(true); }}
-                                        >
-                                            <Avatar className="h-10 w-10 sm:h-14 sm:w-14 ring-2 ring-white dark:ring-slate-900 shadow-sm transition-transform group-hover:scale-105 shrink-0">
-                                                <AvatarImage src={customer.avatar_url} className="object-cover" />
-                                                <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 font-bold text-sm sm:text-lg">
-                                                    {(customer.first_name?.[0] || customer.email?.[0] || '?').toUpperCase()}
-                                                </AvatarFallback>
-                                            </Avatar>
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-2 mb-0.5">
-                                                    <h3 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 truncate group-hover:text-blue-600 transition-colors">
-                                                        {[customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'No Name'}
-                                                    </h3>
-                                                    {customer.billing?.city && (
-                                                        <Badge variant="outline" className="hidden xs:flex text-[10px] h-5 px-1.5 font-medium text-slate-500 border-slate-200">
-                                                            {customer.billing.city}
-                                                        </Badge>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-slate-500">
-                                                    <span className="truncate max-w-[150px] sm:max-w-none">{customer.email}</span>
-                                                    {customer.wc_id && (
-                                                        <span className="hidden sm:inline-flex px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-mono text-slate-400">
-                                                            #{customer.wc_id}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Mobile Actions Trigger (Absolute positioned or flexed) */}
-                                            <div className="sm:hidden ml-auto">
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-slate-400" onClick={(e) => e.stopPropagation()}>
-                                                            <MoreHorizontal className="h-4 w-4" />
-                                                        </Button>
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end" className="w-48 rounded-xl">
-                                                        <DropdownMenuItem onClick={() => { setSelectedCustomer(customer); setDetailOpen(true); }}>
-                                                            View Profile
-                                                        </DropdownMenuItem>
-                                                        <DropdownMenuItem onClick={() => { setCustomerToAssign(customer); setAssignDialogOpen(true); }}>
-                                                            Assign Manager
-                                                        </DropdownMenuItem>
-                                                        {(isAdmin || role === 'sales') && (
-                                                            <>
-                                                                <DropdownMenuSeparator />
-                                                                <DropdownMenuItem
-                                                                    onClick={() => deleteCustomer(customer.id)}
-                                                                    className="text-red-600 focus:text-red-700 focus:bg-red-50"
-                                                                >
-                                                                    Delete Customer
-                                                                </DropdownMenuItem>
-                                                            </>
-                                                        )}
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
-                                            </div>
+                        {/* Customers List - Premium Card Layout */}
+                        <div className="space-y-4">
+                            {isWCLoading ? (
+                                // Skeleton Loader
+                                Array(5).fill(0).map((_, i) => (
+                                    <div key={i} className="flex items-center gap-4 p-4 bg-white dark:bg-slate-900 rounded-2xl animate-pulse">
+                                        <div className="h-12 w-12 rounded-full bg-slate-200 dark:bg-slate-800" />
+                                        <div className="space-y-2 flex-1">
+                                            <div className="h-4 w-1/3 bg-slate-200 dark:bg-slate-800 rounded" />
+                                            <div className="h-3 w-1/4 bg-slate-100 dark:bg-slate-900 rounded" />
                                         </div>
-
-                                        {/* Stats Section */}
-                                        <div className="flex items-center justify-between w-full sm:w-auto gap-4 sm:gap-8 mt-1 sm:mt-0 pl-[52px] sm:pl-0 border-t sm:border-0 border-slate-50 dark:border-slate-800 pt-3 sm:pt-0">
-                                            {/* Assigned To */}
-                                            <div className="flex flex-col sm:items-end min-w-[80px] sm:w-32 shrink-0">
-                                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Manager</span>
-                                                <div
-                                                    className="flex items-center gap-1.5 sm:gap-2 cursor-pointer sm:hover:bg-slate-100 sm:dark:hover:bg-slate-800 rounded sm:px-2 sm:py-1 sm:-mr-2 transition-colors"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        if (isAdmin || role === 'sales') {
-                                                            setCustomerToAssign(customer);
-                                                            setAssignDialogOpen(true);
-                                                        }
-                                                    }}
-                                                >
-                                                    {customer.assigned_to && userMap[customer.assigned_to] ? (
-                                                        <>
-                                                            <Avatar className="h-4 w-4 sm:h-5 sm:w-5">
-                                                                <AvatarFallback className="text-[8px] sm:text-[9px] bg-indigo-100 text-indigo-700">
-                                                                    {userMap[customer.assigned_to].name.charAt(0)}
-                                                                </AvatarFallback>
-                                                            </Avatar>
-                                                            <span className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 truncate max-w-[80px]">
-                                                                {userMap[customer.assigned_to].name.split(' ')[0]}
+                                    </div>
+                                ))
+                            ) : processedCustomers.length === 0 ? (
+                                <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-200 dark:border-slate-800">
+                                    <div className="h-16 w-16 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                                        <Users className="h-8 w-8 text-slate-300 dark:text-slate-600" />
+                                    </div>
+                                    <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">No customers found</h3>
+                                    <p className="text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+                                        Try adjusting your search terms or filters.
+                                    </p>
+                                    <Button
+                                        variant="link"
+                                        onClick={() => { setSearchTerm(''); setFilter('all'); }}
+                                        className="mt-4 text-blue-600 hover:text-blue-700"
+                                    >
+                                        Clear all filters
+                                    </Button>
+                                </div>
+                            ) : (
+                                <div className="bg-white dark:bg-slate-900 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 hover:shadow-lg transition-all duration-500 overflow-hidden">
+                                    {processedCustomers.map((customer) => (
+                                        <div
+                                            key={customer.id}
+                                            className="group flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-6 p-4 sm:p-5 border-b border-slate-50 dark:border-slate-800/50 last:border-0 hover:bg-slate-50/50 dark:hover:bg-slate-900/50 transition-colors"
+                                        >
+                                            {/* Avatar & Key Info */}
+                                            <div
+                                                className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0 cursor-pointer w-full sm:w-auto"
+                                                onClick={() => { setSelectedCustomer(customer); setDetailOpen(true); }}
+                                            >
+                                                <Avatar className="h-10 w-10 sm:h-14 sm:w-14 ring-2 ring-white dark:ring-slate-900 shadow-sm transition-transform group-hover:scale-105 shrink-0">
+                                                    <AvatarImage src={customer.avatar_url} className="object-cover" />
+                                                    <AvatarFallback className="bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 font-bold text-sm sm:text-lg">
+                                                        {(customer.first_name?.[0] || customer.email?.[0] || '?').toUpperCase()}
+                                                    </AvatarFallback>
+                                                </Avatar>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2 mb-0.5">
+                                                        <h3 className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100 truncate group-hover:text-blue-600 transition-colors">
+                                                            {[customer.first_name, customer.last_name].filter(Boolean).join(' ') || 'No Name'}
+                                                        </h3>
+                                                        {customer.billing?.city && (
+                                                            <Badge variant="outline" className="hidden xs:flex text-[10px] h-5 px-1.5 font-medium text-slate-500 border-slate-200">
+                                                                {customer.billing.city}
+                                                            </Badge>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm text-slate-500">
+                                                        <span className="truncate max-w-[150px] sm:max-w-none">{customer.email}</span>
+                                                        {customer.wc_id && (
+                                                            <span className="hidden sm:inline-flex px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-mono text-slate-400">
+                                                                #{customer.wc_id}
                                                             </span>
-                                                        </>
-                                                    ) : (
-                                                        <span className="text-xs sm:text-sm text-slate-400 italic">Unassigned</span>
-                                                    )}
-                                                </div>
-                                            </div>
-
-                                            {/* Orders Stats */}
-                                            <div className="flex items-center gap-4 sm:gap-6">
-                                                <div className="flex flex-col items-end min-w-[50px] sm:w-20">
-                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Orders</span>
-                                                    <div className="flex items-center gap-1.5">
-                                                        <div className={`hidden sm:block h-2 w-2 rounded-full ${customer.orders_count > 0 ? 'bg-emerald-500 ring-2 ring-emerald-100' : 'bg-slate-300'} animate-pulse`} />
-                                                        <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">{customer.orders_count}</span>
+                                                        )}
                                                     </div>
                                                 </div>
 
-                                                <div className="flex flex-col items-end min-w-[70px] sm:w-28">
-                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Total Spent</span>
-                                                    <span className="text-sm sm:text-base font-bold text-emerald-600 dark:text-emerald-400">
-                                                        ₹{Number(customer.total_spent).toLocaleString()}
-                                                    </span>
+                                                {/* Mobile Actions Trigger (Absolute positioned or flexed) */}
+                                                <div className="sm:hidden ml-auto">
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button variant="ghost" size="icon" className="h-8 w-8 -mr-2 text-slate-400" onClick={(e) => e.stopPropagation()}>
+                                                                <MoreHorizontal className="h-4 w-4" />
+                                                            </Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent align="end" className="w-48 rounded-xl">
+                                                            <DropdownMenuItem onClick={() => { setSelectedCustomer(customer); setDetailOpen(true); }}>
+                                                                View Profile
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => { setCustomerToAssign(customer); setAssignDialogOpen(true); }}>
+                                                                Assign Manager
+                                                            </DropdownMenuItem>
+                                                            {(isAdmin || role === 'sales') && (
+                                                                <>
+                                                                    <DropdownMenuSeparator />
+                                                                    <DropdownMenuItem
+                                                                        onClick={() => deleteCustomer(customer.id)}
+                                                                        className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                                                                    >
+                                                                        Delete Customer
+                                                                    </DropdownMenuItem>
+                                                                </>
+                                                            )}
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
                                                 </div>
                                             </div>
 
-                                            {/* Desktop Actions */}
-                                            <div className="hidden sm:flex items-center ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <DropdownMenu>
-                                                    <DropdownMenuTrigger asChild>
-                                                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800">
-                                                            <MoreHorizontal className="h-4 w-4 text-slate-400" />
-                                                        </Button>
-                                                    </DropdownMenuTrigger>
-                                                    <DropdownMenuContent align="end" className="w-48 rounded-xl">
-                                                        <DropdownMenuItem onClick={() => { setSelectedCustomer(customer); setDetailOpen(true); }}>
-                                                            View Profile
-                                                        </DropdownMenuItem>
-                                                        <DropdownMenuItem onClick={() => { setCustomerToAssign(customer); setAssignDialogOpen(true); }}>
-                                                            Assign Manager
-                                                        </DropdownMenuItem>
-                                                        {(isAdmin || role === 'sales') && (
-                                                            <>
-                                                                <DropdownMenuSeparator />
-                                                                <DropdownMenuItem
-                                                                    onClick={() => deleteCustomer(customer.id)}
-                                                                    className="text-red-600 focus:text-red-700 focus:bg-red-50"
-                                                                >
-                                                                    Delete Customer
-                                                                </DropdownMenuItem>
-                                                            </>
+                                            {/* Stats Section */}
+                                            <div className="flex items-center justify-between w-full sm:w-auto gap-4 sm:gap-8 mt-1 sm:mt-0 pl-[52px] sm:pl-0 border-t sm:border-0 border-slate-50 dark:border-slate-800 pt-3 sm:pt-0">
+                                                {/* Assigned To */}
+                                                <div className="flex flex-col sm:items-end min-w-[80px] sm:w-32 shrink-0">
+                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Manager</span>
+                                                    <div
+                                                        className="flex items-center gap-1.5 sm:gap-2 cursor-pointer sm:hover:bg-slate-100 sm:dark:hover:bg-slate-800 rounded sm:px-2 sm:py-1 sm:-mr-2 transition-colors"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            if (isAdmin || role === 'sales') {
+                                                                setCustomerToAssign(customer);
+                                                                setAssignDialogOpen(true);
+                                                            }
+                                                        }}
+                                                    >
+                                                        {customer.assigned_to ? (
+                                                            userMap[customer.assigned_to] ? (
+                                                                <>
+                                                                    <Avatar className="h-4 w-4 sm:h-5 sm:w-5">
+                                                                        <AvatarFallback className="text-[8px] sm:text-[9px] bg-indigo-100 text-indigo-700">
+                                                                            {userMap[customer.assigned_to].name.charAt(0)}
+                                                                        </AvatarFallback>
+                                                                    </Avatar>
+                                                                    <span className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 truncate max-w-[80px]">
+                                                                        {userMap[customer.assigned_to].name.split(' ')[0]}
+                                                                    </span>
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-xs sm:text-sm text-slate-500 italic">Unknown</span>
+                                                            )
+                                                        ) : (
+                                                            <span className="text-xs sm:text-sm text-slate-400 italic">Unassigned</span>
                                                         )}
-                                                    </DropdownMenuContent>
-                                                </DropdownMenu>
+                                                    </div>
+                                                </div>
+
+                                                {/* Orders Stats */}
+                                                <div className="flex items-center gap-4 sm:gap-6">
+                                                    <div className="flex flex-col items-end min-w-[50px] sm:w-20">
+                                                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Orders</span>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <div className={`hidden sm:block h-2 w-2 rounded-full ${customer.orders_count > 0 ? 'bg-emerald-500 ring-2 ring-emerald-100' : 'bg-slate-300'} animate-pulse`} />
+                                                            <span className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">{customer.orders_count}</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex flex-col items-end min-w-[70px] sm:w-28">
+                                                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">Total Spent</span>
+                                                        <span className="text-sm sm:text-base font-bold text-emerald-600 dark:text-emerald-400">
+                                                            ₹{Number(customer.total_spent).toLocaleString()}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Desktop Actions */}
+                                                <div className="hidden sm:flex items-center ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <DropdownMenu>
+                                                        <DropdownMenuTrigger asChild>
+                                                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800">
+                                                                <MoreHorizontal className="h-4 w-4 text-slate-400" />
+                                                            </Button>
+                                                        </DropdownMenuTrigger>
+                                                        <DropdownMenuContent align="end" className="w-48 rounded-xl">
+                                                            <DropdownMenuItem onClick={() => { setSelectedCustomer(customer); setDetailOpen(true); }}>
+                                                                View Profile
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={() => { setCustomerToAssign(customer); setAssignDialogOpen(true); }}>
+                                                                Assign Manager
+                                                            </DropdownMenuItem>
+                                                            {(isAdmin || role === 'sales') && (
+                                                                <>
+                                                                    <DropdownMenuSeparator />
+                                                                    <DropdownMenuItem
+                                                                        onClick={() => deleteCustomer(customer.id)}
+                                                                        className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                                                                    >
+                                                                        Delete Customer
+                                                                    </DropdownMenuItem>
+                                                                </>
+                                                            )}
+                                                        </DropdownMenuContent>
+                                                    </DropdownMenu>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
+
+                    {/* Dialogs */}
+                    <CustomerDetailDialog
+                        open={detailOpen}
+                        onOpenChange={setDetailOpen}
+                        customer={selectedCustomer}
+                    />
+
+                    <CustomerImportDialog
+                        open={importOpen}
+                        onOpenChange={setImportOpen}
+                        onImportSuccess={() => refetch()}
+                    />
+
+                    <AssignUserDialog
+                        open={assignDialogOpen}
+                        onOpenChange={setAssignDialogOpen}
+                        department="sales"
+                        currentUserId={customerToAssign?.assigned_to}
+                        onAssign={(userId, userName) => {
+                            handleAssignCustomer(userId, userName);
+                            setAssignDialogOpen(false);
+                        }}
+                    />
+
+                    {/* Danger Zone: Delete All Customers */}
+                    <AlertDialog open={deleteWarningOpen} onOpenChange={setDeleteWarningOpen}>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    This action cannot be undone. It will permanently delete ALL imported WooCommerce customers from the database.
+                                    Local order associations will be preserved but unlinked.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                    onClick={async () => {
+                                        await deleteAllCustomers();
+                                        setDeleteWarningOpen(false);
+                                    }}
+                                    className="bg-red-600 hover:bg-red-700"
+                                >
+                                    Delete All
+                                </AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
                 </div>
-
-                {/* Dialogs */}
-                <CustomerDetailDialog
-                    open={detailOpen}
-                    onOpenChange={setDetailOpen}
-                    customer={selectedCustomer}
-                />
-
-                <CustomerImportDialog
-                    open={importOpen}
-                    onOpenChange={setImportOpen}
-                    onImportSuccess={() => refetch()}
-                />
-
-                <AssignUserDialog
-                    open={assignDialogOpen}
-                    onOpenChange={setAssignDialogOpen}
-                    department="sales"
-                    currentUserId={customerToAssign?.assigned_to}
-                    onAssign={(userId, userName) => {
-                        handleAssignCustomer(userId, userName);
-                        setAssignDialogOpen(false);
-                    }}
-                />
-
-                {/* Danger Zone: Delete All Customers */}
-                <AlertDialog open={deleteWarningOpen} onOpenChange={setDeleteWarningOpen}>
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                                This action cannot be undone. It will permanently delete ALL imported WooCommerce customers from the database.
-                                Local order associations will be preserved but unlinked.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction
-                                onClick={async () => {
-                                    await deleteAllCustomers();
-                                    setDeleteWarningOpen(false);
-                                }}
-                                className="bg-red-600 hover:bg-red-700"
-                            >
-                                Delete All
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
             </div>
-        </TooltipProvider>
+        </TooltipProvider >
     );
 }

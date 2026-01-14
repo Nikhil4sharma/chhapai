@@ -145,14 +145,14 @@ export const financeService = {
 
         const { data: allPayments, error: payError } = await supabase
             .from('payment_ledger')
-            .select('id, customer_id, amount, created_at')
+            .select('id, customer_id, amount, created_at, order_id')
             .in('customer_id', customerIds)
             .eq('transaction_type', 'CREDIT')
             .order('created_at', { ascending: true });
 
         if (payError) throw payError;
 
-        // 3. Perform FIFO Allocation per customer
+        // 3. Perform Allocation per customer
         const statusMap: Record<string, OrderPaymentStatus> = {};
 
         // Initialize requested orders map
@@ -169,35 +169,59 @@ export const financeService = {
             const custOrders = allOrders.filter(o => o.customer_id === custId);
             const custPayments = allPayments.filter(p => p.customer_id === custId);
 
-            let availableCredit = custPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+            // Track how much of each payment is used (optional, but good for complex logic)
+            // For now, simpler approach:
 
-            // Allocate credit to orders (Oldest First)
-            custOrders.forEach((order) => {
-                const orderTotal = Number(order.order_total || 0);
-                let allocated = 0;
+            // Map to track running paid amount for each order (including orders NOT in our requested batch but that eat up credit)
+            const orderPaidMap: Record<string, number> = {};
+            custOrders.forEach(o => orderPaidMap[o.id] = 0);
 
-                if (availableCredit > 0) {
-                    if (availableCredit >= orderTotal) {
-                        allocated = orderTotal;
-                        availableCredit -= orderTotal;
-                    } else {
-                        allocated = availableCredit;
-                        availableCredit = 0;
-                    }
-                }
+            let generalCredit = 0;
 
-                // If this order is in our requested batch, update its status
-                if (statusMap[order.id]) {
-                    statusMap[order.id].paid_amount = allocated;
-                    statusMap[order.id].pending_amount = orderTotal - allocated;
-
-                    // Logic check: floating point precision?
-                    if (statusMap[order.id].pending_amount < 0.01) statusMap[order.id].pending_amount = 0;
+            // Step 3a: Apply Specific Linked Payments FIRST
+            custPayments.forEach(p => {
+                if (p.order_id && orderPaidMap[p.order_id] !== undefined) {
+                    // This payment is for a specific order
+                    const amount = Number(p.amount);
+                    orderPaidMap[p.order_id] += amount;
+                } else {
+                    // General credit
+                    generalCredit += Number(p.amount);
                 }
             });
 
-            // Note: availableCredit remaining is the "Advance Balance" for the customer
-            // We could store/return this if needed for UI
+            // Step 3b: Apply General Credit FIFO (Oldest Orders First)
+            // Only apply to remaining balance
+            custOrders.forEach((order) => {
+                const orderTotal = Number(order.order_total || 0);
+                const currentPaid = orderPaidMap[order.id] || 0;
+                const remainingDue = Math.max(0, orderTotal - currentPaid);
+
+                if (remainingDue > 0 && generalCredit > 0) {
+                    let allocated = 0;
+                    if (generalCredit >= remainingDue) {
+                        allocated = remainingDue;
+                        generalCredit -= remainingDue;
+                    } else {
+                        allocated = generalCredit;
+                        generalCredit = 0;
+                    }
+                    orderPaidMap[order.id] = currentPaid + allocated;
+                }
+            });
+
+            // Step 4: Update statusMap for requested orders
+            orders.forEach(reqOrder => {
+                // If this requested order belongs to current customer, update its status from our calculation
+                if (reqOrder.customer_id === custId) {
+                    const paid = orderPaidMap[reqOrder.order_id] || 0;
+                    // Ensure we don't report more paid than total (unless handling overpayment, but UI handles pending>=0)
+                    // Actually overpayment is possible if linked payment > order total, but typically pending is 0
+
+                    statusMap[reqOrder.order_id].paid_amount = paid;
+                    statusMap[reqOrder.order_id].pending_amount = Math.max(0, reqOrder.total - paid);
+                }
+            });
         });
 
         return statusMap;

@@ -242,6 +242,17 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                 <Badge className={cn("text-[11px] px-2 py-1", statusColor)}>
                   {statusLabel}
                 </Badge>
+
+                {/* Delivery Date Moved to Header */}
+                <div className="flex items-center gap-1.5 ml-2 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-xs border border-slate-200 dark:border-slate-700">
+                  <Calendar className="h-3 w-3 text-slate-500" />
+                  <span className={cn(
+                    "font-medium",
+                    item.delivery_date && new Date(item.delivery_date) < new Date() ? "text-red-600" : "text-slate-700 dark:text-slate-300"
+                  )}>
+                    {item.delivery_date ? format(new Date(item.delivery_date), 'MMM d') : 'No Date'}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -252,22 +263,12 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-              {role !== 'design' && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Quantity</p>
-                  <p className="font-medium text-base">{item.quantity}</p>
-                </div>
-              )}
-
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Delivery</p>
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                  <p className="font-medium text-base">
-                    {item.delivery_date ? format(new Date(item.delivery_date), 'MMM d, yyyy') : 'No date'}
-                  </p>
-                </div>
+                <p className="text-xs text-muted-foreground mb-1">Quantity</p>
+                <p className="font-medium text-base">{item.quantity}</p>
               </div>
+
+              {/* Delivery Date Removed from here (Moved to Header) */}
             </div>
 
             {/* Design Specific: Last Workflow Note (Apple Style) */}
@@ -295,12 +296,10 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               </div>
             )}
 
-            {/* Specifications - Hidden for Design */}
-            {role !== 'design' && (
-              <div className="bg-muted/40 border border-border/60 rounded-md p-3">
-                <ProductSpecifications item={item} compact />
-              </div>
-            )}
+            {/* Specifications - Visible for ALL roles */}
+            <div className="bg-muted/40 border border-border/60 rounded-md p-3">
+              <ProductSpecifications item={item} compact />
+            </div>
 
             <div className="flex items-center gap-3 flex-wrap text-xs pt-1">
               <div className="flex items-center gap-1.5 py-1 px-2 bg-muted/30 rounded-full border border-border/40">
