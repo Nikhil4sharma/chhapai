@@ -1934,6 +1934,24 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
       const newDepartment = (userRole?.role || userProfile?.department || item.assigned_department || 'sales').toLowerCase();
 
+      // CRITICAL: Update local state IMMEDIATELY before API call
+      // This ensures card updates without waiting for full refresh
+      setOrders(prevOrders => prevOrders.map(o => {
+        if (o.order_id !== orderId) return o;
+        return {
+          ...o,
+          items: o.items.map(i => {
+            if (i.item_id !== itemId) return i;
+            return {
+              ...i,
+              assigned_to: userId,
+              assigned_to_name: userName,
+              assigned_department: newDepartment as any,
+            };
+          }),
+        };
+      }));
+
       // Use Supabase service to assign to user
       await assignOrderItemToUser(order.id!, itemId, userId);
 
@@ -1980,6 +1998,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
+      // Fetch orders to ensure backend state is synced
       await fetchOrders(false);
 
       toast({
@@ -1988,6 +2007,8 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       });
     } catch (error) {
       console.error('Error assigning user:', error);
+      // Revert local state on error
+      await fetchOrders(false);
       toast({
         title: "Error",
         description: "Failed to assign user",

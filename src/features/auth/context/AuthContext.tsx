@@ -436,6 +436,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (error) {
+        // CRITICAL: If session is already missing, treat as successful logout
+        // This happens when session expires or is already cleared
+        if (error.message?.includes('Auth session missing') || error.name === 'AuthSessionMissingError') {
+          console.log('[BOOTSTRAP] Session already missing - treating as successful logout');
+          // State already cleared above, just clear localStorage
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('sb-hswgdeldouyclpeqbbgq-auth-token');
+            // Clear all Supabase related storage
+            Object.keys(localStorage).forEach(key => {
+              if (key.startsWith('sb-')) {
+                localStorage.removeItem(key);
+              }
+            });
+          }
+          return; // Exit successfully
+        }
+
+        // For other errors, log but still clear state
         console.error('[BOOTSTRAP] Error signing out:', error);
         // Even if error, clear local state
         setUser(null);
@@ -458,7 +476,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         });
       }
-    } catch (error) {
+    } catch (error: any) {
+      // CRITICAL: Catch AuthSessionMissingError at top level too
+      if (error?.message?.includes('Auth session missing') || error?.name === 'AuthSessionMissingError') {
+        console.log('[BOOTSTRAP] Session already missing (caught) - treating as successful logout');
+        // Ensure state is cleared
+        setUser(null);
+        setSession(null);
+        setProfile(null);
+        setRole(null);
+        lastFetchedUserIdRef.current = null;
+        // Clear localStorage
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('sb-hswgdeldouyclpeqbbgq-auth-token');
+          Object.keys(localStorage).forEach(key => {
+            if (key.startsWith('sb-')) {
+              localStorage.removeItem(key);
+            }
+          });
+        }
+        return; // Exit successfully without throwing
+      }
+
       console.error('[BOOTSTRAP] Error signing out:', error);
       // Ensure state is cleared even on error
       setUser(null);

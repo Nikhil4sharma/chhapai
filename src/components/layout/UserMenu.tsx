@@ -27,7 +27,13 @@ export function UserMenu() {
   };
 
   const handleLogout = async () => {
-    await signOut();
+    try {
+      await signOut();
+    } catch (error) {
+      // Error already logged in AuthContext, silently handle here
+      // User will still be logged out due to state clearing in AuthContext
+      console.log('[UserMenu] Logout completed with error (already handled)');
+    }
   };
 
   // Show loading state if auth is still loading
