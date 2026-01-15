@@ -65,6 +65,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
     // GST State
     const [startGstEdit, setStartGstEdit] = useState(false);
     const [gstNumber, setGstNumber] = useState(customer?.gst_number || '');
+    const [activeTab, setActiveTab] = useState('overview');
 
     // Profile Editing State
     const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -108,8 +109,9 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
     // Filtered & Paginated Ledger
     const filteredLedger = ledger.filter(txn => {
         // Mode Filter
+        // Credit filter should show all CREDIT transactions (including refunds with negative amounts)
+        if (filterMode === 'credit' && txn.transaction_type !== 'CREDIT') return false;
         // Debit filter should show: actual DEBIT transactions + negative CREDIT amounts (refunds)
-        if (filterMode === 'credit' && (txn.transaction_type !== 'CREDIT' || Number(txn.amount) < 0)) return false;
         if (filterMode === 'debit' && !(txn.transaction_type === 'DEBIT' || (txn.transaction_type === 'CREDIT' && Number(txn.amount) < 0))) return false;
 
         // Date Filter
@@ -332,17 +334,17 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                         <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                     </button>
 
-                    <div className="p-4 sm:p-6 pb-4 relative z-10">
-                        <div className="flex flex-col md:flex-row items-start justify-between gap-6">
-                            <div className="flex gap-4 sm:gap-5 items-center w-full md:w-auto">
-                                <Avatar className="h-16 w-16 sm:h-20 sm:w-20 border-4 border-slate-50 dark:border-slate-800 shadow-md ring-1 ring-slate-100 dark:ring-slate-700 transition-transform duration-500 hover:scale-105">
+                    <div className="p-3 sm:p-4 md:p-6 pb-3 sm:pb-4 relative z-10">
+                        <div className="flex flex-col md:flex-row items-start justify-between gap-2 sm:gap-4 md:gap-6">
+                            <div className="flex gap-2 sm:gap-3 md:gap-4 items-start w-full md:w-auto pr-10 sm:pr-0">
+                                <Avatar className="h-12 w-12 sm:h-14 sm:w-14 md:h-20 md:w-20 border-2 sm:border-4 border-slate-50 dark:border-slate-800 shadow-md ring-1 ring-slate-100 dark:ring-slate-700 transition-transform duration-500 hover:scale-105 shrink-0">
                                     <AvatarImage src={customer.avatar_url} className="object-cover" />
-                                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-sky-600 text-white text-xl sm:text-2xl font-bold">
+                                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-sky-600 text-white text-base sm:text-lg md:text-2xl font-bold">
                                         {(customer.first_name?.[0] || customer.email?.[0] || '?').toUpperCase()}
                                     </AvatarFallback>
                                 </Avatar>
                                 <div className="flex-1 min-w-0">
-                                    <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate pr-8 md:pr-0">{displayName}</h2>
+                                    <h2 className="text-base sm:text-lg md:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate mt-1">{displayName}</h2>
                                     <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm mt-1">
                                         <div className="flex items-center gap-1 min-w-0 max-w-full">
                                             <MapPin className="h-3.5 w-3.5 shrink-0" />
@@ -375,7 +377,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
                                         {customer.email && (
                                             <div className="flex items-center gap-1.5 text-[10px] font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700" onClick={() => copyToClipboard(displayCustomer.email, "Email")}>
                                                 <Mail className="h-2.5 w-2.5 text-slate-500 dark:text-slate-400" /> <span className="truncate max-w-[120px] sm:max-w-none">{displayCustomer.email}</span>
@@ -388,64 +390,46 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                         )}
                                     </div>
 
-                                    {/* Financial Stats Cards - Compact Design */}
-                                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 mt-2 w-full">
-                                        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-900/20 dark:to-emerald-900/10 px-2.5 py-1.5 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 flex-1">
-                                            <p className="text-[8px] text-emerald-600/90 dark:text-emerald-400/90 font-bold uppercase tracking-wider mb-0.5">Paid</p>
-                                            <p className="text-sm sm:text-base font-bold text-emerald-700 dark:text-emerald-400 tracking-tight">₹{balance.total_paid.toLocaleString()}</p>
+                                    {/* Financial & Order Stats Cards - 4 Cards Grid */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-2.5 w-full">
+                                        {/* Paid Card */}
+                                        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-900/20 dark:to-emerald-900/10 px-2.5 py-2 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 min-w-0">
+                                            <p className="text-[8px] text-emerald-600/90 dark:text-emerald-400/90 font-bold uppercase tracking-wider mb-0.5 truncate">Paid</p>
+                                            <p className="text-sm sm:text-base font-bold text-emerald-700 dark:text-emerald-400 tracking-tight truncate">₹{balance.total_paid.toLocaleString()}</p>
                                         </div>
-                                        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-900/10 px-2.5 py-1.5 rounded-lg border border-blue-200/60 dark:border-blue-800/40 flex-1">
-                                            <p className="text-[8px] text-blue-600/90 dark:text-blue-400/90 font-bold uppercase tracking-wider mb-0.5">Used</p>
-                                            <p className="text-sm sm:text-base font-bold text-blue-700 dark:text-blue-400 tracking-tight">₹{balance.total_used.toLocaleString()}</p>
+
+                                        {/* Total Orders Card */}
+                                        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-900/10 px-2.5 py-2 rounded-lg border border-blue-200/60 dark:border-blue-800/40 min-w-0">
+                                            <p className="text-[8px] text-blue-600/90 dark:text-blue-400/90 font-bold uppercase tracking-wider mb-0.5 truncate">Orders</p>
+                                            <p className="text-sm sm:text-base font-bold text-blue-700 dark:text-blue-400 tracking-tight truncate">{displayTotalOrders}</p>
                                         </div>
-                                        <div className={`px-2.5 py-1.5 rounded-lg border flex-1 ${balance.balance >= 0 ? 'bg-gradient-to-br from-emerald-100 to-emerald-50 border-emerald-200/60 dark:from-emerald-500/20 dark:to-emerald-500/10 dark:border-emerald-500/30' : 'bg-gradient-to-br from-red-100 to-red-50 border-red-200/60 dark:from-red-500/20 dark:to-red-500/10 dark:border-red-500/30'}`}>
-                                            <p className={`text-[8px] font-bold uppercase tracking-wider mb-0.5 ${balance.balance >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
-                                                {balance.balance >= 0 ? 'Balance' : 'Due'}
+
+                                        {/* Total Spent Card */}
+                                        <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-900/20 dark:to-purple-900/10 px-2.5 py-2 rounded-lg border border-purple-200/60 dark:border-purple-800/40 min-w-0">
+                                            <p className="text-[8px] text-purple-600/90 dark:text-purple-400/90 font-bold uppercase tracking-wider mb-0.5 truncate">Spent</p>
+                                            <p className="text-sm sm:text-base font-bold text-purple-700 dark:text-purple-400 tracking-tight truncate">₹{displayTotalSpent.toLocaleString()}</p>
+                                        </div>
+
+                                        {/* Wallet/Due Card */}
+                                        <div className={`px-2.5 py-2 rounded-lg border min-w-0 ${balance.balance >= 0 ? 'bg-gradient-to-br from-emerald-100 to-emerald-50 border-emerald-200/60 dark:from-emerald-500/20 dark:to-emerald-500/10 dark:border-emerald-500/30' : 'bg-gradient-to-br from-red-100 to-red-50 border-red-200/60 dark:from-red-500/20 dark:to-red-500/10 dark:border-red-500/30'}`}>
+                                            <p className={`text-[8px] font-bold uppercase tracking-wider mb-0.5 truncate ${balance.balance >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
+                                                {balance.balance >= 0 ? 'Wallet' : 'Due'}
                                             </p>
-                                            <p className={`text-sm sm:text-base font-bold tracking-tight ${balance.balance >= 0 ? 'text-emerald-800 dark:text-emerald-300' : 'text-red-800 dark:text-red-300'}`}>₹{Math.abs(balance.balance).toLocaleString()}</p>
+                                            <p className={`text-sm sm:text-base font-bold tracking-tight truncate ${balance.balance >= 0 ? 'text-emerald-800 dark:text-emerald-300' : 'text-red-800 dark:text-red-300'}`}>₹{Math.abs(balance.balance).toLocaleString()}</p>
                                         </div>
                                     </div>
                                 </div>
                             </div>
-
-                            {/* Quick Stats & Actions - Compact */}
-                            <div className="flex w-full xl:w-auto flex-col sm:flex-row items-stretch sm:items-center justify-between xl:justify-end gap-2 bg-slate-50 dark:bg-slate-900/50 p-2 rounded-lg xl:bg-transparent xl:p-0 border xl:border-0 border-slate-100 dark:border-slate-800">
-                                <div className="text-left md:text-right">
-                                    <p className="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Total Orders</p>
-                                    <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
-                                        {displayTotalOrders} <span className="text-[10px] sm:text-xs font-normal text-slate-400">orders</span>
-                                    </p>
-                                </div>
-                                <div className="w-px bg-slate-200 dark:bg-slate-800 h-6 self-center hidden sm:block"></div>
-                                <div className="text-left md:text-right">
-                                    <p className="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Total Spent</p>
-                                    <p className="text-sm sm:text-base font-bold text-slate-900 dark:text-slate-100">
-                                        ₹{displayTotalSpent.toLocaleString()}
-                                    </p>
-                                </div>
-                                <div className="w-px bg-slate-200 dark:bg-slate-800 h-6 self-center hidden sm:block"></div>
-                                <div className="text-left md:text-right">
-                                    <p className="text-[9px] text-slate-500 uppercase tracking-wider font-semibold">Wallet / Due</p>
-                                    <p className={`text-sm sm:text-base font-bold ${balance.balance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                        {balance.balance < 0 ? '-' : ''}₹{Math.abs(balance.balance).toLocaleString()}
-                                    </p>
-                                </div>
-                            </div>
                         </div>
 
-                        {/* Mobile Add Payment Button (Full Width) */}
-                        <div className="w-full sm:hidden">
-                            <Button onClick={() => setPaymentDialogOpen(true)} size="sm" className="w-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg rounded-full h-9">
-                                <CreditCard className="h-4 w-4 mr-2" />
-                                Add Payment
-                            </Button>
-                        </div>
+
                     </div>
                 </div>
 
                 {/* Tabs Section */}
                 <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0 overflow-hidden"
                     onValueChange={(val) => {
+                        setActiveTab(val);
                         if (val === 'ledger') fetchFinanceData();
                     }}
                 >
@@ -457,7 +441,84 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                         </TabsList>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 p-4 sm:p-6">
+                    {/* Sticky Header for Ledger Tab - Outside Scroll Area */}
+                    {activeTab === 'ledger' && (
+                        <div className="bg-white dark:bg-slate-950 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-800/60 px-4 sm:px-6 py-2.5 sm:py-3 shadow-sm shrink-0">
+                            {/* Single Row: Filters + Search + Add Payment */}
+                            <div className="flex flex-wrap items-center gap-2 justify-between">
+                                {/* Left: Filter Badges */}
+                                <div className="flex items-center p-0.5 sm:p-1 bg-slate-100/80 dark:bg-slate-800/80 rounded-lg sm:rounded-xl border border-slate-200/50 dark:border-slate-700/50 backdrop-blur-md">
+                                    {['all', 'credit', 'debit'].map((mode) => (
+                                        <button
+                                            key={mode}
+                                            onClick={() => setFilterMode(mode as any)}
+                                            className={`px-4 py-1.5 sm:px-5 sm:py-2 text-xs sm:text-sm font-semibold rounded-md sm:rounded-lg transition-all duration-300 ${filterMode === mode
+                                                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-sm ring-1 ring-black/5 dark:ring-white/5'
+                                                : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                                                }`}
+                                        >
+                                            {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Date Range - Hide on Mobile */}
+                                <div className="hidden md:flex items-center gap-2 bg-slate-50 dark:bg-slate-800/50 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <input
+                                        type="date"
+                                        className="bg-transparent text-xs p-1.5 focus:outline-none dark:text-slate-200 w-24"
+                                        value={dateRange?.start || ''}
+                                        onChange={e => setDateRange(prev => ({ start: e.target.value, end: prev?.end || '' }))}
+                                    />
+                                    <span className="text-slate-400 text-[10px]">TO</span>
+                                    <input
+                                        type="date"
+                                        className="bg-transparent text-xs p-1.5 focus:outline-none dark:text-slate-200 w-24"
+                                        value={dateRange?.end || ''}
+                                        onChange={e => setDateRange(prev => ({ start: prev?.start || '', end: e.target.value }))}
+                                    />
+                                    {(dateRange?.start || dateRange?.end) && (
+                                        <button onClick={() => setDateRange(null)} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors">
+                                            <X className="h-3 w-3 text-slate-500" />
+                                        </button>
+                                    )}
+                                </div>
+
+                                <Button
+                                    onClick={() => setPaymentDialogOpen(true)}
+                                    size="sm"
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-200 dark:shadow-none rounded-lg sm:rounded-xl px-3 sm:px-4 h-9 sm:h-10 text-xs sm:text-sm font-semibold shrink-0"
+                                >
+                                    <CreditCard className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5 sm:mr-2" />
+                                    <span className="hidden sm:inline">Add Payment</span>
+                                    <span className="sm:hidden">Add</span>
+                                </Button>
+
+                                {/* Search - Right Side */}
+                                <div className="relative w-full sm:w-48">
+                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 sm:h-3.5 sm:w-3.5 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Search..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="h-9 sm:h-10 w-full rounded-md border border-slate-200 bg-transparent px-3 py-1 pl-8 sm:pl-9 text-xs sm:text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:focus-visible:ring-slate-300"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Transaction History Title - Below Filters */}
+                            <div className="flex items-center gap-2 mt-1.5 pt-1.5 border-t border-slate-200/60 dark:border-slate-800/60">
+                                <div className="h-5 w-5 sm:h-6 sm:w-6 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                                    <CreditCard className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-slate-600 dark:text-slate-400" />
+                                </div>
+                                <h3 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100">Transaction History</h3>
+                                <span className="text-[9px] sm:text-[10px] text-slate-500">({paginatedLedger.length} of {filteredLedger.length})</span>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 px-3 py-4 sm:px-6 sm:pb-6">
                         <TabsContent value="overview" className="mt-0 space-y-6 animate-in fade-in-50 slide-in-from-bottom-2 duration-300">
                             {/* Edit Profile Toggle */}
                             <div className="flex justify-between items-center">
@@ -765,85 +826,9 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                             </Card>
                         </TabsContent>
 
-                        <TabsContent value="ledger" className="mt-0 h-full flex flex-col relative">
 
-
-                            {/* Sticky Header with Filters & Search Only */}
-                            <div className="sticky top-0 z-20 bg-white dark:bg-slate-950 backdrop-blur-xl border-b border-slate-200/60 dark:border-slate-800/60 px-3 sm:px-6 py-2.5 sm:py-3 -mx-6 shadow-sm transition-all duration-300">
-                                {/* Single Row: Filters + Search + Add Payment */}
-                                <div className="flex flex-wrap items-center gap-2 justify-between">
-                                    {/* Left: Filter Badges */}
-                                    <div className="flex items-center p-0.5 sm:p-1 bg-slate-100/80 dark:bg-slate-800/80 rounded-lg sm:rounded-xl border border-slate-200/50 dark:border-slate-700/50 backdrop-blur-md">
-                                        {['all', 'credit', 'debit'].map((mode) => (
-                                            <button
-                                                key={mode}
-                                                onClick={() => setFilterMode(mode as any)}
-                                                className={`px-2 py-1 sm:px-3 sm:py-1.5 text-[10px] sm:text-xs font-semibold rounded-md sm:rounded-lg transition-all duration-300 ${filterMode === mode
-                                                    ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 shadow-sm ring-1 ring-black/5 dark:ring-white/5'
-                                                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-                                                    }`}
-                                            >
-                                                {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    {/* Date Range - Hide on Mobile */}
-                                    <div className="hidden md:flex items-center gap-2 bg-slate-50 dark:bg-slate-800/50 p-1 rounded-xl border border-slate-200 dark:border-slate-700">
-                                        <input
-                                            type="date"
-                                            className="bg-transparent text-xs p-1.5 focus:outline-none dark:text-slate-200 w-24"
-                                            value={dateRange?.start || ''}
-                                            onChange={e => setDateRange(prev => ({ start: e.target.value, end: prev?.end || '' }))}
-                                        />
-                                        <span className="text-slate-400 text-[10px]">TO</span>
-                                        <input
-                                            type="date"
-                                            className="bg-transparent text-xs p-1.5 focus:outline-none dark:text-slate-200 w-24"
-                                            value={dateRange?.end || ''}
-                                            onChange={e => setDateRange(prev => ({ start: prev?.start || '', end: e.target.value }))}
-                                        />
-                                        {(dateRange?.start || dateRange?.end) && (
-                                            <button onClick={() => setDateRange(null)} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors">
-                                                <X className="h-3 w-3 text-slate-500" />
-                                            </button>
-                                        )}
-                                    </div>
-
-                                    <Button
-                                        onClick={() => setPaymentDialogOpen(true)}
-                                        size="sm"
-                                        className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shadow-emerald-200 dark:shadow-none rounded-lg sm:rounded-xl px-2 sm:px-3 h-8 sm:h-9 text-[10px] sm:text-xs font-semibold shrink-0"
-                                    >
-                                        <CreditCard className="h-3 w-3 sm:h-3.5 sm:w-3.5 mr-1 sm:mr-1.5" />
-                                        <span className="hidden sm:inline">Add Payment</span>
-                                        <span className="sm:hidden">Add</span>
-                                    </Button>
-
-                                    {/* Search - Right Side */}
-                                    <div className="relative w-full sm:w-48">
-                                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 sm:h-3.5 sm:w-3.5 text-slate-400" />
-                                        <input
-                                            type="text"
-                                            placeholder="Search..."
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                            className="h-8 sm:h-9 w-full rounded-md border border-slate-200 bg-transparent px-3 py-1 pl-7 sm:pl-8 text-xs sm:text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:focus-visible:ring-slate-300"
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Transaction History Title - Below Filters */}
-                                <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-slate-200/60 dark:border-slate-800/60">
-                                    <div className="h-5 w-5 sm:h-6 sm:w-6 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
-                                        <CreditCard className="h-2.5 w-2.5 sm:h-3 sm:w-3 text-slate-600 dark:text-slate-400" />
-                                    </div>
-                                    <h3 className="text-xs sm:text-sm font-semibold text-slate-900 dark:text-slate-100">Transaction History</h3>
-                                    <span className="text-[9px] sm:text-[10px] text-slate-500">({paginatedLedger.length} of {filteredLedger.length})</span>
-                                </div>
-                            </div>
-
-                            <Card className="shadow-none border-0">
+                        <TabsContent value="ledger" className="mt-0 h-full flex flex-col">
+                            <Card className="shadow-none border-0 flex-1 flex flex-col min-h-0">
                                 <CardContent className="p-0">
                                     {paginatedLedger.length === 0 ? (
                                         <div className="text-center py-12 text-muted-foreground bg-slate-50/50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800">
