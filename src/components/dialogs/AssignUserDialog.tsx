@@ -53,7 +53,7 @@ export function AssignUserDialog({
     setIsLoading(true);
     try {
       const deptLower = department.toLowerCase().trim();
-      
+
       // Map department names to role names (CRITICAL: This is the primary source of truth)
       const roleMap: Record<string, string> = {
         'sales': 'sales',
@@ -63,20 +63,20 @@ export function AssignUserDialog({
         'outsource': 'production', // Outsource users might be in production role
         'dispatch': 'production', // Dispatch is handled by production team
       };
-      
+
       const matchingRole = roleMap[deptLower];
-      
+
       // CRITICAL: Strategy 1 - Fetch ALL users from user_roles with matching role (PRIMARY METHOD)
       // This is the source of truth - if user has role='design' in user_roles, they ARE in design department
       let allUserIds = new Set<string>();
       let usersFromRoles = 0;
-      
+
       if (matchingRole) {
         const { data: rolesData, error: rolesError } = await supabase
           .from('user_roles')
           .select('user_id, role')
           .eq('role', matchingRole);
-        
+
         if (rolesError) {
           console.error('[AssignUserDialog] Error fetching user_roles:', rolesError);
         } else if (rolesData && rolesData.length > 0) {
@@ -93,65 +93,71 @@ export function AssignUserDialog({
       } else {
         console.warn(`[AssignUserDialog] No role mapping found for department: ${department}`);
       }
-      
+
       // Strategy 2: Also fetch from profiles table with case-insensitive matching (BACKUP METHOD)
       // This catches edge cases where department is set in profiles but role might be missing
       // But user_roles is PRIMARY - profiles is just backup
       let usersFromProfiles = 0;
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('user_id, full_name, department')
+        .select('user_id, full_name, department, is_hidden')
         .not('user_id', 'is', null);
-      
+
       if (profilesError) {
         console.error('[AssignUserDialog] Error fetching profiles:', profilesError);
       } else if (profiles) {
-        // Filter profiles by department (case-insensitive)
+        // Filter profiles by department (case-insensitive) AND NOT hidden
         const matchingProfiles = profiles.filter(profile => {
           const profileDept = (profile.department || '').toLowerCase().trim();
-          return profileDept === deptLower;
+          return profileDept === deptLower && !profile.is_hidden;
         });
-        
+
         matchingProfiles.forEach(profile => {
           if (profile.user_id && !allUserIds.has(profile.user_id)) {
             allUserIds.add(profile.user_id);
             usersFromProfiles++;
           }
         });
-        
+
         console.log(`[AssignUserDialog] Found ${usersFromProfiles} additional users in profiles for department: ${department}`);
       }
-      
+
       console.log(`[AssignUserDialog] Total unique users collected: ${allUserIds.size} (${usersFromRoles} from roles, ${usersFromProfiles} from profiles)`);
 
       // CRITICAL: Now fetch full profile data for ALL collected user IDs
       // Don't filter by department again - we already have the right users
       let allUsers: any[] = [];
       const profileMap = new Map<string, any>();
-      
+
       if (allUserIds.size > 0) {
         const userIdsArray = Array.from(allUserIds);
         console.log(`[AssignUserDialog] Fetching profiles for ${userIdsArray.length} unique user IDs`);
-        
+
         // Fetch in batches if too many users (Supabase limit is 1000 per query)
         const batchSize = 1000;
         for (let i = 0; i < userIdsArray.length; i += batchSize) {
           const batch = userIdsArray.slice(i, i + batchSize);
           const { data: userProfiles, error: userProfilesError } = await supabase
             .from('profiles')
-            .select('user_id, full_name, department')
+            .select('user_id, full_name, department, is_hidden')
             .in('user_id', batch);
-          
+
           if (userProfilesError) {
             console.error('[AssignUserDialog] Error fetching user profiles batch:', userProfilesError);
           } else if (userProfiles) {
             userProfiles.forEach(profile => {
-              profileMap.set(profile.user_id, profile);
+              // Determine if we should include this user
+              if (!profile.is_hidden) {
+                profileMap.set(profile.user_id, profile);
+                allUsers = [...allUsers, profile];
+              } else {
+                // Check if hidden user should be removed from id set? 
+                // Yes, if we are filtering display.
+              }
             });
-            allUsers = [...allUsers, ...userProfiles];
           }
         }
-        
+
         // CRITICAL: Include users that have role but no profile entry
         // Create entries for users found in user_roles but missing from profiles
         userIdsArray.forEach(userId => {
@@ -185,7 +191,7 @@ export function AssignUserDialog({
       }));
 
       setUsers(mappedUsers);
-      
+
       console.log(`[AssignUserDialog] Final result: Found ${mappedUsers.length} users for department: ${department}`, {
         department,
         matchingRole,

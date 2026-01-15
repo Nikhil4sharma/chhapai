@@ -1,25 +1,63 @@
 import { useAuth } from '@/features/auth/context/AuthContext';
 import { lazy } from 'react';
+import { useLocation, Navigate } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 
 // Lazy load to avoid circular deps or bundle bloat, matching App.tsx strategy
 // Lazy load to avoid circular deps or bundle bloat, matching App.tsx strategy
-const Dashboard = lazy(() => import("@/features/dashboard/pages/Dashboard"));
-const Sales = lazy(() => import("@/features/orders/pages/Sales"));
-const Production = lazy(() => import("@/features/orders/pages/Production"));
-const Design = lazy(() => import("@/features/orders/pages/Design"));
-const Prepress = lazy(() => import("@/features/orders/pages/Prepress"));
-const HRDashboard = lazy(() => import("@/features/admin/pages/HRDashboard"));
+const AdminDashboard = lazy(() => import('@/features/admin/pages/Admin')); // Consolidated Admin Dashboard
+const SalesDashboard = lazy(() => import('@/features/orders/pages/Sales'));
+const DesignDashboard = lazy(() => import('@/features/orders/pages/Design'));
+const ProductionDashboard = lazy(() => import('@/features/orders/pages/Production'));
+const HRDashboard = lazy(() => import('@/features/admin/pages/HRDashboard'));
+// const EmployeeManagement = lazy(() => import('@/features/hr/pages/EmployeeManagement'));
+const AccountsDashboard = lazy(() => import('@/features/accounts/pages/AccountsDashboard'));
 
-export function DashboardSwitcher() {
-    const { role } = useAuth();
+export const DashboardSwitcher = () => {
+    const { role, isLoading } = useAuth();
+    const location = useLocation();
 
-    // Role-based Dashboard Routing
-    if (role === 'sales') return <Sales />;
-    if (role === 'production') return <Production />;
-    if (role === 'design') return <Design />;
-    if (role === 'prepress') return <Prepress />;
-    if (role === 'hr') return <HRDashboard />;
+    if (isLoading) {
+        return (
+            <div className="flex h-screen w-full items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+        );
+    }
 
-    // Otherwise show the Main Dashboard (Admin / Generic)
-    return <Dashboard />;
-}
+    // If we are already on a specific role dashboard, don't redirect
+    // This allows direct linking
+    if (location.pathname.includes('/admin') && role === 'admin') return <AdminDashboard />;
+    if (location.pathname.includes('/sales') && role === 'sales') return <SalesDashboard />;
+    if (location.pathname.includes('/design') && role === 'design') return <DesignDashboard />;
+    if (location.pathname.includes('/production') && role === 'production') return <ProductionDashboard />;
+    if (location.pathname.includes('/dispatch') && role === 'dispatch') return <ProductionDashboard />;
+    if (location.pathname.includes('/outsource') && role === 'outsource') return <ProductionDashboard />;
+    if (location.pathname.includes('/hr') && role === 'hr') return <HRDashboard />;
+    if (location.pathname.includes('/accounts') && role === 'accounts') return <AccountsDashboard />;
+
+    // Default redirects based on role
+    switch (role) {
+        case 'admin':
+            return <Navigate to="/admin" replace />;
+        case 'sales':
+            return <Navigate to="/sales" replace />;
+        case 'design':
+            return <Navigate to="/design" replace />;
+        case 'prepress': // Prepress also goes to production dashboard for now or separate? 
+            // User hasn't specified prepress dashboard, assuming production or separate. 
+            // If Prepress.tsx exists use it, otherwise Production. 
+            // Let's check imports. No PrepressDashboard imported.
+            return <Navigate to="/production" replace />; // Fallback
+        case 'production':
+        case 'dispatch':
+        case 'outsource':
+            return <Navigate to="/production" replace />;
+        case 'hr':
+            return <Navigate to="/admin/hr" replace />; // HR goes to HR dashboard
+        case 'accounts':
+            return <Navigate to="/accounts" replace />;
+        default:
+            return <Navigate to="/login" replace />;
+    }
+};

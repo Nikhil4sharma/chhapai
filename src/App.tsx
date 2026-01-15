@@ -60,6 +60,7 @@ const VendorAnalytics = lazy(() => import("@/features/reports/pages/VendorAnalyt
 // HR Employee View
 const EmployeeDashboard = lazy(() => import('@/features/hr/pages/EmployeeDashboard'));
 const EmployeeManagement = lazy(() => import('@/features/hr/pages/EmployeeManagement'));
+const AccountsDashboard = lazy(() => import("@/features/accounts/pages/AccountsDashboard"));
 // Inventory
 const InventoryDashboard = lazy(() => import("@/features/inventory/pages/InventoryDashboard"));
 
@@ -211,6 +212,19 @@ const App = () => (
                               <PerformanceReports />
                             </Suspense>
                           } />
+
+
+                          // ... existing code ...
+
+                          {/* Accounts Routes */}
+                          <Route
+                            path="/accounts"
+                            element={
+                              <ProtectedRoute allowedRoles={['accounts', 'admin']}>
+                                <AccountsDashboard />
+                              </ProtectedRoute>
+                            }
+                          />
 
                           {/* Admin Routes */}
                           <Route path="/admin" element={

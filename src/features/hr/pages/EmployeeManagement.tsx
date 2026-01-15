@@ -237,11 +237,10 @@ export default function EmployeeManagement() {
                         // 3. Assign Role & Department
                         const { error: roleError } = await supabase
                             .from('user_roles')
-                            .upsert([
+                            .insert([
                                 {
                                     user_id: authData.user.id,
                                     role: data.role as any, // Cast to any to avoid enum type mismatch if exact type not imported
-                                    department: data.department
                                 }
                             ]);
 
@@ -267,6 +266,100 @@ export default function EmployeeManagement() {
                     }
                 }}
             />
+
+            {/* Edit Dialog */}
+            {selectedEmployeeId && (
+                <EditTeamMemberDialog
+                    open={!!selectedEmployeeId}
+                    onOpenChange={(open) => !open && setSelectedEmployeeId(null)}
+                    member={employees.find(e => e.id === selectedEmployeeId) ? {
+                        user_id: selectedEmployeeId,
+                        name: `${employees.find(e => e.id === selectedEmployeeId)?.first_name || ''} ${employees.find(e => e.id === selectedEmployeeId)?.last_name || ''}`.trim(),
+                        email: employees.find(e => e.id === selectedEmployeeId)?.email || '',
+                        roles: employees.find(e => e.id === selectedEmployeeId)?.roles?.map(r => r.role) || [],
+                        team: employees.find(e => e.id === selectedEmployeeId)?.hr_profile?.department || 'sales',
+                        department: employees.find(e => e.id === selectedEmployeeId)?.hr_profile?.department || 'sales',
+                        phone: employees.find(e => e.id === selectedEmployeeId)?.phone || undefined
+                    } : null}
+                    onSave={async (memberId, updates) => {
+                        try {
+                            // 1. Update Profile (Name) - This fixes the "Display Name" issue
+                            const { error: profileError } = await supabase
+                                .from('profiles')
+                                .update({ full_name: updates.name })
+                                .eq('id', memberId);
+
+                            if (profileError) throw profileError;
+
+                            // 2. Update Role (Delete existing and insert new to enforce single role and avoid conflict errors)
+                            const { error: deleteRoleError } = await supabase
+                                .from('user_roles')
+                                .delete()
+                                .eq('user_id', memberId);
+
+                            if (deleteRoleError) throw deleteRoleError;
+
+                            const { error: insertRoleError } = await supabase
+                                .from('user_roles')
+                                .insert({
+                                    user_id: memberId,
+                                    role: updates.role as any
+                                });
+
+                            if (insertRoleError) throw insertRoleError;
+
+                            // 3. Update Department (in hr_profiles and profiles) - Fixing Schema Error & Dept Sync
+                            const { error: hrError } = await supabase
+                                .from('hr_profiles')
+                                .upsert({
+                                    user_id: memberId,
+                                    department: updates.department,
+                                    // Make designation match role if not set? For now keep simpler.
+                                }, { onConflict: 'user_id' });
+
+                            if (hrError) throw hrError;
+
+                            // 4. Sync to 'employees' table (Keep names in sync)
+                            const nameParts = updates.name.split(' ');
+                            const firstName = nameParts[0];
+                            const lastName = nameParts.slice(1).join(' ');
+
+                            const { error: empError } = await supabase
+                                .from('employees')
+                                .update({
+                                    first_name: firstName,
+                                    last_name: lastName,
+                                    phone: updates.phone
+                                })
+                                .eq('user_id', memberId);
+
+                            if (empError) console.error("Failed to sync employees table", empError);
+
+                            // Also update legacy profiles.department
+                            await supabase
+                                .from('profiles')
+                                .update({ department: updates.department })
+                                .eq('id', memberId);
+
+                            toast({
+                                title: "Success",
+                                description: "Employee updated successfully",
+                            });
+
+                            setSelectedEmployeeId(null);
+                            fetchEmployees(); // Refresh the list to show updated name/role
+
+                        } catch (error: any) {
+                            console.error('Error updating member:', error);
+                            toast({
+                                title: "Error",
+                                description: error.message || "Failed to update employee",
+                                variant: "destructive",
+                            });
+                        }
+                    }}
+                />
+            )}
         </div>
     );
 }

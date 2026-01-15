@@ -3,6 +3,18 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { HRProfile } from '../types';
 
+
+
+export interface Employee {
+    id: string;
+    email: string;
+    first_name: string;
+    last_name: string;
+    phone?: string;
+    hr_profile: HRProfile | null;
+    roles: { role: string; department: string }[];
+}
+
 interface EmployeeWithProfile {
     id: string;
     email: string;
@@ -133,42 +145,91 @@ export function useEmployeeProfile(employeeId?: string) {
 }
 
 export function useEmployeeList() {
-    const [employees, setEmployees] = useState<EmployeeWithProfile[]>([]);
-    const [loading, setLoading] = useState(false);
+    const [employees, setEmployees] = useState<Employee[]>([]);
+    const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
 
     const fetchEmployees = async () => {
-        setLoading(true);
         try {
-            // Fetch from employees table instead of profiles
-            const { data: employeeData, error: employeeError } = await supabase
+            setLoading(true);
+
+            // 1. Fetch base employees (from employees table)
+            const { data: employeesData, error: empError } = await supabase
                 .from('employees')
-                .select('*')
-                .order('first_name');
+                .select('*');
 
-            if (employeeError) throw employeeError;
+            if (empError) throw empError;
 
-            // Fetch HR profiles for all employees
-            const { data: hrProfiles, error: hrError } = await supabase
+            // 2. Fetch profiles (for full_name, avatar, generic department, is_hidden)
+            const { data: profilesData, error: profError } = await supabase
+                .from('profiles')
+                .select('*');
+
+            if (profError) throw profError;
+
+            // 3. Fetch HR profiles (for extended HR data)
+            const { data: hrProfilesData, error: hrError } = await supabase
                 .from('hr_profiles')
                 .select('*');
 
+            // Ignore PRGST116 (no rows) if it happens, but for select * it shouldn't
             if (hrError && hrError.code !== 'PGRST116') throw hrError;
 
-            // Merge employee data with HR profiles
-            const merged = (employeeData || []).map(emp => ({
-                id: emp.user_id,
-                email: emp.email,
-                first_name: emp.first_name,
-                last_name: emp.last_name,
-                department: null, // Will get from hr_profile if exists
-                hr_profile: hrProfiles?.find(hr => hr.user_id === emp.user_id) || null
-            }));
+            // 4. Fetch User Roles (for role-based department fallback)
+            const { data: userRolesData, error: rolesError } = await supabase
+                .from('user_roles')
+                .select('*');
 
-            setEmployees(merged);
-        } catch (error: any) {
-            console.error('Error fetching employees:', error);
-            toast.error('Failed to load employees');
+            if (rolesError) throw rolesError;
+
+            // 5. Merge Data
+            const mergedData: Employee[] = (employeesData || [])
+                .filter(emp => {
+                    const profile = profilesData?.find(p => p.id === emp.user_id);
+                    // Filter out hidden users (Super Admin via is_hidden flag)
+                    if (profile?.is_hidden) return false;
+                    return true;
+                })
+                .map(emp => {
+                    const profile = profilesData?.find(p => p.id === emp.user_id);
+                    const hrProfile = hrProfilesData?.find(hr => hr.user_id === emp.user_id);
+                    const userRole = userRolesData?.find(ur => ur.user_id === emp.user_id);
+
+                    // Name Logic: Profile > Employee
+                    let firstName = emp.first_name;
+                    let lastName = emp.last_name;
+                    if (profile?.full_name) {
+                        const nameParts = profile.full_name.split(' ');
+                        firstName = nameParts[0];
+                        lastName = nameParts.slice(1).join(' ');
+                    }
+
+                    // Department Logic: HR Profile > Profile > Role
+                    const department = hrProfile?.department || profile?.department || userRole?.role || 'Unassigned';
+
+                    // Designation Logic: HR Profile > Role > 'No Designation' (Capitalize role)
+                    const roleCapitalized = userRole?.role ? userRole.role.charAt(0).toUpperCase() + userRole.role.slice(1) : undefined;
+                    const designation = hrProfile?.designation || roleCapitalized || 'No Designation';
+
+                    return {
+                        id: emp.user_id,
+                        email: emp.email,
+                        first_name: firstName,
+                        last_name: lastName,
+                        phone: emp.phone || profile?.phone,
+                        hr_profile: {
+                            ...hrProfile,
+                            department: department, // Override/Ensure department is populated
+                            designation: designation // Mapped designation
+                        },
+                        roles: userRole ? [{ role: userRole.role, department: department }] : []
+                    };
+                });
+
+            setEmployees(mergedData);
+        } catch (error) {
+            console.error('Error fetching employee list:', error);
+            // toast.error('Failed to fetch employees'); // Suppress to avoid spamming if one table fails
         } finally {
             setLoading(false);
         }
@@ -179,14 +240,13 @@ export function useEmployeeList() {
     }, []);
 
     const filteredEmployees = employees.filter(emp => {
-        if (!searchQuery) return true;
-        const query = searchQuery.toLowerCase();
+        const searchLower = searchQuery.toLowerCase();
+        const fullName = `${emp.first_name} ${emp.last_name}`.toLowerCase();
         return (
-            emp.first_name?.toLowerCase().includes(query) ||
-            emp.last_name?.toLowerCase().includes(query) ||
-            emp.email?.toLowerCase().includes(query) ||
-            emp.hr_profile?.department?.toLowerCase().includes(query) ||
-            emp.hr_profile?.designation?.toLowerCase().includes(query)
+            fullName.includes(searchLower) ||
+            emp.email.toLowerCase().includes(searchLower) ||
+            emp.hr_profile?.department?.toLowerCase().includes(searchLower) ||
+            emp.hr_profile?.designation?.toLowerCase().includes(searchLower)
         );
     });
 
