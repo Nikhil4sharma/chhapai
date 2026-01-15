@@ -9,6 +9,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { Order, OrderItem, TimelineEntry, Stage, SubStage, Priority, UserRole } from '@/types/order';
 import { ProductStatus, Department } from '@/types/workflow';
 import { MIGRATION_START_DATE } from '@/constants/migration';
+import { financeService } from '@/services/financeService';
+import { OrderPaymentStatus } from '@/types/finance';
 
 /**
  * Fetch all orders (RLS automatically filters based on user role/department)
@@ -72,8 +74,17 @@ export async function fetchAllOrders(): Promise<Order[]> {
       });
     }
 
-    // 4. Transform to Order[] format
-    return transformOrdersToAppFormat(ordersData, itemsData, filesData, profilesMap);
+    // 4. Calculate Payment Statuses (Dynamic FIFO)
+    const paymentStatusMap = await financeService.getBatchOrderPaymentStatus(
+      ordersData.map(o => ({
+        order_id: o.id, // Use UUID for calculation as expected by financeService (checked via financeService impl)
+        total: o.order_total || 0,
+        customer_id: o.customer_id
+      }))
+    );
+
+    // 5. Transform to Order[] format
+    return transformOrdersToAppFormat(ordersData, itemsData, filesData, profilesMap, paymentStatusMap);
   } catch (error) {
     console.error('Error in fetchAllOrders:', error);
     throw error;
@@ -87,7 +98,8 @@ function transformOrdersToAppFormat(
   ordersData: any[],
   itemsData: any[],
   filesData: any[],
-  profilesMap: Map<string, string>
+  profilesMap: Map<string, string>,
+  paymentStatusMap: Record<string, OrderPaymentStatus> = {}
 ): Order[] {
   return ordersData.map(orderRow => {
     const orderItems = itemsData
@@ -122,8 +134,11 @@ function transformOrdersToAppFormat(
         total: orderRow.order_total || undefined,
         tax_cgst: orderRow.tax_cgst || undefined,
         tax_sgst: orderRow.tax_sgst || undefined,
-        payment_status: orderRow.payment_status || undefined,
-        amount_received: orderRow.amount_received || undefined,
+        // Use calculated status if available, fallback to DB
+        payment_status: paymentStatusMap[orderRow.id] ?
+          (paymentStatusMap[orderRow.id].pending_amount <= 0.5 ? 'paid' : (paymentStatusMap[orderRow.id].paid_amount > 0 ? 'partial' : 'pending'))
+          : orderRow.payment_status,
+        amount_received: paymentStatusMap[orderRow.id]?.paid_amount ?? orderRow.amount_received,
       },
       woo_order_id: orderRow.woo_order_id || undefined,
       order_status: orderRow.order_status || undefined,

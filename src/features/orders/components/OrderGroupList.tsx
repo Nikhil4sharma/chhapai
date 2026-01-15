@@ -135,13 +135,31 @@ export function OrderGroupList({
 
                                     {/* Financial Badge - Only if Access Allowed */}
                                     {hasFinancialAccess && order.financials && (
-                                        <div className="hidden sm:block">
-                                            {/* Note: Full payment status derivation might happen in parent or specialized hook. 
-                                 For now, using basic order totals if available or skipping exact "Paid" badge logic 
-                                 unless we pass paymentStatuses map. Simple visual for now. */}
-                                            <Badge variant="outline" className="text-xs font-normal opacity-80">
+                                        <div className="hidden sm:flex items-center gap-2">
+                                            <Badge variant="outline" className="text-xs font-normal opacity-80 whitespace-nowrap">
                                                 Total: ₹{order.financials.total?.toLocaleString() || '0'}
                                             </Badge>
+
+                                            {(() => {
+                                                const total = order.financials.total || 0;
+                                                // amount_received is now populated from calculated payment ledger
+                                                const paid = order.financials.amount_received || 0;
+                                                const due = Math.max(0, total - paid);
+                                                const isPaid = due <= 0.5;
+
+                                                if (isPaid) {
+                                                    return (
+                                                        <Badge variant="default" className="text-xs font-medium bg-emerald-100 text-emerald-700 hover:bg-emerald-200 border-none whitespace-nowrap dark:bg-emerald-900/30 dark:text-emerald-400">
+                                                            Paid
+                                                        </Badge>
+                                                    );
+                                                }
+                                                return (
+                                                    <Badge variant="destructive" className="text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 border-none whitespace-nowrap dark:bg-red-900/30 dark:text-red-400">
+                                                        Due: ₹{due.toLocaleString()}
+                                                    </Badge>
+                                                );
+                                            })()}
                                         </div>
                                     )}
                                 </div>

@@ -772,6 +772,32 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       )
       .subscribe();
 
+    // Subscribe to payment_ledger changes for real-time balance updates
+    const paymentLedgerChannel = supabase
+      .channel('payment_ledger_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'payment_ledger'
+        },
+        (payload) => {
+          console.log('[OrderContext] Payment ledger change:', payload.eventType);
+          if (initialFetchComplete && isMounted && fetchOrdersRef.current) {
+            // Payments affect order status, so refresh orders
+            // Use debounce since payment might trigger multiple updates
+            debouncedFetch(() => {
+              if (fetchOrdersRef.current) {
+                // Force refresh to recalculate financial statuses
+                fetchOrdersRef.current(false, true);
+              }
+            });
+          }
+        }
+      )
+      .subscribe();
+
     // CRITICAL: Add order_files subscription for instant file upload updates
     const orderFilesChannel = supabase
       .channel('order_files_changes')

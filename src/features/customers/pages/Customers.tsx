@@ -294,7 +294,7 @@ export default function Customers() {
                         </div>
 
                         {/* Customers List - Premium Card Layout */}
-                        <div className="space-y-4">
+                        <div className="space-y-4 mt-6">
                             {isWCLoading ? (
                                 // Skeleton Loader
                                 Array(5).fill(0).map((_, i) => (

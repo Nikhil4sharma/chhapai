@@ -65,6 +65,12 @@ export const financeService = {
 
     /**
      * Calculate Customer Stats (Global Pool)
+     * 
+     * Logic:
+     * - Positive CREDIT amounts = Customer paid company → Increase total_paid
+     * - Negative CREDIT amounts = Company refunded customer → Decrease total_paid
+     * - Orders (total_used) = Customer used their balance for orders
+     * - Balance = total_paid - total_used
      */
     async getCustomerBalance(customerId: string): Promise<CustomerBalance> {
         // Fetch all credits (Payments)
@@ -85,6 +91,8 @@ export const financeService = {
 
         if (ordError) throw ordError;
 
+        // Calculate total_paid: sum of all CREDIT amounts (positive adds, negative subtracts)
+        // This handles both regular payments (+ve) and refunds (-ve)
         const total_paid = payments.reduce((sum, p) => sum + Number(p.amount), 0);
         const total_used = orders.reduce((sum, o) => sum + (o.order_total || 0), 0);
 

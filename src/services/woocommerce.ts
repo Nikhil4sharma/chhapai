@@ -39,6 +39,7 @@ export interface WCCustomer {
     last_synced_at: string;
     created_at?: string;
     assigned_to?: string;
+    gst_number?: string;
 }
 
 export interface WCOrder {
@@ -81,6 +82,12 @@ export interface WCOrder {
 
 // Helper to invoke the Edge Function
 export const syncWCCustomers = async () => {
+    // DISABLED: Edge function doesn't support 'sync_customers' action
+    // TODO: Implement customer sync differently or update edge function
+    console.warn('syncWCCustomers is currently disabled - edge function does not support this action');
+    return { data: null, error: null };
+
+    /* 
     // We now use the main 'woocommerce' function which handles all WC admin actions
     const { data, error } = await supabase.functions.invoke('woocommerce', {
         body: { action: 'sync_customers' }
@@ -106,9 +113,7 @@ export const syncWCCustomers = async () => {
         }
         throw error;
     }
-
-    console.log('Sync Response:', data);
-    return data;
+    */
 };
 
 // Fetch order history for a specific customer from WC (real-time fetch)

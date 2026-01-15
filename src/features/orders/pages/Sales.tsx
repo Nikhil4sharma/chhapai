@@ -429,13 +429,22 @@ export default function Sales() {
 
         {/* User Tabs for Admin */}
         {isAdmin && salesUsers.length > 0 && (
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-sm font-medium text-muted-foreground">Filter by User:</span>
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filter by Team Member</span>
             <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
-              <TabsList className="flex-wrap h-auto">
-                <TabsTrigger value="all" className="text-sm">All Users</TabsTrigger>
+              <TabsList className="h-auto p-1 bg-slate-100 dark:bg-slate-800 rounded-lg flex flex-wrap gap-1 justify-start overflow-visible">
+                <TabsTrigger
+                  value="all"
+                  className="rounded-md px-3 py-1.5 text-xs font-medium data-[state=active]:bg-white dark:data-[state=active]:bg-slate-950 data-[state=active]:shadow-sm transition-all"
+                >
+                  All Users
+                </TabsTrigger>
                 {salesUsers.map((salesUser) => (
-                  <TabsTrigger key={salesUser.user_id} value={salesUser.user_id} className="text-sm">
+                  <TabsTrigger
+                    key={salesUser.user_id}
+                    value={salesUser.user_id}
+                    className="rounded-md px-3 py-1.5 text-xs font-medium data-[state=active]:bg-white dark:data-[state=active]:bg-slate-950 data-[state=active]:shadow-sm transition-all"
+                  >
                     {salesUser.full_name}
                   </TabsTrigger>
                 ))}
