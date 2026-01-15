@@ -51,20 +51,20 @@ export function AddPaymentDialog({ open, onOpenChange, customerId, customerName,
 
         setIsSubmitting(true);
         try {
-            // If mode is 'order', we link it. If 'credit', we don't.
-            // Note: Even for 'order', we might want to Add Credit first then Apply Debit?
-            // The service addPayment supports linkedOrderId to do both.
+            // Mode 'order' -> Link to order
+            // Mode 'credit' -> Add to wallet (no link)
+            const targetOrderId = mode === 'order' ? linkedOrderId : undefined;
 
             await financeService.addPayment(
                 customerId,
                 Number(amount),
                 paymentMethod,
                 note,
-                mode === 'order' ? linkedOrderId : undefined
+                targetOrderId
             );
 
             toast.success(mode === 'order'
-                ? `Payment of ₹${amount} received and applied to order.`
+                ? `Payment of ₹${amount} applied to Order #${linkedOrderId}`
                 : `₹${amount} added to customer wallet.`
             );
             onSuccess?.();
@@ -88,14 +88,14 @@ export function AddPaymentDialog({ open, onOpenChange, customerId, customerName,
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    {!linkedOrderId && (
-                        <Tabs value={mode} onValueChange={(v) => setMode(v as any)} className="w-full">
-                            <TabsList className="grid w-full grid-cols-2">
-                                <TabsTrigger value="credit">Add to Wallet (Advance)</TabsTrigger>
-                                <TabsTrigger value="order" disabled>Pay Specific Order</TabsTrigger> {/* Disabled if no order selected */}
-                            </TabsList>
-                        </Tabs>
-                    )}
+                    <Tabs value={mode} onValueChange={(v) => setMode(v as any)} className="w-full">
+                        <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="credit">Add to Wallet (Advance)</TabsTrigger>
+                            <TabsTrigger value="order" disabled={!linkedOrderId}>
+                                {linkedOrderId ? `Pay Order #${linkedOrderId?.slice(0, 8)}...` : "Pay Specific Order"}
+                            </TabsTrigger>
+                        </TabsList>
+                    </Tabs>
 
                     <div className="space-y-2">
                         <Label htmlFor="amount">Amount (₹)</Label>
@@ -128,8 +128,8 @@ export function AddPaymentDialog({ open, onOpenChange, customerId, customerName,
                                     key={m.id}
                                     onClick={() => setPaymentMethod(m.id as PaymentMethod)}
                                     className={`cursor-pointer flex flex-col items-center justify-center p-3 rounded-lg border transition-all ${paymentMethod === m.id
-                                            ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-900/20 dark:border-blue-500 dark:text-blue-300'
-                                            : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400'
+                                        ? 'bg-blue-50 border-blue-500 text-blue-700 dark:bg-blue-900/20 dark:border-blue-500 dark:text-blue-300'
+                                        : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400'
                                         }`}
                                 >
                                     <m.icon className="h-5 w-5 mb-1" />

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProductCard } from '@/features/orders/components/ProductCard';
+import { OrderGroupList } from '@/features/orders/components/OrderGroupList';
 import { PRODUCTION_STEPS, SubStage, DispatchInfo, Order, OrderItem } from '@/types/order';
 import { useOrders } from '@/features/orders/context/OrderContext';
 import { useAuth } from '@/features/auth/context/AuthContext';
@@ -170,7 +171,8 @@ export default function Production() {
   }, [allProductionItems, urgentProductionItems, assignedProductionItems]);
 
   // Tab state for filtering
-  const [activeTab, setActiveTab] = useState<'in_progress' | 'completed' | 'assigned' | 'urgent' | 'all'>('in_progress');
+  const [activeTab, setActiveTab] = useState<'in_progress' | 'completed' | 'assigned' | 'urgent' | 'all'>('assigned');
+  const [activeStage, setActiveStage] = useState<string>('all');
 
   // Filter items based on active tab (for production, also respect substage filter)
   const productionItems = useMemo(() => {
@@ -187,6 +189,11 @@ export default function Production() {
     }
     // 'all' tab already filtered
 
+    // Apply User Filter (Admin only)
+    if (isAdmin && selectedUserTab !== 'all') {
+      filtered = filtered.filter(({ item }) => item.assigned_to === selectedUserTab);
+    }
+
     return filtered;
   }, [allProductionItems, inProgressItems, completedItems, assignedProductionItems, urgentProductionItems, activeTab, isAdmin, selectedUserTab]);
 
@@ -194,6 +201,11 @@ export default function Production() {
     if (substage === 'all') return productionItems;
     return productionItems.filter(({ item }) => item.current_substage === substage);
   };
+
+  // Final filtered list based on activeStage
+  const filteredByStage = useMemo(() => {
+    return getItemsBySubstage(activeStage);
+  }, [productionItems, activeStage]);
 
   const handleStartStage = (orderId: string, itemId: string, substage: SubStage) => {
     updateItemSubstage(orderId, itemId, substage);
@@ -505,83 +517,36 @@ export default function Production() {
           </div>
         )}
 
-        {/* Production Stages Tabs - Scrollable content */}
-        <div className="flex-1 min-h-0 flex flex-col">
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="flex-1 flex flex-col min-h-0">
-            <div className="flex-shrink-0 overflow-x-auto pb-2">
-              <TabsList className="inline-flex h-auto p-1 bg-secondary/50">
-                <TabsTrigger value="all" className="px-4">
-                  All
-                  <Badge variant="secondary" className="ml-2">{productionItems.length}</Badge>
-                </TabsTrigger>
-                {getAllUsedStages().map((step) => {
-                  const count = getItemsBySubstage(step.key).length;
-                  return (
-                    <TabsTrigger key={step.key} value={step.key} className="px-4">
-                      {step.label}
-                      {count > 0 && (
-                        <Badge variant="secondary" className="ml-2">{count}</Badge>
-                      )}
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
-            </div>
-
-            {['all', ...getAllUsedStages().map(s => s.key)].map((tabValue) => (
-              <TabsContent key={tabValue} value={tabValue} className="flex-1 mt-4 overflow-hidden">
-                <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                  {getItemsBySubstage(tabValue === 'all' ? 'all' : tabValue).length === 0 ? (
-                    <Card>
-                      <CardContent className="py-12 text-center">
-                        <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                        <h3 className="font-semibold text-lg mb-2">No items here</h3>
-                        <p className="text-muted-foreground">
-                          {tabValue === 'all'
-                            ? 'No items currently in production.'
-                            : `No items in ${tabValue} stage.`
-                          }
-                        </p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <div className="space-y-3">
-                      {(() => {
-                        const items = getItemsBySubstage(tabValue === 'all' ? 'all' : tabValue);
-                        // Group items by order_id to assign suffixes (A, B, C, etc.)
-                        const itemsByOrder = new Map<string, Array<{ order: Order; item: OrderItem }>>();
-                        items.forEach(({ order, item }) => {
-                          const orderKey = order.order_id;
-                          if (!itemsByOrder.has(orderKey)) {
-                            itemsByOrder.set(orderKey, []);
-                          }
-                          itemsByOrder.get(orderKey)!.push({ order, item });
-                        });
-
-                        // Flatten with suffixes
-                        const itemsWithSuffixes: Array<{ order: Order; item: OrderItem; suffix: string }> = [];
-                        itemsByOrder.forEach((itemsList, orderKey) => {
-                          itemsList.forEach(({ order, item }, index) => {
-                            const suffix = itemsList.length > 1 ? String.fromCharCode(65 + index) : ''; // A, B, C, etc.
-                            itemsWithSuffixes.push({ order, item, suffix });
-                          });
-                        });
-
-                        return itemsWithSuffixes.map(({ order, item, suffix }) => (
-                          <ProductCard
-                            key={`${order.order_id}-${item.item_id}`}
-                            order={order}
-                            item={item}
-                            productSuffix={suffix}
-                          />
-                        ));
-                      })()}
-                    </div>
-                  )}
-                </div>
-              </TabsContent>
-            ))}
+        {/* Production Stages Filter - Scrollable (Secondary Filter) */}
+        <div className="flex-shrink-0 overflow-x-auto pb-2 -mt-2">
+          <Tabs value={activeStage} onValueChange={setActiveStage} className="w-full">
+            <TabsList className="inline-flex h-auto p-1 bg-muted/50">
+              <TabsTrigger value="all" className="px-3 text-xs h-7">
+                All Stages
+              </TabsTrigger>
+              {getAllUsedStages().map((step) => {
+                const count = activeStage === step.key ? 0 : getItemsBySubstage(step.key).length; // simple count check
+                return (
+                  <TabsTrigger key={step.key} value={step.key} className="px-3 text-xs h-7">
+                    {step.label}
+                  </TabsTrigger>
+                );
+              })}
+            </TabsList>
           </Tabs>
+        </div>
+
+        {/* Content Area */}
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 pb-20">
+          <OrderGroupList
+            products={filteredByStage}
+            emptyMessage={
+              activeStage === 'all'
+                ? "No items found in this view"
+                : `No items found in ${activeStage} stage`
+            }
+            showFinancials={false}
+          />
         </div>
 
         {/* Upload Dialog */}

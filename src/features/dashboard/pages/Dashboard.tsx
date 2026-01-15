@@ -7,6 +7,7 @@ import { DepartmentLoadChart } from '@/components/dashboard/DepartmentLoadChart'
 import { UserWorkloadCard } from '@/components/dashboard/UserWorkloadCard';
 import { OrderCard } from '@/features/orders/components/OrderCard';
 import { ProductCard } from '@/features/orders/components/ProductCard';
+import { OrderGroupList } from '@/features/orders/components/OrderGroupList';
 import { useOrders } from '@/features/orders/context/OrderContext';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import { Order, OrderItem } from '@/types/order';
@@ -512,7 +513,7 @@ export default function Dashboard() {
     );
   }
 
-  // Helper for grid rendering
+  // Helper for grid rendering -> Updated to Order Group List
   const ProductGrid = ({
     products,
     page,
@@ -523,31 +524,25 @@ export default function Dashboard() {
     page: number,
     setPage: (p: number) => void,
     emptyMessage: string
-  }) => (
-    <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
-      {products.length > 0 ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {paginateArray(products, page).map(({ order, item }) => (
-            <ProductCard
-              key={`${order.order_id}-${item.item_id}`}
-              order={order}
-              item={item}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="h-full flex flex-col items-center justify-center text-slate-400">
-          <Package className="h-12 w-12 mb-2 opacity-20" />
-          <p>{emptyMessage}</p>
-        </div>
-      )}
-      <Pagination
-        currentPage={page}
-        totalPages={getTotalPages(products.length)}
-        onPageChange={setPage}
-      />
-    </div>
-  );
+  }) => {
+    // Determine if financials should be shown (Admin/Sales only usually)
+    const showFinancials = isAdmin || role === 'sales';
+
+    return (
+      <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+        <OrderGroupList
+          products={paginateArray(products, page)}
+          emptyMessage={emptyMessage}
+          showFinancials={showFinancials}
+        />
+        <Pagination
+          currentPage={page}
+          totalPages={getTotalPages(products.length)}
+          onPageChange={setPage}
+        />
+      </div>
+    );
+  };
 
   return (
     <TooltipProvider>
@@ -912,11 +907,17 @@ export default function Dashboard() {
                   </TabsContent>
                 </>
               ) : (
-                // STANDARD DASHBOARD CONTENT (Admin / Production / Helper)
                 <>
+                  {/* All Active */}
                   <TabsContent value="active" className="h-full">
                     <ProductGrid
-                      products={processedProducts}
+                      products={processedProducts.filter(({ item }) => {
+                        // Strict filtering for standard departments (Prepress, Production, etc.)
+                        const itemDept = (item.assigned_department || item.current_stage || '').toLowerCase();
+                        // Handle dispatch specifically if role is dispatch
+                        if (role === 'dispatch') return item.current_stage === 'dispatch' || item.status === 'ready_for_dispatch';
+                        return itemDept === role?.toLowerCase();
+                      })}
                       page={activePage}
                       setPage={setActivePage}
                       emptyMessage="No active items found"
@@ -925,7 +926,11 @@ export default function Dashboard() {
 
                   <TabsContent value="urgent" className="h-full">
                     <ProductGrid
-                      products={urgentProducts}
+                      products={urgentProducts.filter(({ item }) => {
+                        const itemDept = (item.assigned_department || item.current_stage || '').toLowerCase();
+                        if (role === 'dispatch') return item.current_stage === 'dispatch' || item.status === 'ready_for_dispatch';
+                        return itemDept === role?.toLowerCase();
+                      })}
                       page={urgentPage}
                       setPage={setUrgentPage}
                       emptyMessage="All caught up! No urgent items."
@@ -934,7 +939,10 @@ export default function Dashboard() {
 
                   <TabsContent value="completed" className="h-full">
                     <ProductGrid
-                      products={completedProducts}
+                      products={completedProducts.filter(({ item }) => {
+                        // Simplify completed filter - assume passed by completedOrders logic but safety check
+                        return true;
+                      })}
                       page={completedPage}
                       setPage={setCompletedPage}
                       emptyMessage="No history yet"
@@ -945,7 +953,7 @@ export default function Dashboard() {
             </div>
           </Tabs>
         </div>
-      </div>
-    </TooltipProvider>
+      </div >
+    </TooltipProvider >
   );
 }

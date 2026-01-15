@@ -34,6 +34,7 @@ import { VendorDetails, OutsourceJobDetails, Order, OrderItem } from '@/types/or
 import { supabase } from '@/integrations/supabase/client';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ProductCard } from '@/features/orders/components/ProductCard';
+import { OrderGroupList } from '@/features/orders/components/OrderGroupList';
 
 interface PrepressUser {
   user_id: string;
@@ -74,9 +75,9 @@ export default function Prepress() {
   }, [isAdmin]);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const [stageSequenceDialogOpen, setStageSequenceDialogOpen] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<{ 
-    orderId: string; 
-    itemId: string; 
+  const [selectedItem, setSelectedItem] = useState<{
+    orderId: string;
+    itemId: string;
     productName: string;
     currentSequence?: string[] | null;
   } | null>(null);
@@ -95,34 +96,34 @@ export default function Prepress() {
   const allPrepressItems = useMemo(() => {
     const department = 'prepress';
     const deptLower = department.toLowerCase().trim();
-    
+
     // Check user's department - use role first, then profile.department
     const userDepartment = (role || profile?.department || '').toLowerCase().trim();
     const isPrepressUser = userDepartment === deptLower || isAdmin;
-    
+
     return orders
       .filter(order => !order.is_completed && !order.archived_from_wc)
-      .flatMap(order => 
+      .flatMap(order =>
         order.items
           .filter(item => {
             // Filter by assigned_department AND current_stage
             const itemDept = (item.assigned_department || '').toLowerCase().trim();
             const itemStage = (item.current_stage || '').toLowerCase().trim();
             const isPrepressItem = itemDept === deptLower || itemStage === deptLower;
-            
+
             if (!isPrepressItem) return false;
-            
+
             // CRITICAL FIX: Visibility logic (CORRECTED)
             // - Admin sees ALL items in prepress department
             // - Sales sees ALL items in prepress department
             // - Department users see ALL items in their department (regardless of assigned_to)
             // - assigned_to does NOT control department-level visibility
             // - assigned_to is only used for "Assigned to Me" tab filtering
-            
+
             if (isAdmin || role === 'sales') {
               return true; // Admin and Sales see everything
             }
-            
+
             // Department users ALWAYS see items in their department
             // assigned_to does NOT filter out items from department view
             // This ensures department-wide visibility (read-only for assigned items)
@@ -148,16 +149,16 @@ export default function Prepress() {
   // Get items by status
   const inProgressItems = useMemo(() => {
     return allPrepressItems.filter(({ item }) => {
-      return item.current_stage === 'prepress' && 
-             item.assigned_department === 'prepress';
+      return item.current_stage === 'prepress' &&
+        item.assigned_department === 'prepress';
     });
   }, [allPrepressItems]);
 
   const completedItems = useMemo(() => {
     return allPrepressItems.filter(({ item }) => {
-      return (item.current_stage === 'production' || 
-              item.current_stage === 'completed') &&
-             (item.assigned_department === 'production');
+      return (item.current_stage === 'production' ||
+        item.current_stage === 'completed') &&
+        (item.assigned_department === 'production');
     });
   }, [allPrepressItems]);
 
@@ -173,7 +174,7 @@ export default function Prepress() {
   }, [allPrepressItems, urgentPrepressItems, assignedPrepressItems]);
 
   // Tab state for filtering
-  const [activeTab, setActiveTab] = useState<'in_progress' | 'completed' | 'assigned' | 'urgent' | 'all'>('in_progress');
+  const [activeTab, setActiveTab] = useState<'in_progress' | 'completed' | 'assigned' | 'urgent' | 'all'>('assigned');
 
   // Filter items based on active tab
   const prepressItems = useMemo(() => {
@@ -384,48 +385,12 @@ export default function Prepress() {
         )}
 
         {/* Prepress Queue - Scrollable - Show Products (not orders) */}
-        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2">
-          {prepressItems.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                <h3 className="font-semibold text-lg mb-2">All caught up!</h3>
-                <p className="text-muted-foreground">No products currently in prepress.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {(() => {
-                // Group items by order_id to assign suffixes (A, B, C, etc.)
-                const itemsByOrder = new Map<string, Array<{ order: Order; item: OrderItem }>>();
-                prepressItems.forEach(({ order, item }) => {
-                  const orderKey = order.order_id;
-                  if (!itemsByOrder.has(orderKey)) {
-                    itemsByOrder.set(orderKey, []);
-                  }
-                  itemsByOrder.get(orderKey)!.push({ order, item });
-                });
-
-                // Flatten with suffixes
-                const itemsWithSuffixes: Array<{ order: Order; item: OrderItem; suffix: string }> = [];
-                itemsByOrder.forEach((items, orderKey) => {
-                  items.forEach(({ order, item }, index) => {
-                    const suffix = items.length > 1 ? String.fromCharCode(65 + index) : ''; // A, B, C, etc.
-                    itemsWithSuffixes.push({ order, item, suffix });
-                  });
-                });
-
-                return itemsWithSuffixes.map(({ order, item, suffix }) => (
-                  <ProductCard 
-                    key={`${order.order_id}-${item.item_id}`}
-                    order={order} 
-                    item={item}
-                    productSuffix={suffix}
-                  />
-                ));
-              })()}
-            </div>
-          )}
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 pb-20">
+          <OrderGroupList
+            products={prepressItems}
+            emptyMessage={prepressItems.length === 0 ? "All caught up! No items in prepress." : "No items found"}
+            showFinancials={false}
+          />
         </div>
 
         {/* Upload Dialog */}
@@ -483,8 +448,8 @@ export default function Prepress() {
                     />
                   </div>
                 ) : isImageFile(previewFile.type) ? (
-                  <img 
-                    src={previewFile.url} 
+                  <img
+                    src={previewFile.url}
                     alt={previewFile.name}
                     className="max-w-full max-h-[70vh] object-contain rounded-lg shadow-lg"
                   />

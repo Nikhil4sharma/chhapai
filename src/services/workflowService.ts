@@ -122,6 +122,10 @@ export const workflowService = {
         if (!targetStatus) throw new Error('Action configuration error: No target status');
 
         // 4. Update the Order Item
+        // IMPORTANT: Clear assigned_to if moving to a new department to prevent stale assignees
+        // (e.g., Prepress user assigned to Production item)
+        const isDeptChange = targetDept !== currentDept;
+
         const updateData: any = {
             status: targetStatus,
             // Update department fields (both current_stage and assigned_department for compatibility)
@@ -135,6 +139,8 @@ export const workflowService = {
                     targetDept === 'prepress' ? 'prepress' :
                         targetDept === 'production' ? 'production' :
                             targetDept === 'outsource' ? 'outsource' : 'sales',
+            // Only clear assignment if explicitly changing department and NOT self-assignment logic
+            assigned_to: isDeptChange ? null : (product.assigned_to || null),
             updated_at: new Date().toISOString(),
             last_workflow_note: notes || null
         };

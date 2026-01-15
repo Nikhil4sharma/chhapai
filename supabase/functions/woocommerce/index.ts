@@ -241,6 +241,82 @@ serve(async (req: Request) => {
       return createResponse({ success: true, orders: formattedOrders, count: formattedOrders.length }, 200, corsHeaders);
     }
 
+    // Search customers
+    if (action === 'search_customers') {
+      const { query } = body;
+      if (!query || query.length < 3) {
+        return createResponse({ error: 'Query string too short (min 3 chars)' }, 400, corsHeaders);
+      }
+
+      const searchParams = new URLSearchParams({ search: query, per_page: '20' });
+      const response = await fetch(`${storeUrl}/wp-json/wc/v3/customers?${searchParams}`, {
+        headers: { 'Authorization': `Basic ${auth}` }
+      });
+
+      if (!response.ok) {
+        return createResponse({ success: false, error: `Search customers failed: ${response.status}` }, 500, corsHeaders);
+      }
+
+      const customers = await response.json();
+      const formattedCustomers = customers.map((c: any) => ({
+        id: c.id,
+        name: `${c.first_name || ''} ${c.last_name || ''}`.trim() || c.username,
+        email: c.email,
+        avatar_url: c.avatar_url,
+        phone: c.billing?.phone || '',
+        total_spent: c.total_spent,
+        orders_count: c.orders_count,
+        location: [c.billing?.city, c.billing?.state].filter(Boolean).join(', '),
+      }));
+
+      return createResponse({ success: true, customers: formattedCustomers }, 200, corsHeaders);
+    }
+
+    // Import customer
+    if (action === 'import_customer') {
+      const { wc_id } = body;
+      if (!wc_id) {
+        return createResponse({ error: 'Customer ID required' }, 400, corsHeaders);
+      }
+
+      const response = await fetch(`${storeUrl}/wp-json/wc/v3/customers/${wc_id}`, {
+        headers: { 'Authorization': `Basic ${auth}` }
+      });
+
+      if (!response.ok) {
+        return createResponse({ success: false, error: `Fetch customer failed: ${response.status}` }, 500, corsHeaders);
+      }
+
+      const customer = await response.json();
+
+      // Upsert into wc_customers
+      const { data, error } = await supabase
+        .from('wc_customers')
+        .upsert({
+          wc_id: customer.id,
+          email: customer.email,
+          first_name: customer.first_name,
+          last_name: customer.last_name,
+          phone: customer.billing?.phone,
+          billing: customer.billing,
+          shipping: customer.shipping,
+          avatar_url: customer.avatar_url,
+          total_spent: customer.total_spent,
+          orders_count: customer.orders_count,
+          last_order_date: customer.date_last_order, // Note: WC returns date_last_order
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'wc_id' })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Upsert failed:', error);
+        return createResponse({ success: false, error: error.message }, 500, corsHeaders);
+      }
+
+      return createResponse({ success: true, customer: data }, 200, corsHeaders);
+    }
+
     // Default: Unknown action
     return createResponse({ error: `Unknown action: ${action}` }, 400, corsHeaders);
 

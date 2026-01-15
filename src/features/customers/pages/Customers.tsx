@@ -33,12 +33,14 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useSearchParams } from 'react-router-dom';
 
 type SortOption = 'date-new' | 'date-old' | 'spent-high' | 'orders-high' | 'name-asc';
 
 export default function Customers() {
+    const [searchParams] = useSearchParams();
     const { customers, isLoading: isWCLoading, refetch, deleteCustomer, deleteAllCustomers } = useWooCommerce();
-    const [searchTerm, setSearchTerm] = useState('');
+    const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
     const [filter, setFilter] = useState<'all' | 'high-value' | 'repeat' | 'my-customers'>('all');
     const [sortBy, setSortBy] = useState<SortOption>('date-new');
 
@@ -46,6 +48,18 @@ export default function Customers() {
     const [detailOpen, setDetailOpen] = useState(false);
     const [importOpen, setImportOpen] = useState(false);
     const [deleteWarningOpen, setDeleteWarningOpen] = useState(false);
+
+    // Deep Linking: Auto-open customer if "open" param is present
+    useEffect(() => {
+        const openId = searchParams.get('open');
+        if (openId && customers.length > 0 && !detailOpen) {
+            const customerToOpen = customers.find(c => c.id === openId);
+            if (customerToOpen) {
+                setSelectedCustomer(customerToOpen);
+                setDetailOpen(true);
+            }
+        }
+    }, [customers, searchParams]);
 
     // Assignment State
     const [assignDialogOpen, setAssignDialogOpen] = useState(false);

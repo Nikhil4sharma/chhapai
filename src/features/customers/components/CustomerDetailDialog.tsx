@@ -337,62 +337,115 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                         </TabsContent>
 
                         <TabsContent value="ledger" className="mt-0 space-y-6">
+                            {/* Ledger Stats */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                                    <p className="text-sm font-medium text-slate-500">Total Paid (Credits)</p>
-                                    <p className="text-2xl font-bold text-emerald-600 mt-1">₹{balance.total_paid.toLocaleString()}</p>
+                                <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                                    <div className="absolute right-0 top-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:bg-emerald-500/10 transition-colors" />
+                                    <p className="text-sm font-medium text-slate-500 relative z-10">Total Paid (Credits)</p>
+                                    <p className="text-2xl font-bold text-emerald-600 mt-1 relative z-10">₹{balance.total_paid.toLocaleString()}</p>
                                 </div>
-                                <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                                    <p className="text-sm font-medium text-slate-500">Total Used (Debits)</p>
-                                    <p className="text-2xl font-bold text-blue-600 mt-1">₹{balance.total_used.toLocaleString()}</p>
+                                <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm relative overflow-hidden group">
+                                    <div className="absolute right-0 top-0 w-24 h-24 bg-blue-500/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 group-hover:bg-blue-500/10 transition-colors" />
+                                    <p className="text-sm font-medium text-slate-500 relative z-10">Total Used (Debits)</p>
+                                    <p className="text-2xl font-bold text-blue-600 mt-1 relative z-10">₹{balance.total_used.toLocaleString()}</p>
                                 </div>
-                                <div className={`p-4 rounded-lg border shadow-sm ${balance.balance >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
-                                    <p className={`text-sm font-medium ${balance.balance >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>Available Balance</p>
-                                    <p className={`text-2xl font-bold mt-1 ${balance.balance >= 0 ? 'text-emerald-900' : 'text-red-900'}`}>₹{balance.balance.toLocaleString()}</p>
+                                <div className={`p-4 rounded-xl border shadow-sm relative overflow-hidden group ${balance.balance >= 0 ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/20 dark:border-emerald-900/40' : 'bg-red-50 border-red-200 dark:bg-red-950/20 dark:border-red-900/40'}`}>
+                                    <p className={`text-sm font-medium relative z-10 ${balance.balance >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>Available Balance</p>
+                                    <p className={`text-2xl font-bold mt-1 relative z-10 ${balance.balance >= 0 ? 'text-emerald-900 dark:text-emerald-300' : 'text-red-900 dark:text-red-300'}`}>₹{balance.balance.toLocaleString()}</p>
                                 </div>
                             </div>
 
-                            <Card>
-                                <CardHeader className="flex flex-row items-center justify-between">
-                                    <CardTitle>Transaction History</CardTitle>
-                                    <Button size="sm" onClick={() => setPaymentDialogOpen(true)}>
-                                        <CreditCard className="h-4 w-4 mr-2" />
-                                        Record Payment
-                                    </Button>
+                            <Card className="shadow-none border border-slate-200 dark:border-slate-800">
+                                <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 py-4">
+                                    <CardTitle className="text-base flex items-center gap-2">
+                                        <div className="h-8 w-8 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+                                            <CreditCard className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+                                        </div>
+                                        Transaction History
+                                    </CardTitle>
+                                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                                        <div className="relative flex-1 sm:w-48">
+                                            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                                            <input
+                                                type="text"
+                                                placeholder="Search transactions..."
+                                                className="h-9 w-full rounded-md border border-slate-200 bg-transparent px-3 py-1 pl-8 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-slate-950 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:focus-visible:ring-slate-300"
+                                            />
+                                        </div>
+                                        <Button size="sm" onClick={() => setPaymentDialogOpen(true)} className="gap-2 shrink-0">
+                                            <CreditCard className="h-3.5 w-3.5" />
+                                            Record Payment
+                                        </Button>
+                                    </div>
                                 </CardHeader>
-                                <CardContent>
+                                <CardContent className="p-0">
                                     {ledger.length === 0 ? (
-                                        <div className="text-center py-8 text-muted-foreground">
-                                            No transactions yet.
+                                        <div className="text-center py-12 text-muted-foreground bg-slate-50/50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800">
+                                            <CreditCard className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
+                                            <p className="font-medium">No transactions found</p>
+                                            <p className="text-sm mt-1">Record a payment to get started.</p>
                                         </div>
                                     ) : (
-                                        <div className="space-y-4">
-                                            {ledger.map((txn) => (
-                                                <div key={txn.id} className="flex items-center justify-between p-3 border-b last:border-0 hover:bg-slate-50 transition-colors">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className={`h-10 w-10 rounded-full flex items-center justify-center ${txn.transaction_type === 'CREDIT' ? 'bg-emerald-100 text-emerald-600' : 'bg-blue-100 text-blue-600'}`}>
-                                                            {txn.transaction_type === 'CREDIT' ? <ArrowUpRight className="h-5 w-5" /> : <ShoppingBag className="h-5 w-5" />}
+                                        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                                            {ledger.map((txn) => {
+                                                const isCredit = txn.transaction_type === 'CREDIT';
+
+                                                // Icon Logic
+                                                let Icon = isCredit ? ArrowUpRight : ShoppingBag;
+                                                let iconBg = isCredit ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-orange-100 dark:bg-orange-900/30';
+                                                let iconColor = isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400';
+
+                                                if (isCredit) {
+                                                    if (txn.payment_method === 'cash') { Icon = Banknote; iconBg = 'bg-green-100 dark:bg-green-900/30'; iconColor = 'text-green-600 dark:text-green-400'; }
+                                                    if (txn.payment_method === 'upi') { Icon = Smartphone; iconBg = 'bg-purple-100 dark:bg-purple-900/30'; iconColor = 'text-purple-600 dark:text-purple-400'; }
+                                                    if (txn.payment_method === 'online') { Icon = Globe; iconBg = 'bg-blue-100 dark:bg-blue-900/30'; iconColor = 'text-blue-600 dark:text-blue-400'; }
+                                                }
+
+                                                return (
+                                                    <div key={txn.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors group">
+                                                        <div className="flex items-start sm:items-center gap-4">
+                                                            <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor} shadow-sm border border-black/5 dark:border-white/5`}>
+                                                                <Icon className="h-5 w-5" />
+                                                            </div>
+                                                            <div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <p className="font-semibold text-slate-900 dark:text-slate-100">
+                                                                        {isCredit ? (
+                                                                            <span>Received via <span className="capitalize">{txn.payment_method?.replace(/_/g, ' ') || 'Payment'}</span></span>
+                                                                        ) : (
+                                                                            <span>Applied to Order</span>
+                                                                        )}
+                                                                    </p>
+                                                                    {txn.order_id && (
+                                                                        <Badge variant="outline" className="h-5 px-1.5 text-[10px] bg-slate-50 dark:bg-slate-900 text-slate-500 font-normal">
+                                                                            Order #{txn.order_id.slice(0, 8)}
+                                                                        </Badge>
+                                                                    )}
+                                                                </div>
+                                                                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
+                                                                    <Calendar className="h-3 w-3" />
+                                                                    {format(new Date(txn.created_at), "dd MMM yyyy")}
+                                                                    <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                                                    {format(new Date(txn.created_at), "hh:mm a")}
+                                                                </p>
+                                                                {txn.reference_note && (
+                                                                    <p className="text-xs text-slate-600 dark:text-slate-300 mt-1.5 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded inline-block">
+                                                                        {txn.reference_note}
+                                                                    </p>
+                                                                )}
+                                                            </div>
                                                         </div>
-                                                        <div>
-                                                            <p className="font-medium text-slate-900">
-                                                                {txn.transaction_type === 'CREDIT' ? 'Payment Received' : 'Order Application'}
+                                                        <div className="mt-2 sm:mt-0 text-right pl-14 sm:pl-0">
+                                                            <p className={`text-lg font-bold tabular-nums tracking-tight ${isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                                                                {isCredit ? '+' : '-'} ₹{Number(txn.amount).toLocaleString()}
                                                             </p>
-                                                            <p className="text-xs text-slate-500">
-                                                                {format(new Date(txn.created_at), "dd MMM yyyy, hh:mm a")} • {txn.payment_method}
+                                                            <p className="text-[10px] text-slate-400 uppercase font-medium tracking-wider mt-0.5">
+                                                                {isCredit ? 'Credit' : 'Debit'}
                                                             </p>
-                                                            {txn.reference_note && (
-                                                                <p className="text-xs text-slate-500 italic mt-0.5">{txn.reference_note}</p>
-                                                            )}
                                                         </div>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <p className={`font-bold ${txn.transaction_type === 'CREDIT' ? 'text-emerald-600' : 'text-slate-900'}`}>
-                                                            {txn.transaction_type === 'CREDIT' ? '+' : '-'} ₹{Number(txn.amount).toLocaleString()}
-                                                        </p>
-                                                        {txn.order_id && <Badge variant="outline" className="text-[10px]">Order</Badge>}
-                                                    </div>
-                                                </div>
-                                            ))}
+                                                )
+                                            })}
                                         </div>
                                     )}
                                 </CardContent>

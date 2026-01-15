@@ -7,12 +7,10 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { ProductCard } from '@/features/orders/components/ProductCard';
+import { OrderGroupList } from '@/features/orders/components/OrderGroupList';
 import { PriorityBadge } from '@/features/orders/components/PriorityBadge';
 import { FilePreview } from '@/features/orders/components/FilePreview';
 import { CreateOrderDialog } from '@/components/dialogs/CreateOrderDialog';
-import { ProductionStageSequenceDialog } from '@/components/dialogs/ProductionStageSequenceDialog';
-import { OutsourceAssignmentDialog } from '@/components/dialogs/OutsourceAssignmentDialog';
-import { UpdateDeliveryDateDialog } from '@/components/dialogs/UpdateDeliveryDateDialog';
 import { useOrders } from '@/features/orders/context/OrderContext';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import { Order, OrderItem } from '@/types/order';
@@ -39,23 +37,6 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -74,25 +55,15 @@ interface SalesUser {
 }
 
 export default function Sales() {
-  const { orders, updateItemStage, sendToProduction, assignToOutsource, deleteOrder, isLoading, refreshOrders, updateItemDeliveryDate, getOrdersForDepartment, assignToDepartment, assignOrderToUser } = useOrders();
+  const { orders, isLoading, refreshOrders, assignOrderToUser } = useOrders();
   const { isAdmin, role, user } = useAuth();
   const { canViewFinancials } = useFinancialAccess();
   const navigate = useNavigate();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [orderToDelete, setOrderToDelete] = useState<string | null>(null);
   const [createOrderOpen, setCreateOrderOpen] = useState(false);
   const [openOrders, setOpenOrders] = useState<Set<string>>(new Set());
-  const [productionStageDialogOpen, setProductionStageDialogOpen] = useState(false);
-  const [selectedItemForProduction, setSelectedItemForProduction] = useState<{ orderId: string; itemId: string; productName: string; currentSequence?: string[] | null } | null>(null);
-  const [outsourceDialogOpen, setOutsourceDialogOpen] = useState(false);
-  const [selectedItemForOutsource, setSelectedItemForOutsource] = useState<{ orderId: string; itemId: string; productName: string; quantity: number } | null>(null);
-  const [deliveryDateDialogOpen, setDeliveryDateDialogOpen] = useState(false);
-  const [selectedItemForDeliveryDate, setSelectedItemForDeliveryDate] = useState<{ orderId: string; itemId: string; productName: string; currentDate: Date } | null>(null);
-  const [priorityDialogOpen, setPriorityDialogOpen] = useState(false);
-  const [selectedItemForPriority, setSelectedItemForPriority] = useState<{ orderId: string; itemId: string; productName: string; currentPriority: 'blue' | 'yellow' | 'red' } | null>(null);
   const [searchParams] = useSearchParams();
   const [selectedUserTab, setSelectedUserTab] = useState<string>(searchParams.get('assigned_user') || 'all'); // 'all' or user_id
   const [salesUsers, setSalesUsers] = useState<SalesUser[]>([]);
@@ -316,223 +287,8 @@ export default function Sales() {
 
   const [activeTab, setActiveTab] = useState('all');
 
-  // Helper to render product list
-  const renderProductList = (productList: { order: Order; item: OrderItem }[], emptyMessage: string) => {
-    if (productList.length === 0) {
-      return (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-            <h3 className="font-semibold text-lg mb-2">No products found</h3>
-            <p className="text-muted-foreground">{emptyMessage}</p>
-          </CardContent>
-        </Card>
-      );
-    }
 
-    // Group items by order
-    const itemsByOrder = new Map<string, Array<{ order: Order; item: OrderItem }>>();
-    productList.forEach(({ order, item }) => {
-      const orderKey = order.order_id;
-      if (!itemsByOrder.has(orderKey)) itemsByOrder.set(orderKey, []);
-      itemsByOrder.get(orderKey)!.push({ order, item });
-    });
 
-    const orderGroups = Array.from(itemsByOrder.entries());
-
-    return (
-      <div className="space-y-6 pb-6">
-        {orderGroups.map(([orderId, items]) => {
-          // Prepare items with suffixes
-          const itemsWithSuffixes = items.map(({ order, item }, index) => ({
-            order,
-            item,
-            suffix: items.length > 1 ? String.fromCharCode(65 + index) : ''
-          }));
-
-          const order = items[0].order;
-          // Determine Customer UUID safely
-          const customerId = order.customer?.id || order.customer_id;
-
-          const paymentStat = paymentStatuses[orderId];
-          const isPaid = paymentStat && paymentStat.pending_amount <= 0;
-          const pendingAmount = paymentStat ? paymentStat.pending_amount : (order.financials?.total || 0);
-
-          // Determine priority color
-          const isUrgent = items.some(({ item }) => item.priority_computed === 'red');
-          const isMedium = !isUrgent && items.some(({ item }) => item.priority_computed === 'yellow');
-
-          let spineColor = 'bg-slate-100 border-slate-200 dark:bg-slate-800 dark:border-slate-700'; // Default
-          let textColor = 'text-slate-500 dark:text-slate-400';
-
-          if (isUrgent) {
-            spineColor = 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-900/50';
-            textColor = 'text-red-600 dark:text-red-400';
-          } else if (isMedium) {
-            spineColor = 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900/20 dark:border-yellow-900/50';
-            textColor = 'text-yellow-600 dark:text-yellow-400';
-          }
-
-          return (
-            <div key={orderId} className="flex h-auto min-h-[250px] border rounded-lg shadow-sm bg-card overflow-hidden transition-all hover:shadow-md">
-
-              {/* Left Spine: Vertical Order ID */}
-              <div
-                className={`w-10 sm:w-12 flex flex-col items-center justify-center py-4 border-r ${spineColor} flex-shrink-0 cursor-pointer transition-colors hover:bg-opacity-80`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (orderId && navigator?.clipboard) {
-                    navigator.clipboard.writeText(orderId).then(() => {
-                      toast({ title: "Copied", description: `Order #${orderId} copied to clipboard` });
-                    }).catch(console.error);
-                  }
-                }}
-              >
-                <div className="flex-1" />
-                <span
-                  className={`text-sm font-bold tracking-widest whitespace-nowrap ${textColor}`}
-                  style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-                >
-                  #{orderId}
-                </span>
-                <div className="flex-1" />
-              </div>
-
-              {/* Right Content */}
-              <div className="flex-1 overflow-hidden flex flex-col min-w-0">
-                {/* Financial Header */}
-                <div className="px-4 py-2 border-b bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3">
-                    <span className="font-semibold text-sm">{order.customer.name}</span>
-                    <Badge variant={isPaid ? "default" : "destructive"} className={isPaid ? "bg-emerald-500 hover:bg-emerald-600" : ""}>
-                      {isPaid ? "Paid" : `Pending: ₹${pendingAmount ? pendingAmount.toLocaleString() : '0'}`}
-                    </Badge>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs gap-1 px-2 sm:px-3"
-                      onClick={() => {
-                        if (customerId) {
-                          setSelectedOrderForPayment({
-                            orderId: order.id!, // UUID
-                            customerId: customerId,
-                            customerName: order.customer.name
-                          });
-                          setPaymentDialogOpen(true);
-                        } else {
-                          toast({ title: "Error", description: "Missing customer association", variant: "destructive" });
-                        }
-                      }}
-                    >
-                      <IndianRupee className="h-3 w-3" />
-                      <span className="hidden sm:inline">Add Payment</span>
-                    </Button>
-
-                    {/* Order Assignment Dropdown */}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1 px-2 border border-dashed border-slate-300 dark:border-slate-700">
-                          <UserCircle className="h-3 w-3" />
-                          <span className="hidden sm:inline font-medium">
-                            {order.assigned_user_name || "Unassigned"}
-                          </span>
-                          <ChevronDown className="h-3 w-3 opacity-50 hidden sm:block" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem disabled className="text-xs font-semibold opacity-70">
-                          Assign Order To
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {salesUsers.map(user => (
-                          <DropdownMenuItem
-                            key={user.user_id}
-                            onClick={() => {
-                              if (order.id) {
-                                assignOrderToUser(order.id, user.user_id);
-                              }
-                            }}
-                            className={order.assigned_user === user.user_id ? "bg-slate-100 dark:bg-slate-800" : ""}
-                          >
-                            {user.full_name}
-                            {order.assigned_user === user.user_id && <CheckCircle className="ml-2 h-3 w-3 text-green-500" />}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-
-                    {/* Delete Order Button */}
-                    {canDelete && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (order.order_id) {
-                            confirmDelete(order.order_id);
-                          }
-                        }}
-                        title="Delete Order"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                <div className={`p-4 h-full overflow-x-auto overflow-y-hidden custom-scrollbar bg-slate-50/30 dark:bg-slate-900/10`}>
-                  <div className={`flex gap-4 h-full items-start ${itemsWithSuffixes.length === 1 ? 'w-full' : ''}`}>
-                    {itemsWithSuffixes.map(({ order, item, suffix }) => (
-                      <div
-                        key={`${order.order_id}-${item.item_id}`}
-                        className={`
-                               flex-shrink-0 transition-all duration-300
-                               ${itemsWithSuffixes.length === 1 ? 'w-full max-w-2xl' : 'w-[320px]'}
-                             `}
-                      >
-                        <ProductCard
-                          order={order}
-                          item={item}
-                          productSuffix={suffix}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const handleSendToDesign = async (orderId: string, itemId: string) => { await updateItemStage(orderId, itemId, 'design'); };
-  const handleSendToPrepress = async (orderId: string, itemId: string) => { await updateItemStage(orderId, itemId, 'prepress'); };
-  const handleSendToProduction = (orderId: string, itemId: string) => {
-    const order = orders.find(o => o.order_id === orderId);
-    const item = order?.items.find(i => i.item_id === itemId);
-    if (!order || !item) return;
-    if ((item as any).production_stage_sequence && (item as any).production_stage_sequence.length > 0) {
-      sendToProduction(orderId, itemId, (item as any).production_stage_sequence);
-    } else {
-      setSelectedItemForProduction({ orderId, itemId, productName: item.product_name, currentSequence: (item as any).production_stage_sequence });
-      setProductionStageDialogOpen(true);
-    }
-  };
-  const handleDirectAssignToProduction = async (orderId: string, itemId: string) => { await assignToDepartment(orderId, itemId, 'production'); toast({ title: "Assigned to Production", description: "Item assigned to production department" }); };
-  const handleOutsourceClick = (orderId: string, itemId: string, productName: string, quantity: number) => { setSelectedItemForOutsource({ orderId, itemId, productName, quantity }); setOutsourceDialogOpen(true); };
-  const handleOutsourceAssign = async (vendor: any, jobDetails: any) => { if (selectedItemForOutsource) { await assignToOutsource(selectedItemForOutsource.orderId, selectedItemForOutsource.itemId, vendor, jobDetails); setOutsourceDialogOpen(false); setSelectedItemForOutsource(null); } };
-  const handleUpdateDeliveryDate = (orderId: string, itemId: string, productName: string, currentDate: Date) => { setSelectedItemForDeliveryDate({ orderId, itemId, productName, currentDate }); setDeliveryDateDialogOpen(true); };
-  const handleSaveDeliveryDate = async (date: Date) => { if (selectedItemForDeliveryDate) { await updateItemDeliveryDate(selectedItemForDeliveryDate.orderId, selectedItemForDeliveryDate.itemId, date); setDeliveryDateDialogOpen(false); setSelectedItemForDeliveryDate(null); } };
-  const handleSetPriority = (orderId: string, itemId: string, productName: string, currentPriority: 'blue' | 'yellow' | 'red') => { setSelectedItemForPriority({ orderId, itemId, productName, currentPriority }); setPriorityDialogOpen(true); };
-  const handleDeleteOrder = async () => { if (orderToDelete) { await deleteOrder(orderToDelete); setOrderToDelete(null); setDeleteDialogOpen(false); } };
-  const confirmDelete = (orderId: string) => { setOrderToDelete(orderId); setDeleteDialogOpen(true); };
 
 
   if (isLoading) {
@@ -560,6 +316,10 @@ export default function Sales() {
           </div>
           <div className="flex gap-2">
             <div className="flex gap-2">
+              <Button onClick={() => setCreateOrderOpen(true)} className="gap-2">
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">New Order</span>
+              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="gap-2">
@@ -714,27 +474,48 @@ export default function Sales() {
               </TabsTrigger>
             </TabsList>
 
+            {/* Main Tabs */}
             <TabsContent value="all" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                {renderProductList(filteredSalesProducts, "No products found in Sales")}
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                <OrderGroupList
+                  products={filteredSalesProducts}
+                  emptyMessage="No products found in Sales"
+                  onAddPayment={handleAddPayment}
+                  showFinancials={true}
+                  assignableUsers={salesUsers}
+                />
               </div>
             </TabsContent>
 
             <TabsContent value="my_orders" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                {renderProductList(mySalesItems, "You have no active orders")}
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                <OrderGroupList
+                  products={mySalesItems}
+                  emptyMessage="You have no active orders"
+                  onAddPayment={handleAddPayment}
+                  showFinancials={true}
+                  assignableUsers={salesUsers}
+                />
               </div>
             </TabsContent>
 
             <TabsContent value="pending_approval" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2 space-y-8">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 space-y-8 pb-20">
                 {/* 1. Design Requests */}
                 {(() => {
                   const designReqs = pendingApprovalItems.filter(({ item }) => item.previous_department === 'design');
                   const prepressReqs = pendingApprovalItems.filter(({ item }) => item.previous_department === 'prepress');
                   const otherReqs = pendingApprovalItems.filter(({ item }) => item.previous_department !== 'design' && item.previous_department !== 'prepress');
 
-                  if (pendingApprovalItems.length === 0) return renderProductList([], "No orders awaiting approval");
+                  if (pendingApprovalItems.length === 0) return (
+                    <OrderGroupList
+                      products={[]}
+                      emptyMessage="No orders awaiting approval"
+                      onAddPayment={handleAddPayment}
+                      showFinancials={true}
+                      assignableUsers={salesUsers}
+                    />
+                  );
 
                   return (
                     <>
@@ -746,7 +527,11 @@ export default function Sales() {
                             </Badge>
                             <span className="text-xs text-muted-foreground font-medium">{designReqs.length} items</span>
                           </div>
-                          {renderProductList(designReqs, "")}
+                          <OrderGroupList
+                            products={designReqs}
+                            showFinancials={true}
+                            assignableUsers={salesUsers}
+                          />
                         </div>
                       )}
 
@@ -758,7 +543,11 @@ export default function Sales() {
                             </Badge>
                             <span className="text-xs text-muted-foreground font-medium">{prepressReqs.length} items</span>
                           </div>
-                          {renderProductList(prepressReqs, "")}
+                          <OrderGroupList
+                            products={prepressReqs}
+                            showFinancials={true}
+                            assignableUsers={salesUsers}
+                          />
                         </div>
                       )}
 
@@ -769,7 +558,11 @@ export default function Sales() {
                               Other Pending Items
                             </Badge>
                           </div>
-                          {renderProductList(otherReqs, "")}
+                          <OrderGroupList
+                            products={otherReqs}
+                            showFinancials={true}
+                            assignableUsers={salesUsers}
+                          />
                         </div>
                       )}
                     </>
@@ -779,129 +572,33 @@ export default function Sales() {
             </TabsContent>
 
             <TabsContent value="ready_dispatch" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                {renderProductList(readyToDispatchItems, "No items ready for dispatch")}
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                <OrderGroupList
+                  products={readyToDispatchItems}
+                  emptyMessage="No items ready for dispatch"
+                  onAddPayment={handleAddPayment}
+                  showFinancials={true}
+                  assignableUsers={salesUsers}
+                />
               </div>
             </TabsContent>
 
             <TabsContent value="completed" className="flex-1 mt-4 overflow-hidden">
-              <div className="h-full overflow-y-auto custom-scrollbar pr-2">
-                {renderProductList(completedSalesItems, "No completed orders found")}
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                <OrderGroupList
+                  products={completedSalesItems}
+                  emptyMessage="No completed orders found"
+                  onAddPayment={handleAddPayment}
+                  showFinancials={true}
+                  assignableUsers={salesUsers}
+                />
               </div>
             </TabsContent>
           </Tabs>
         </div>
 
 
-        {/* Delete Confirmation Dialog */}
-        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete Order</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to delete this order? This action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDeleteOrder}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
-        {/* Create Order Dialog */}
-        <CreateOrderDialog
-          open={createOrderOpen}
-          onOpenChange={setCreateOrderOpen}
-          onOrderCreated={() => refreshOrders()}
-        />
-
-        {/* Production Stage Sequence Dialog */}
-        {selectedItemForProduction && (
-          <ProductionStageSequenceDialog
-            open={productionStageDialogOpen}
-            onOpenChange={setProductionStageDialogOpen}
-            productName={selectedItemForProduction.productName}
-            orderId={selectedItemForProduction.orderId}
-            currentSequence={selectedItemForProduction.currentSequence}
-            onConfirm={(sequence) => {
-              sendToProduction(selectedItemForProduction.orderId, selectedItemForProduction.itemId, sequence);
-              setProductionStageDialogOpen(false);
-              setSelectedItemForProduction(null);
-            }}
-          />
-        )}
-
-        {/* Outsource Assignment Dialog */}
-        {selectedItemForOutsource && (
-          <OutsourceAssignmentDialog
-            open={outsourceDialogOpen}
-            onOpenChange={setOutsourceDialogOpen}
-            onAssign={handleOutsourceAssign}
-            productName={selectedItemForOutsource.productName}
-            quantity={selectedItemForOutsource.quantity}
-          />
-        )}
-
-        {/* Delivery Date Dialog */}
-        {selectedItemForDeliveryDate && (
-          <UpdateDeliveryDateDialog
-            open={deliveryDateDialogOpen}
-            onOpenChange={setDeliveryDateDialogOpen}
-            currentDate={selectedItemForDeliveryDate.currentDate}
-            productName={selectedItemForDeliveryDate.productName}
-            onSave={handleSaveDeliveryDate}
-          />
-        )}
-
-        {/* Priority Dialog */}
-        {selectedItemForPriority && (
-          <Dialog open={priorityDialogOpen} onOpenChange={setPriorityDialogOpen}>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5" />
-                  Set Priority
-                </DialogTitle>
-                <DialogDescription>
-                  Set priority for <span className="font-semibold">{selectedItemForPriority.productName}</span>
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <Select
-                  defaultValue={selectedItemForPriority.currentPriority}
-                  onValueChange={async (value: 'blue' | 'yellow' | 'red') => {
-                    // Priority is computed from delivery date, so we need to update delivery date
-                    // For now, just show a message that priority is auto-computed
-                    toast({
-                      title: "Priority Auto-Computed",
-                      description: "Priority is automatically calculated based on delivery date. Update delivery date to change priority.",
-                    });
-                    setPriorityDialogOpen(false);
-                    setSelectedItemForPriority(null);
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="blue">Normal (Blue) - &gt; 5 days</SelectItem>
-                    <SelectItem value="yellow">Medium (Yellow) - 3-5 days</SelectItem>
-                    <SelectItem value="red">Urgent (Red) - &lt; 3 days</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Note: Priority is automatically computed from delivery date. To change priority, update the delivery date.
-                </p>
-              </div>
-            </DialogContent>
-          </Dialog>
-        )}
 
         {/* Add Payment Dialog */}
         {selectedOrderForPayment && (

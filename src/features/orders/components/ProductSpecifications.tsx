@@ -11,7 +11,7 @@ interface ProductSpecificationsProps {
 }
 
 // Keys to exclude from display (SKU and other internal fields)
-const EXCLUDED_KEYS = ['sku', 'SKU', 'notes', '_sku', 'product_sku', 'id', 'workflow_status'];
+const EXCLUDED_KEYS = ['sku', 'SKU', 'notes', '_sku', 'product_sku', 'id', 'workflow_status', 'prepress_brief', 'design_brief', 'production_brief', 'brief'];
 
 export function ProductSpecifications({ item, compact = false }: ProductSpecificationsProps) {
   // Collect all specifications from both structured and woo_meta
@@ -155,23 +155,24 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
 
   // Full view: show all specs in a readable block
   return (
-    <div className="space-y-1.5 mt-3">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
-        <FileText className="h-3.5 w-3.5" />
-        <span>Specifications</span>
-      </div>
-      <div className="bg-secondary/50 rounded-lg p-3 sm:p-4 space-y-2">
+    <div className="space-y-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
         {allSpecs.map((spec, idx) => (
-          <div key={idx} className="text-sm flex flex-col sm:flex-row gap-1 sm:gap-2">
-            <span className="text-muted-foreground min-w-[100px] sm:min-w-[120px] font-medium">{spec.key}:</span>
-            <span className="text-foreground break-words">{spec.value}</span>
+          <div key={idx} className="text-sm flex flex-col sm:flex-row sm:justify-between gap-1 border-b border-border/40 pb-1 last:border-b-0">
+            <span className="text-muted-foreground font-medium text-xs uppercase tracking-wider">
+              {spec.key}
+            </span>
+            <span className="text-foreground font-medium text-right break-words max-w-[70%]">
+              {spec.value}
+            </span>
           </div>
         ))}
       </div>
       {item.specifications?.notes && (
-        <p className="text-sm text-muted-foreground italic mt-2">
-          Note: {item.specifications.notes}
-        </p>
+        <div className="mt-2 text-sm bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300 p-2 rounded border border-yellow-200 dark:border-yellow-900/50">
+          <span className="font-semibold mr-1">Note:</span>
+          {item.specifications.notes}
+        </div>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { format } from 'date-fns';
+import { format, differenceInDays } from 'date-fns';
 import {
   Calendar, Image as ImageIcon, Eye, User, Building2,
   Upload, Send, CheckCircle, ArrowRight, Package,
@@ -242,17 +242,21 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                 <Badge className={cn("text-[11px] px-2 py-1", statusColor)}>
                   {statusLabel}
                 </Badge>
+              </div>
 
-                {/* Delivery Date Moved to Header */}
-                <div className="flex items-center gap-1.5 ml-2 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-xs border border-slate-200 dark:border-slate-700">
-                  <Calendar className="h-3 w-3 text-slate-500" />
-                  <span className={cn(
-                    "font-medium",
-                    item.delivery_date && new Date(item.delivery_date) < new Date() ? "text-red-600" : "text-slate-700 dark:text-slate-300"
-                  )}>
-                    {item.delivery_date ? format(new Date(item.delivery_date), 'MMM d') : 'No Date'}
-                  </span>
-                </div>
+              {/* Delivery Date - Enhanced & Moved to Right */}
+              <div className={cn(
+                "flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-semibold shadow-sm",
+                item.delivery_date && new Date(item.delivery_date) < new Date()
+                  ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-900/50"
+                  : differenceInDays(new Date(item.delivery_date || ''), new Date()) <= 2
+                    ? "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-900/50"
+                    : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/50 dark:text-slate-300 dark:border-slate-800"
+              )}>
+                <Calendar className="h-3.5 w-3.5 opacity-70" />
+                <span>
+                  {item.delivery_date ? format(new Date(item.delivery_date), 'MMM d, yyyy') : 'No Date'}
+                </span>
               </div>
             </div>
 
@@ -267,28 +271,72 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                 <p className="text-xs text-muted-foreground mb-1">Quantity</p>
                 <p className="font-medium text-base">{item.quantity}</p>
               </div>
-
-              {/* Delivery Date Removed from here (Moved to Header) */}
             </div>
 
-            {/* Design Specific: Last Workflow Note (Apple Style) */}
-            {role === 'design' && item.last_workflow_note && (
-              <div className="mt-4 group relative overflow-hidden rounded-2xl bg-gradient-to-br from-orange-50/80 to-amber-50/50 dark:from-orange-950/20 dark:to-amber-950/10 border border-orange-100/60 dark:border-orange-900/30 p-4 transition-all hover:shadow-md">
-                <div className="flex gap-3.5">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/80 dark:bg-white/5 shadow-sm ring-1 ring-orange-200/50 dark:ring-orange-800/30 backdrop-blur-md">
-                    <AlertCircle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                  </div>
-                  <div className="space-y-1.5 pt-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-orange-800/70 dark:text-orange-200/70">
-                        Design Instruction
-                      </span>
-                      <span className="h-1 w-1 rounded-full bg-orange-400/50" />
-                      <span className="text-[10px] text-orange-700/50 dark:text-orange-300/50">
-                        From Sales
-                      </span>
+            {/* Department Briefs - Separated from Specifications */}
+            {(() => {
+              const specs = item.specifications || {};
+              const briefs = [
+                { key: 'design_brief', label: 'Design Brief', color: 'indigo' },
+                { key: 'prepress_brief', label: 'Prepress Brief', color: 'pink' },
+                { key: 'production_brief', label: 'Production Brief', color: 'orange' },
+                { key: 'brief', label: 'Order Brief', color: 'blue' },
+                { key: 'PREPRESS_BRIEF', label: 'Prepress Brief', color: 'pink' } // Handle uppercase legacy case
+              ];
+
+              return briefs.map(brief => {
+                const content = specs[brief.key] || specs[brief.key.toUpperCase()];
+                if (!content) return null;
+
+                const colorStyles = {
+                  indigo: 'bg-indigo-50 border-indigo-100 text-indigo-900 dark:bg-indigo-900/20 dark:border-indigo-900/40 dark:text-indigo-100',
+                  pink: 'bg-pink-50 border-pink-100 text-pink-900 dark:bg-pink-900/20 dark:border-pink-900/40 dark:text-pink-100',
+                  orange: 'bg-orange-50 border-orange-100 text-orange-900 dark:bg-orange-900/20 dark:border-orange-900/40 dark:text-orange-100',
+                  blue: 'bg-blue-50 border-blue-100 text-blue-900 dark:bg-blue-900/20 dark:border-blue-900/40 dark:text-blue-100',
+                }[brief.color];
+
+                return (
+                  <div key={brief.key} className={cn("mt-4 p-4 rounded-lg border", colorStyles)}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <FileText className="h-4 w-4 opacity-70" />
+                      <h4 className="font-bold text-xs uppercase tracking-wider">{brief.label}</h4>
                     </div>
-                    <p className="text-[13px] leading-relaxed font-medium text-orange-950 dark:text-orange-50/90">
+                    <p className="text-sm border-t border-black/5 dark:border-white/5 pt-2 leading-relaxed whitespace-pre-wrap">
+                      {typeof content === 'string' ? content : JSON.stringify(content)}
+                    </p>
+                  </div>
+                );
+              });
+            })()}
+
+            {/* Production/Workflow Note (Last Note) - Apple Style */}
+            {item.last_workflow_note && (
+              <div className="mt-4 group relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-900/50 border border-slate-200 dark:border-slate-800 p-4 transition-all hover:shadow-md">
+                <div className="flex gap-3.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-blue-100 dark:ring-blue-800/30">
+                    <AlertCircle className="h-4 w-4" />
+                  </div>
+                  <div className="space-y-1.5 pt-0.5 w-full">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                          Latest Note
+                        </span>
+                        <span className="h-1 w-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                        <span className="text-[10px] text-slate-400">
+                          {format(new Date(item.updated_at), 'MMM d, h:mm a')}
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px] text-muted-foreground hover:text-primary"
+                        onClick={(e) => { e.stopPropagation(); setTimelineOpen(true); }}
+                      >
+                        <Clock className="w-3 h-3 mr-1" /> View History
+                      </Button>
+                    </div>
+                    <p className="text-[13px] leading-relaxed font-medium text-slate-700 dark:text-slate-300">
                       {item.last_workflow_note}
                     </p>
                   </div>
@@ -297,8 +345,8 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
             )}
 
             {/* Specifications - Visible for ALL roles */}
-            <div className="bg-muted/40 border border-border/60 rounded-md p-3">
-              <ProductSpecifications item={item} compact />
+            <div className="bg-muted/30 border border-border/50 rounded-lg p-3">
+              <ProductSpecifications item={item} />
             </div>
 
             <div className="flex items-center gap-3 flex-wrap text-xs pt-1">
@@ -371,11 +419,16 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                 )}
 
                 {(() => {
+                  // Admin View Consistency: If Admin, simulate the role of the current stage/department
+                  // This ensures Admin sees exactly what the department user sees (Process vs Handoff vs Start/Complete)
+                  const currentStageRole = item.current_stage as UserRole;
+                  const effectiveRole = isAdmin || role === 'super_admin' ? currentStageRole : role;
+
                   const canShowAction = (role === 'sales' || isAdmin || role === item.assigned_department || role === item.current_stage || actions.length > 0) && item.status !== 'completed' && item.current_stage !== 'completed' && !isPendingApproval;
 
                   if (!canShowAction) return null;
 
-                  const isSendForApproval = (role === 'design' || role === 'prepress') && item.status !== 'approved' && item.status !== 'rejected';
+                  const isSendForApproval = (effectiveRole === 'design' || effectiveRole === 'prepress') && item.status !== 'approved' && item.status !== 'rejected';
 
                   // Default Send for Approval button
                   if (isSendForApproval) {
@@ -391,7 +444,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   }
 
                   // Design & Prepress - Rejected State (Revision)
-                  if ((role === 'design' || role === 'prepress') && item.status === 'rejected') {
+                  if ((effectiveRole === 'design' || effectiveRole === 'prepress') && item.status === 'rejected') {
                     return (
                       <Button
                         size="sm"
@@ -404,7 +457,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   }
 
                   // Design Role - Specific Buttons logic (Approved/Handoff)
-                  if (role === 'design') {
+                  if (effectiveRole === 'design') {
                     if (item.status === 'approved') {
                       return (
                         <div className="flex gap-2">
@@ -429,7 +482,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   }
 
                   // Prepress Role - Specific Buttons logic (Approved)
-                  if (role === 'prepress' && item.status === 'approved') {
+                  if (effectiveRole === 'prepress' && item.status === 'approved') {
                     return (
                       <div className="flex gap-2">
                         <Button
@@ -450,6 +503,10 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                     );
                   }
 
+                  // Production / Dispatch / Default Process
+                  // If it's production, we want to show the Production specific state buttons if available
+                  // or the default Process button if not.
+
                   return (
                     <Button
                       size="sm"
@@ -460,16 +517,16 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                       }}
                       className={cn(
                         "text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9",
-                        item.status === 'rejected' && role === 'design'
+                        item.status === 'rejected' && effectiveRole === 'design'
                           ? "bg-red-600 hover:bg-red-700 text-white"
-                          : item.status === 'approved' && role === 'design'
+                          : item.status === 'approved' && effectiveRole === 'design'
                             ? "bg-emerald-600 hover:bg-emerald-700 text-white"
                             : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white"
                       )}
                     >
-                      {item.status === 'rejected' && role === 'design' ? (
+                      {item.status === 'rejected' && effectiveRole === 'design' ? (
                         <><RotateCcw className="w-4 h-4 mr-2" /> Revision</>
-                      ) : item.status === 'approved' && role === 'design' ? (
+                      ) : item.status === 'approved' && effectiveRole === 'design' ? (
                         <><ArrowRight className="w-4 h-4 mr-2" /> Handoff to Prepress</>
                       ) : (
                         isProduction && item.current_substage && item.substage_status ? (

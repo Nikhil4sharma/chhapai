@@ -31,6 +31,7 @@ import { ProductionStageSequenceDialog } from '@/components/dialogs/ProductionSt
 import { OutsourceAssignmentDialog } from '@/components/dialogs/OutsourceAssignmentDialog';
 import { AddWorkNoteDialog } from '@/components/dialogs/AddWorkNoteDialog';
 import { VendorDetails, OutsourceJobDetails, Order, OrderItem } from '@/types/order';
+import { OrderGroupList } from '@/features/orders/components/OrderGroupList';
 
 interface DesignUser {
   user_id: string;
@@ -222,7 +223,7 @@ export default function Design() {
   }, [allDesignItems]);
 
   // Tab state for filtering
-  const [activeTab, setActiveTab] = useState<'all' | 'pending_approval' | 'in_progress' | 'completed' | 'assigned' | 'urgent'>('in_progress');
+  const [activeTab, setActiveTab] = useState<'all' | 'pending_approval' | 'in_progress' | 'completed' | 'assigned' | 'urgent'>('assigned');
 
   // Filter items based on active tab
   const designItems = useMemo(() => {
@@ -503,48 +504,12 @@ export default function Design() {
         )}
 
         {/* Design Queue - Scrollable - Show Products (not orders) */}
-        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2">
-          {designItems.length === 0 ? (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-4" />
-                <h3 className="font-semibold text-lg mb-2">All caught up!</h3>
-                <p className="text-muted-foreground">No products currently need design work.</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              {(() => {
-                // Group items by order_id to assign suffixes (A, B, C, etc.)
-                const itemsByOrder = new Map<string, Array<{ order: Order; item: OrderItem }>>();
-                designItems.forEach(({ order, item }) => {
-                  const orderKey = order.order_id;
-                  if (!itemsByOrder.has(orderKey)) {
-                    itemsByOrder.set(orderKey, []);
-                  }
-                  itemsByOrder.get(orderKey)!.push({ order, item });
-                });
-
-                // Flatten with suffixes
-                const itemsWithSuffixes: Array<{ order: Order; item: OrderItem; suffix: string }> = [];
-                itemsByOrder.forEach((items, orderKey) => {
-                  items.forEach(({ order, item }, index) => {
-                    const suffix = items.length > 1 ? String.fromCharCode(65 + index) : ''; // A, B, C, etc.
-                    itemsWithSuffixes.push({ order, item, suffix });
-                  });
-                });
-
-                return itemsWithSuffixes.map(({ order, item, suffix }) => (
-                  <ProductCard
-                    key={`${order.order_id}-${item.item_id}`}
-                    order={order}
-                    item={item}
-                    productSuffix={suffix}
-                  />
-                ));
-              })()}
-            </div>
-          )}
+        <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 pb-20">
+          <OrderGroupList
+            products={designItems}
+            emptyMessage={designItems.length === 0 ? "No design items found" : "No items matching filter"}
+            showFinancials={false}
+          />
         </div>
 
         {/* Upload Dialog */}
