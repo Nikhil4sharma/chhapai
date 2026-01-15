@@ -63,9 +63,6 @@ export function HRStatsCard({ title, value, icon: Icon, description, className, 
                         </div>
                     )}
                 </div>
-
-                {/* Decorative background shape */}
-                <div className="absolute -right-6 -bottom-6 h-24 w-24 rounded-full bg-white/30 blur-2xl pointer-events-none" />
             </CardContent>
         </Card>
     );

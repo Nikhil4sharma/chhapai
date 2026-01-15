@@ -316,10 +316,7 @@ export default function Sales() {
           </div>
           <div className="flex gap-2">
             <div className="flex gap-2">
-              <Button onClick={() => setCreateOrderOpen(true)} className="gap-2">
-                <Plus className="h-4 w-4" />
-                <span className="hidden sm:inline">New Order</span>
-              </Button>
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="gap-2">

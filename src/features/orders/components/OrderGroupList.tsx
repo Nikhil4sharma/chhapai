@@ -42,18 +42,6 @@ export function OrderGroupList({
     const canAssign = isAdmin || role === 'sales';
     const canDelete = isAdmin || role === 'sales';
 
-    if (products.length === 0) {
-        return (
-            <Card>
-                <CardContent className="py-12 text-center">
-                    <CheckCircle className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
-                    <h3 className="font-semibold text-lg mb-2">No products found</h3>
-                    <p className="text-muted-foreground">{emptyMessage}</p>
-                </CardContent>
-            </Card>
-        );
-    }
-
     // Group items by order
     // Use useMemo to prevent frequent re-grouping if products are stable
     const orderGroups = useMemo(() => {
@@ -66,6 +54,18 @@ export function OrderGroupList({
         });
         return Array.from(itemsByOrder.entries());
     }, [products]);
+
+    if (products.length === 0) {
+        return (
+            <Card>
+                <CardContent className="py-12 text-center">
+                    <CheckCircle className="h-12 w-12 mx-auto text-muted-foreground/30 mb-4" />
+                    <h3 className="font-semibold text-lg mb-2">No products found</h3>
+                    <p className="text-muted-foreground">{emptyMessage}</p>
+                </CardContent>
+            </Card>
+        );
+    }
 
     return (
         <div className="space-y-6 pb-20">

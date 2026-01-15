@@ -39,6 +39,8 @@ const roles = [
   { value: 'design', label: 'Design' },
   { value: 'prepress', label: 'Prepress' },
   { value: 'production', label: 'Production' },
+  { value: 'accounts', label: 'Accounts' },
+  { value: 'hr', label: 'HR' },
 ];
 
 const departments = [
@@ -46,6 +48,8 @@ const departments = [
   { value: 'design', label: 'Design' },
   { value: 'prepress', label: 'Prepress' },
   { value: 'production', label: 'Production' },
+  { value: 'accounts', label: 'Accounts' },
+  { value: 'hr', label: 'HR' },
 ];
 
 export function AddTeamMemberDialog({ open, onOpenChange, onAdd }: AddTeamMemberDialogProps) {
@@ -59,7 +63,7 @@ export function AddTeamMemberDialog({ open, onOpenChange, onAdd }: AddTeamMember
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!name || !email || !role || !department || !password) {
       toast({
         title: "Error",

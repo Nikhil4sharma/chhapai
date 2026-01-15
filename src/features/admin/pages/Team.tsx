@@ -47,7 +47,7 @@ export default function Team() {
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
-  
+
   // Dialog states
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -80,7 +80,7 @@ export default function Team() {
           .map(r => r.role) || [];
         const primaryRole = userRoles[0] || 'sales';
         const team = primaryRole.charAt(0).toUpperCase() + primaryRole.slice(1);
-        
+
         return {
           user_id: profile.user_id,
           name: profile.full_name || 'Unknown',
@@ -140,7 +140,7 @@ export default function Team() {
           }
         }
       });
-      
+
       // If user created but email not confirmed, trigger automatically karega
 
       if (authError) throw authError;
@@ -151,12 +151,13 @@ export default function Team() {
       // Create profile in Supabase
       const { error: profileError } = await supabase
         .from('profiles')
-        .insert({
+        .upsert({
           user_id: newUser.id,
           full_name: member.name,
           phone: member.phone || null,
           department: member.department,
           avatar_url: null,
+          updated_at: new Date().toISOString(),
         });
 
       if (profileError) throw profileError;
@@ -164,7 +165,7 @@ export default function Team() {
       // Create role in Supabase
       const { error: roleError } = await supabase
         .from('user_roles')
-        .insert({
+        .upsert({
           user_id: newUser.id,
           role: member.role as any,
         });
@@ -173,7 +174,7 @@ export default function Team() {
 
       // Note: Email auto-confirm trigger se automatically confirm ho jayega
       // Agar trigger nahi hai, toh FIX_EMAIL_CONFIRMATION_AND_LOGIN.sql run karo
-      
+
       toast({
         title: "Success",
         description: `${member.name} has been added to the team. Email will be auto-confirmed if trigger is enabled.`,
@@ -243,7 +244,7 @@ export default function Team() {
 
   const handleDeleteMember = async () => {
     if (!selectedMember) return;
-    
+
     setDeleteLoading(true);
     try {
       // Delete user roles (CASCADE will handle related data)
@@ -375,7 +376,7 @@ export default function Team() {
                           <DropdownMenuItem onClick={() => openEditDialog(user)}>
                             Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             className="text-destructive"
                             onClick={() => openDeleteDialog(user)}
                           >
@@ -388,7 +389,7 @@ export default function Team() {
 
                   <div className="mt-4 space-y-2">
                     {user.phone && (
-                      <a 
+                      <a
                         href={`tel:${user.phone}`}
                         className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
                       >
@@ -400,8 +401,8 @@ export default function Team() {
 
                   <div className="mt-4 flex flex-wrap gap-1.5">
                     {user.roles.map((role) => (
-                      <Badge 
-                        key={role} 
+                      <Badge
+                        key={role}
                         variant="outline"
                         className={roleColors[role] || 'bg-secondary'}
                       >

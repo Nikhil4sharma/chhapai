@@ -38,11 +38,13 @@ interface EditTeamMemberDialogProps {
 }
 
 const roles = [
+  { value: 'admin', label: 'Admin' },
   { value: 'sales', label: 'Sales' },
   { value: 'design', label: 'Design' },
   { value: 'prepress', label: 'Prepress' },
   { value: 'production', label: 'Production' },
-  { value: 'admin', label: 'Admin' },
+  { value: 'accounts', label: 'Accounts' },
+  { value: 'hr', label: 'HR' },
 ];
 
 const departments = [
@@ -50,6 +52,8 @@ const departments = [
   { value: 'design', label: 'Design' },
   { value: 'prepress', label: 'Prepress' },
   { value: 'production', label: 'Production' },
+  { value: 'accounts', label: 'Accounts' },
+  { value: 'hr', label: 'HR' },
 ];
 
 export function EditTeamMemberDialog({ open, onOpenChange, member, onSave }: EditTeamMemberDialogProps) {
@@ -70,9 +74,9 @@ export function EditTeamMemberDialog({ open, onOpenChange, member, onSave }: Edi
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!member) return;
-    
+
     if (!name || !role || !department) {
       toast({
         title: "Error",

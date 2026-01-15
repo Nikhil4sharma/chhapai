@@ -505,6 +505,7 @@ export function useCreateOrder(
                 // 🚀 ATOMIC RPC PATH (System Design Fix)
                 const rpcPayload = {
                     order_id: orderNumber.trim(), // Use the CONFIRMED order number
+                    assigned_user_id: finalUser, // CRITICAL: This was missing!
                     status: wooOrderData.status || 'processing',
                     payment_status: 'pending', // Force pending to allow manual payment tracking
                     total: isWooCommerceOrder ? (wooOrderData.order_total || 0) : 0,

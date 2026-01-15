@@ -108,13 +108,19 @@ export default function Customers() {
             if (filter === 'repeat') return Number(c.orders_count) > 2;
             if (filter === 'my-customers') {
                 if (!user) return false;
-                // Check explicit assignment OR order history fallback
-                const explicitlyAssigned = c.assigned_to === user.id;
+
+                // 1. Strict Assignment Check
+                if (c.assigned_manager) {
+                    return c.assigned_manager === user.id;
+                }
+
+                // 2. Fallback: If UNASSIGNED, check order history
+                // (Only claim unassigned customers via order history)
                 const hasMyOrders = orders.some(o =>
                     o.created_by === user.id &&
                     (o.customer.email === c.email || o.customer.phone === c.phone)
                 );
-                return explicitlyAssigned || hasMyOrders;
+                return hasMyOrders;
             }
 
             return true;
@@ -151,7 +157,8 @@ export default function Customers() {
             c.total_spent,
             c.orders_count,
             c.billing.city,
-            c.assigned_to ? userMap[c.assigned_to]?.name || 'Unknown' : 'Unassigned'
+            c.billing.city,
+            c.assigned_manager ? userMap[c.assigned_manager]?.name || 'Unknown' : 'Unassigned'
         ]);
 
         const csvContent = "data:text/csv;charset=utf-8,"
@@ -172,7 +179,7 @@ export default function Customers() {
         try {
             const { error } = await supabase
                 .from('wc_customers')
-                .update({ assigned_to: userId })
+                .update({ assigned_manager: userId })
                 .eq('id', customerToAssign.id);
 
             if (error) throw error;
@@ -408,16 +415,16 @@ export default function Customers() {
                                                             }
                                                         }}
                                                     >
-                                                        {customer.assigned_to ? (
-                                                            userMap[customer.assigned_to] ? (
+                                                        {customer.assigned_manager ? (
+                                                            userMap[customer.assigned_manager] ? (
                                                                 <>
                                                                     <Avatar className="h-4 w-4 sm:h-5 sm:w-5">
                                                                         <AvatarFallback className="text-[8px] sm:text-[9px] bg-indigo-100 text-indigo-700">
-                                                                            {userMap[customer.assigned_to].name.charAt(0)}
+                                                                            {userMap[customer.assigned_manager].name.charAt(0)}
                                                                         </AvatarFallback>
                                                                     </Avatar>
                                                                     <span className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 truncate max-w-[80px]">
-                                                                        {userMap[customer.assigned_to].name.split(' ')[0]}
+                                                                        {userMap[customer.assigned_manager].name.split(' ')[0]}
                                                                     </span>
                                                                 </>
                                                             ) : (
@@ -501,7 +508,7 @@ export default function Customers() {
                         open={assignDialogOpen}
                         onOpenChange={setAssignDialogOpen}
                         department="sales"
-                        currentUserId={customerToAssign?.assigned_to}
+                        currentUserId={customerToAssign?.assigned_manager}
                         onAssign={(userId, userName) => {
                             handleAssignCustomer(userId, userName);
                             setAssignDialogOpen(false);

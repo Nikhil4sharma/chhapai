@@ -137,7 +137,7 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
       title: 'Overview',
       items: [
         { label: 'Dashboard', path: '/', icon: LayoutDashboard },
-        { label: 'Track Order', path: '/track', icon: PackageCheck },
+        { label: 'Track Order', path: '/track', icon: PackageCheck, roles: ['admin', 'sales', 'production', 'super_admin'] },
       ]
     },
     {

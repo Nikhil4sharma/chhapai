@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Plus, UserPlus, Settings, FileText } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
-import { NewOrderButton } from '@/components/common/actions/NewOrderButton';
+
 import { AddCustomerButton } from '@/components/common/actions/AddCustomerButton';
 
 export function DashboardHeader() {
@@ -50,7 +50,6 @@ export function DashboardHeader() {
                     </>
                 )}
 
-                {(isAdmin || role === 'sales') && <NewOrderButton />}
             </div>
         </div>
     );

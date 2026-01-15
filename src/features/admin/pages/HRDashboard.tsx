@@ -1,12 +1,13 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent } from "@/components/ui/card";
 import { Users, CalendarDays, Calculator, FileText, Calendar } from "lucide-react";
-import { EmployeeManagement } from "@/features/admin/components/EmployeeManagement";
 import { LeaveManagement } from "@/features/admin/components/LeaveManagement";
 import { PayrollManagement } from "@/features/admin/components/PayrollManagement";
 import { HolidayManagement } from "@/features/admin/components/HolidayManagement";
 import { LeaveCalendarView } from "@/features/admin/components/LeaveCalendarView";
 import { HRStatsCard } from "@/features/hr/components/HRStatsCard";
 import { useAdminHR } from "@/features/hr/hooks/useAdminHR";
+import EmployeeManagement from "@/features/hr/pages/EmployeeManagement";
 import { isSameDay, parseISO } from "date-fns";
 import { useState } from "react";
 
@@ -114,8 +115,6 @@ export default function HRDashboard() {
                     <HolidayManagement />
                 </TabsContent>
             </Tabs>
-
-            {/* Workflow Settings removed as per request (belongs to Main Admin only) */}
         </div>
     );
 }

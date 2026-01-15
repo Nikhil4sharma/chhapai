@@ -59,6 +59,7 @@ const UserProductivityReports = lazy(() => import("@/features/reports/pages/User
 const VendorAnalytics = lazy(() => import("@/features/reports/pages/VendorAnalytics"));
 // HR Employee View
 const EmployeeDashboard = lazy(() => import('@/features/hr/pages/EmployeeDashboard'));
+const EmployeeManagement = lazy(() => import('@/features/hr/pages/EmployeeManagement'));
 // Inventory
 const InventoryDashboard = lazy(() => import("@/features/inventory/pages/InventoryDashboard"));
 
@@ -184,6 +185,13 @@ const App = () => (
                               <EmployeeDashboard />
                             </Suspense>
                           } />
+                          <Route path="/hr/employees" element={
+                            <ProtectedRoute allowedRoles={['admin', 'super_admin', 'hr', 'hr_admin']}>
+                              <Suspense fallback={<PageLoader />}>
+                                <EmployeeManagement />
+                              </Suspense>
+                            </ProtectedRoute>
+                          } />
 
                           {/* Resources/Profile */}
                           <Route path="/how-we-work" element={
@@ -218,7 +226,7 @@ const App = () => (
                           } />
 
                           <Route path="/admin/hr" element={
-                            <ProtectedRoute allowedRoles={['admin', 'super_admin', 'hr_admin']}>
+                            <ProtectedRoute allowedRoles={['admin', 'super_admin', 'hr', 'hr_admin']}>
                               <Suspense fallback={<PageLoader />}>
                                 <HRDashboard />
                               </Suspense>
