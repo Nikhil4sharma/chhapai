@@ -254,19 +254,14 @@ export function useCreateOrder(
     const checkWooCommerceOrder = useCallback(async () => {
         const { data: { session } } = await supabase.auth.getSession();
 
-        // Validation
+        // Validation - only check order number
         if (!orderNumber.trim()) {
-            toast({ title: 'Error', description: 'Order number is required', variant: 'destructive' });
+            toast({ title: "Error", description: "Please enter an order number first", variant: "destructive" });
             return;
         }
 
-        if (!customerData.name || !customerData.name.trim()) {
-            toast({ title: 'Error', description: 'Customer name is required', variant: 'destructive' });
-            return;
-        }
-
-        if (products.length === 0 || products.some(p => !p.name.trim())) {
-            toast({ title: 'Error', description: 'At least one product with a name is required', variant: 'destructive' });
+        if (!session?.access_token) {
+            toast({ title: "Error", description: "Session expired. Please refresh the page.", variant: "destructive" });
             return;
         }
 
@@ -482,6 +477,12 @@ export function useCreateOrder(
 
         if (errors.length > 0) {
             toast({ title: "Validation Error", description: errors[0], variant: "destructive" });
+            return;
+        }
+
+        // Validate customer name
+        if (!customerData.name || !customerData.name.trim()) {
+            toast({ title: "Validation Error", description: "Customer name is required", variant: "destructive" });
             return;
         }
 
