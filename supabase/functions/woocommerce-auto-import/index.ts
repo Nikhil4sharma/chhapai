@@ -173,41 +173,17 @@ serve(async (req: Request) => {
                     console.log(`[WooCommerce Auto-Import] Updating status for order ${wooOrder.id}: ${existingOrder.order_status} -> ${internalStatus}`);
                 }
 
-                // Find assigned user by customer email
-                let assignedUserId = null;
-                const customerEmail = wooOrder.billing?.email?.toLowerCase() || '';
-
-                if (customerEmail) {
-                    // 1. Try strict profile matches first (Standard)
-                    let { data: profile } = await supabase
-                        .from('profiles')
-                        .select('user_id')
-                        .ilike('email', customerEmail)
-                        .maybeSingle();
-
-                    // 2. Manual Mappings (Overrides/Fallbacks)
-                    if (!profile) {
-                        if (customerEmail.includes('chd+1@chhapai.in')) {
-                            const { data: nikhil } = await supabase.from('profiles').select('user_id').ilike('full_name', '%Nikhil Sharma%').limit(1).maybeSingle();
-                            profile = nikhil;
-                        }
-                        else if (customerEmail.includes('work@chhapai.in')) {
-                            const { data: jaskaran } = await supabase.from('profiles').select('user_id').ilike('full_name', '%Jaskaran%').limit(1).maybeSingle();
-                            profile = jaskaran;
-                        }
-                    }
-
-                    if (profile) assignedUserId = profile.user_id;
-                }
-
                 // Prepare order payload
+                // REMOVED LOCAL ASSIGNMENT LOGIC: delegating strictly to import_wc_order RPC which has robust rules
                 const orderPayload = {
                     order_id: wooOrder.number || wooOrder.id.toString(),
                     status: wcStatus, // Pass WC status
                     order_status: internalStatus, // Pass Internal status explicitly
                     payment_status: 'pending',
                     total: parseFloat(wooOrder.total) || 0,
-                    assigned_user_id: assignedUserId,
+                    // assigned_user_id: assignedUserId, // Let RPC decide based on meta_data
+                    sales_agent: typeof wooOrder.sales_agent === 'string' ? wooOrder.sales_agent : undefined, // Explicitly pass if exists on root
+                    meta_data: wooOrder.meta_data || [], // CRITICAL: Pass meta_data for RPC to find agent
                     customer: {
                         id: wooOrder.customer_id?.toString() || `guest-${wooOrder.billing?.email || wooOrder.id}`,
                         name: `${wooOrder.billing?.first_name || ''} ${wooOrder.billing?.last_name || ''}`.trim() || 'Guest',
@@ -237,7 +213,8 @@ serve(async (req: Request) => {
                         customer_email: orderPayload.customer.email,
                         customer_phone: orderPayload.customer.phone,
                         customer_address: orderPayload.customer.address,
-                        department_timeline: { sales: { status: 'active', assigned_to: assignedUserId || null, timestamp: new Date().toISOString() } }
+                        // Fix: use null as we don't know the assigned user yet (RPC decided it)
+                        department_timeline: { sales: { status: 'active', assigned_to: null, timestamp: new Date().toISOString() } }
                     }).eq('id', orderId);
 
                     // Record import

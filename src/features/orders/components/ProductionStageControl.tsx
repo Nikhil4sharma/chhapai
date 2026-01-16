@@ -186,8 +186,16 @@ export function ProductionStageControl({
                         </div>
                     </>
                 ) : (
-                    <div className="py-4">
+                    <div className="py-4 space-y-4">
                         <p className="text-muted-foreground">No active stage. Please start the first stage.</p>
+                        {stageObjects.length > 0 && (
+                            <Button
+                                className="w-full max-w-[200px] rounded-full h-12 text-sm font-bold shadow-lg hover:scale-105 transition-transform"
+                                onClick={() => handleStart(stageObjects[0].key)}
+                            >
+                                <Play className="w-4 h-4 mr-2" /> Start {stageObjects[0].label}
+                            </Button>
+                        )}
                     </div>
                 )}
 

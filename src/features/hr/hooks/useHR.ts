@@ -36,7 +36,8 @@ export function useHR() {
                 ...data,
                 full_name: data?.public_profile?.full_name,
                 email: data?.public_profile?.email,
-                avatar_url: data?.public_profile?.avatar_url
+                avatar_url: data?.public_profile?.avatar_url,
+                phone: data?.public_profile?.phone
             } as HRProfile;
         },
         enabled: !!user

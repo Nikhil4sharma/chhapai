@@ -38,6 +38,11 @@ interface WooCommerceOrder {
     quantity: number;
     total: number;
   }>;
+  meta_data?: Array<{
+    id: number;
+    key: string;
+    value: string;
+  }>;
 }
 
 interface FetchOrdersPanelProps {
@@ -423,96 +428,102 @@ export function FetchOrdersPanel({
 
                 <ScrollArea className="flex-1">
                   <div className="space-y-3">
-                    {searchResults.map((order) => {
-                      const isSelected = selectedOrders.has(order.id);
-                      const isAlreadyImported = existingOrderIds.has(order.id);
-                      const orderDate = order.order_date ? new Date(order.order_date) : null;
+                    {searchResults
+                      .filter(order => order.status === 'processing') // Only show processing orders
+                      .filter(order => !existingOrderIds.has(order.id)) // Filter out imported orders
+                      .map((order) => {
+                        const isSelected = selectedOrders.has(order.id);
+                        const orderDate = order.order_date ? new Date(order.order_date) : null;
 
-                      return (
-                        <Card
-                          key={order.id}
-                          className={`cursor-pointer transition-colors ${isSelected ? 'border-primary bg-primary/5' : ''
-                            } ${isAlreadyImported ? 'opacity-60' : ''}`}
-                          onClick={() => !isAlreadyImported && toggleOrderSelection(order.id)}
-                        >
-                          <CardContent className="pt-4">
-                            <div className="flex items-start gap-3">
-                              <Checkbox
-                                checked={isSelected}
-                                disabled={isAlreadyImported}
-                                onCheckedChange={() => !isAlreadyImported && toggleOrderSelection(order.id)}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <div className="flex-1 space-y-2">
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="font-semibold">Order #{order.order_number}</span>
-                                      <Badge variant={order.status === 'processing' ? 'default' : 'secondary'}>
-                                        {order.status}
-                                      </Badge>
-                                      {isAlreadyImported && (
-                                        <Badge variant="outline" className="text-xs">
-                                          Already Imported
+                        return (
+                          <Card
+                            key={order.id}
+                            className={`cursor-pointer transition-colors ${isSelected ? 'border-primary bg-primary/5' : ''}`}
+                            onClick={() => toggleOrderSelection(order.id)}
+                          >
+                            <CardContent className="pt-4">
+                              <div className="flex items-start gap-3">
+                                <Checkbox
+                                  checked={isSelected}
+                                  onCheckedChange={() => toggleOrderSelection(order.id)}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <div className="flex-1 space-y-2">
+                                  <div className="flex items-start justify-between">
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-semibold">Order #{order.order_number}</span>
+                                        <Badge variant={order.status === 'processing' ? 'default' : 'secondary'}>
+                                          {order.status}
                                         </Badge>
+                                      </div>
+                                      <div className="mt-1 text-sm text-muted-foreground">
+                                        {order.customer_name}
+                                        {/* Display Agent if found */}
+                                        {(() => {
+                                          const agentMeta = order.meta_data?.find(m =>
+                                            ['sales_agent', 'agent', '_sales_agent', 'ordered_by'].includes(m.key.toLowerCase())
+                                          );
+                                          return agentMeta ? (
+                                            <Badge variant="outline" className="ml-2 text-[10px] h-4 px-1">
+                                              Agent: {agentMeta.value}
+                                            </Badge>
+                                          ) : null;
+                                        })()}
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <div className="font-semibold text-lg">
+                                        {order.currency} {order.total.toFixed(2)}
+                                      </div>
+                                      {orderDate && (
+                                        <div className="text-xs text-muted-foreground">
+                                          {format(orderDate, 'MMM dd, yyyy')}
+                                        </div>
                                       )}
                                     </div>
-                                    <div className="mt-1 text-sm text-muted-foreground">
-                                      {order.customer_name}
-                                    </div>
                                   </div>
-                                  <div className="text-right">
-                                    <div className="font-semibold text-lg">
-                                      {order.currency} {order.total.toFixed(2)}
+
+                                  <Separator />
+
+                                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                                    {order.customer_email && (
+                                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                                        <Mail className="h-3 w-3" />
+                                        <span className="truncate">{order.customer_email}</span>
+                                      </div>
+                                    )}
+                                    {order.customer_phone && (
+                                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                                        <Phone className="h-3 w-3" />
+                                        <span>{order.customer_phone}</span>
+                                      </div>
+                                    )}
+                                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                                      <Package className="h-3 w-3" />
+                                      <span>{order.line_items.length} item(s)</span>
                                     </div>
                                     {orderDate && (
-                                      <div className="text-xs text-muted-foreground">
-                                        {format(orderDate, 'MMM dd, yyyy')}
+                                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                                        <Calendar className="h-3 w-3" />
+                                        <span>{format(orderDate, 'MMM dd')}</span>
                                       </div>
                                     )}
                                   </div>
-                                </div>
 
-                                <Separator />
-
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                                  {order.customer_email && (
-                                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                                      <Mail className="h-3 w-3" />
-                                      <span className="truncate">{order.customer_email}</span>
-                                    </div>
-                                  )}
-                                  {order.customer_phone && (
-                                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                                      <Phone className="h-3 w-3" />
-                                      <span>{order.customer_phone}</span>
-                                    </div>
-                                  )}
-                                  <div className="flex items-center gap-1.5 text-muted-foreground">
-                                    <Package className="h-3 w-3" />
-                                    <span>{order.line_items.length} item(s)</span>
-                                  </div>
-                                  {orderDate && (
-                                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                                      <Calendar className="h-3 w-3" />
-                                      <span>{format(orderDate, 'MMM dd')}</span>
+                                  {order.line_items.length > 0 && (
+                                    <div className="mt-2 pt-2 border-t">
+                                      <div className="text-xs text-muted-foreground">
+                                        Items: {order.line_items.map(item => `${item.name} (x${item.quantity})`).join(', ')}
+                                      </div>
                                     </div>
                                   )}
                                 </div>
-
-                                {order.line_items.length > 0 && (
-                                  <div className="mt-2 pt-2 border-t">
-                                    <div className="text-xs text-muted-foreground">
-                                      Items: {order.line_items.map(item => `${item.name} (x${item.quantity})`).join(', ')}
-                                    </div>
-                                  </div>
-                                )}
                               </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
                   </div>
                 </ScrollArea>
               </CardContent>

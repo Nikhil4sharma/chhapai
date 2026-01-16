@@ -18,6 +18,13 @@ export interface HRProfile {
     full_name?: string | null;
     email?: string | null;
     avatar_url?: string | null;
+    phone?: string | null;
+    public_profile?: {
+        phone?: string | null;
+        full_name?: string | null;
+        email?: string | null;
+        avatar_url?: string | null;
+    } | null;
 }
 
 export interface LeaveType {

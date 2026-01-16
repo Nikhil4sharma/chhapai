@@ -236,6 +236,7 @@ serve(async (req: Request) => {
           quantity: item.quantity,
           total: parseFloat(item.total) || 0,
         })) || [],
+        meta_data: order.meta_data || [],
       }));
 
       return createResponse({ success: true, orders: formattedOrders, count: formattedOrders.length }, 200, corsHeaders);
@@ -270,6 +271,65 @@ serve(async (req: Request) => {
       }));
 
       return createResponse({ success: true, customers: formattedCustomers }, 200, corsHeaders);
+    }
+
+    // Get customer orders (History)
+    if (action === 'get_customer_orders') {
+      const { customer_id } = body;
+      if (!customer_id) {
+        return createResponse({ error: 'Customer ID required' }, 400, corsHeaders);
+      }
+
+      // Fetch ORDERS for this customer with HIGH limit (History)
+      const searchParams = new URLSearchParams({
+        customer: customer_id.toString(),
+        per_page: '50', // Fetch fast history
+        status: 'any'
+      });
+
+      const response = await fetch(`${storeUrl}/wp-json/wc/v3/orders?${searchParams}`, {
+        headers: { 'Authorization': `Basic ${auth}` }
+      });
+
+      if (!response.ok) {
+        return createResponse({ success: false, error: `Fetch customer orders failed: ${response.status}` }, 500, corsHeaders);
+      }
+
+      let orders = await response.json();
+
+      // Format orders for UI
+      const formattedOrders = orders.map((order: any) => ({
+        id: order.id,
+        number: order.number || order.id.toString(),
+        status: order.status,
+        date_created: order.date_created,
+        total: order.total,
+        line_items: order.line_items,
+        currency: order.currency,
+        meta_data: order.meta_data, // Keep meta for assignment logic if needed
+        shipping: order.shipping
+      }));
+
+      return createResponse({ success: true, orders: formattedOrders }, 200, corsHeaders);
+    }
+    // Get full order details for import
+    if (action === 'get-order-details') {
+      const { order_id } = body;
+
+      if (!order_id) {
+        return createResponse({ error: 'Order ID required' }, 400, corsHeaders);
+      }
+
+      const response = await fetch(`${storeUrl}/wp-json/wc/v3/orders/${order_id}`, {
+        headers: { 'Authorization': `Basic ${auth}` }
+      });
+
+      if (!response.ok) {
+        return createResponse({ success: false, error: `Fetch order failed: ${response.status}` }, 500, corsHeaders);
+      }
+
+      const order = await response.json();
+      return createResponse({ success: true, payload: order }, 200, corsHeaders);
     }
 
     // Import customer

@@ -110,8 +110,8 @@ export default function Customers() {
                 if (!user) return false;
 
                 // 1. Strict Assignment Check
-                if (c.assigned_manager) {
-                    return c.assigned_manager === user.id;
+                if (c.assigned_to) {
+                    return c.assigned_to === user.id;
                 }
 
                 // 2. Fallback: If UNASSIGNED, check order history
@@ -158,7 +158,7 @@ export default function Customers() {
             c.orders_count,
             c.billing.city,
             c.billing.city,
-            c.assigned_manager ? userMap[c.assigned_manager]?.name || 'Unknown' : 'Unassigned'
+            c.assigned_to ? userMap[c.assigned_to]?.name || 'Unknown' : 'Unassigned'
         ]);
 
         const csvContent = "data:text/csv;charset=utf-8,"
@@ -179,7 +179,7 @@ export default function Customers() {
         try {
             const { error } = await supabase
                 .from('wc_customers')
-                .update({ assigned_manager: userId })
+                .update({ assigned_to: userId })
                 .eq('id', customerToAssign.id);
 
             if (error) throw error;
@@ -415,16 +415,16 @@ export default function Customers() {
                                                             }
                                                         }}
                                                     >
-                                                        {customer.assigned_manager ? (
-                                                            userMap[customer.assigned_manager] ? (
+                                                        {customer.assigned_to ? (
+                                                            userMap[customer.assigned_to] ? (
                                                                 <>
                                                                     <Avatar className="h-4 w-4 sm:h-5 sm:w-5">
                                                                         <AvatarFallback className="text-[8px] sm:text-[9px] bg-indigo-100 text-indigo-700">
-                                                                            {userMap[customer.assigned_manager].name.charAt(0)}
+                                                                            {userMap[customer.assigned_to].name.charAt(0)}
                                                                         </AvatarFallback>
                                                                     </Avatar>
                                                                     <span className="text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 truncate max-w-[80px]">
-                                                                        {userMap[customer.assigned_manager].name.split(' ')[0]}
+                                                                        {userMap[customer.assigned_to].name.split(' ')[0]}
                                                                     </span>
                                                                 </>
                                                             ) : (
@@ -508,7 +508,7 @@ export default function Customers() {
                         open={assignDialogOpen}
                         onOpenChange={setAssignDialogOpen}
                         department="sales"
-                        currentUserId={customerToAssign?.assigned_manager}
+                        currentUserId={customerToAssign?.assigned_to}
                         onAssign={(userId, userName) => {
                             handleAssignCustomer(userId, userName);
                             setAssignDialogOpen(false);

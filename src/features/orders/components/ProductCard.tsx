@@ -40,6 +40,7 @@ import { useWorkflow } from '@/contexts/WorkflowContext';
 import { ProcessOrderDialog } from '@/components/dialogs/ProcessOrderDialog';
 import { ProductionHandoffDialog } from './ProductionHandoffDialog';
 import { updateItemSpecifications } from '@/features/orders/services/supabaseOrdersService';
+import { reservePaperForJob } from '@/services/inventory';
 
 interface ProductCardProps {
   order: Order;
@@ -670,16 +671,12 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               // Use custom sheets count if provided, otherwise fallback to item quantity
               const sheetsToAllocate = data.sheets > 0 ? data.sheets : (item.quantity || 0);
 
-              await supabase.from('job_materials').insert({
-                job_id: order.id, // Use UUID
-                paper_id: data.paper.id,
-                sheets_allocated: sheetsToAllocate,
-                status: 'reserved',
-              });
+              await reservePaperForJob(order.id || '', data.paper.id, sheetsToAllocate, user?.id || '');
+
               toast({ title: 'Paper Allocated', description: `${data.paper.name} reserved (${sheetsToAllocate} sheets).` });
-            } catch (err) {
+            } catch (err: any) {
               console.error("Error allocating paper", err);
-              toast({ title: "Allocation Failed", variant: "destructive", description: "Could not reserve paper." });
+              toast({ title: "Allocation Failed", variant: "destructive", description: err.message || "Could not reserve paper." });
             }
           }
 

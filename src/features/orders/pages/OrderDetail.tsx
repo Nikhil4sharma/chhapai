@@ -9,8 +9,7 @@ import { useChat } from '@/features/chat/context/ChatContext';
 import { OrderHeader } from '@/features/orders/components/OrderHeader';
 import { OrderStatusCard } from '@/features/orders/components/OrderStatusCard';
 import { ProductItemCard } from '@/features/orders/components/ProductItemCard';
-import { TimelineCard } from '@/features/orders/components/TimelineCard';
-import { NotesCard } from '@/features/orders/components/NotesCard';
+import { OrderCommunication } from '@/features/orders/components/OrderCommunication';
 import { PaymentCard } from '@/features/orders/components/PaymentCard';
 import { EditOrderDialog } from '@/components/dialogs/EditOrderDialog';
 import { UploadFileDialog } from '@/components/dialogs/UploadFileDialog';
@@ -332,11 +331,12 @@ export default function OrderDetailNew() {
                     </div>
 
                     <div className="space-y-4">
-                        <NotesCard
-                            notes={timeline}
+                        <OrderCommunication
+                            orderId={order.id}
+                            timeline={timeline}
                             globalNotes={order.global_notes}
+                            className="h-[600px]"
                         />
-                        <TimelineCard timeline={timeline} />
                         <PaymentCard
                             order={order}
                             canView={canViewFinancials}

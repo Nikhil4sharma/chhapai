@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useNotifications } from '@/hooks/useNotifications';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
 
 const ITEMS_PER_PAGE = 9;
 
@@ -70,15 +71,26 @@ export default function Dashboard() {
   const [filterDept, setFilterDept] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [filterUser, setFilterUser] = useState<string>('all');
+  const [userOptions, setUserOptions] = useState<Array<{ id: string; name: string }>>([]);
 
-  // Derive unique users for filter dropdown
-  const uniqueUsers = useMemo(() => {
-    const users = new Map<string, string>();
-    allOrders.forEach(o => {
-      if (o.assigned_user && o.assigned_user_name) users.set(o.assigned_user, o.assigned_user_name);
-    });
-    return Array.from(users.entries());
-  }, [allOrders]);
+  // Fetch users for filter independently (Fast Load)
+  useEffect(() => {
+    const fetchUsers = async () => {
+      // Fetch all profiles to populate manager filter immediately
+      const { data } = await supabase
+        .from('profiles')
+        .select('user_id, full_name')
+        .order('full_name');
+
+      if (data) {
+        setUserOptions(data.map(p => ({
+          id: p.user_id,
+          name: p.full_name || 'Unknown'
+        })));
+      }
+    };
+    fetchUsers();
+  }, []);
 
   // Helper to apply filters
   const applyFilters = (products: { order: Order; item: OrderItem }[]) => {
@@ -748,8 +760,8 @@ export default function Dashboard() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Managers</SelectItem>
-                      {uniqueUsers.map(([id, name]) => (
-                        <SelectItem key={id} value={id}>{name}</SelectItem>
+                      {userOptions.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

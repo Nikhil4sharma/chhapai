@@ -8,7 +8,7 @@ export type SubStage = 'foiling' | 'printing' | 'pasting' | 'cutting' | 'letterp
 
 export type OutsourceStage = 'outsourced' | 'vendor_in_progress' | 'vendor_dispatched' | 'received_from_vendor' | 'quality_check' | 'decision_pending';
 
-export type UserRole = 'sales' | 'design' | 'prepress' | 'production' | 'outsource' | 'admin' | 'dispatch' | 'super_admin' | 'hr_admin';
+export type UserRole = 'sales' | 'design' | 'prepress' | 'production' | 'outsource' | 'admin' | 'dispatch' | 'super_admin' | 'hr_admin' | 'hr' | 'accounts';
 
 export interface Customer {
   id?: string;

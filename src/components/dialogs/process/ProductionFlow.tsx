@@ -37,13 +37,8 @@ export function ProductionFlow({ initialStages = [], onStagesChange, onMaterialC
             // Remove
             setSelectedStages(prev => prev.filter(k => k !== stageKey));
         } else {
-            // Add (append to end by default in this simple view, or strict order?)
-            // Strict order from config is better for "Builder"
-            const allStageKeys = productionStages.map(s => s.key);
-            const newSelection = [...selectedStages, stageKey].sort((a, b) => {
-                return allStageKeys.indexOf(a) - allStageKeys.indexOf(b);
-            });
-            setSelectedStages(newSelection);
+            // Add (append to end by default to preserve selection sequence)
+            setSelectedStages(prev => [...prev, stageKey]);
         }
     };
 

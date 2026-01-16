@@ -37,8 +37,8 @@ export interface WCCustomer {
     orders_count: number;
     last_order_date?: string;
     last_synced_at: string;
-    created_at?: string;
-    assigned_manager?: string;
+    assigned_to?: string; // Mapped to 'assigned_manager' in UI previously, now aligned with DB
+    assigned_to_name?: string; // Optional helper
     gst_number?: string;
 }
 

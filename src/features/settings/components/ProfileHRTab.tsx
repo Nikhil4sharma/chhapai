@@ -97,11 +97,10 @@ export function ProfileHRTab() {
     // Use profile from Auth context if HR profile details are missing name (fallback chain)
     // HR hook now joins 'phone' from public profile as well
     const displayName = profile?.full_name || profileDetails?.full_name || "Team Member";
-    // @ts-ignore - 'phone' might be missing on type but is fetched
     const displayPhone = profile?.phone || profileDetails?.phone || profileDetails?.public_profile?.phone || "No Phone";
     // Prioritize actual user role from user_roles table (via context) over designation/department
-    const displayRole = userRole || profileDetails?.designation || profile?.department || "Employee";
-    const displayDept = profile?.department || profileDetails?.department || "General";
+    const displayRole = role || profileDetails?.designation || profile?.department || "Employee";
+    const displayDept = profileDetails?.department || profile?.department || "General";
 
     // Check both sources for avatar
     const displayAvatar = profile?.avatar_url || profileDetails?.avatar_url || "";
@@ -334,9 +333,25 @@ export function ProfileHRTab() {
                         </CardHeader>
                         <CardContent className="p-6">
                             {!latestPayroll ? (
-                                <div className="flex flex-col items-center justify-center h-[150px] text-muted-foreground">
-                                    <p className="text-sm">No payroll records found.</p>
-                                </div>
+                                profileDetails?.base_salary ? (
+                                    <div className="space-y-6">
+                                        <div>
+                                            <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">Monthly Base Salary</p>
+                                            <div className="flex items-baseline gap-1">
+                                                <span className="text-3xl font-bold text-slate-900 dark:text-white">₹{profileDetails.base_salary.toLocaleString()}</span>
+                                            </div>
+                                        </div>
+                                        <div className="p-3 bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/20 rounded-lg">
+                                            <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium leading-relaxed">
+                                                No recent payroll processed. This is your contracted base salary from HR records.
+                                            </p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center h-[150px] text-muted-foreground">
+                                        <p className="text-sm">No payroll records found.</p>
+                                    </div>
+                                )
                             ) : (
                                 <div className="space-y-6">
                                     <div>
@@ -355,13 +370,13 @@ export function ProfileHRTab() {
                                         {latestPayroll.additions?.map((add, i) => (
                                             <div key={i} className="flex justify-between text-xs text-emerald-600">
                                                 <span>{add.description}</span>
-                                                <span>+₹{add.amount}</span>
+                                                <span>+₹{add.amount.toLocaleString()}</span>
                                             </div>
                                         ))}
                                         {latestPayroll.deductions?.map((ded, i) => (
                                             <div key={i} className="flex justify-between text-xs text-red-600">
                                                 <span>{ded.description}</span>
-                                                <span>-₹{ded.amount}</span>
+                                                <span>-₹{ded.amount.toLocaleString()}</span>
                                             </div>
                                         ))}
                                     </div>
