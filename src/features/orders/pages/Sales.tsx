@@ -99,12 +99,17 @@ export default function Sales() {
   }, [orders]);
 
   // Filter by selected user tab (for admin)
+  // Check order.assigned_user (Manager) instead of item.assigned_to
   const userFilteredSalesProducts = useMemo(() => {
     if (!isAdmin || selectedUserTab === 'all') {
       return salesProducts;
     }
-    return salesProducts.filter(({ item }) => item.assigned_to === selectedUserTab);
+    return salesProducts.filter(({ order, item }) => {
+      // Check both order-level assignment (Manager) and item-level assignment
+      return order.assigned_user === selectedUserTab || item.assigned_to === selectedUserTab;
+    });
   }, [salesProducts, isAdmin, selectedUserTab]);
+
 
   // Filter products based on search and priority
   const filteredSalesProducts = useMemo(() => {
