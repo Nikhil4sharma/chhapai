@@ -180,7 +180,23 @@ export const consumeJobMaterial = async (materialId: string, userId: string) => 
     if (fetchError) throw fetchError;
     if (material.status !== 'reserved') throw new Error(`Material must be reserved to consume. Current status: ${material.status}`);
 
-    // 2. Update Status
+    // 2. Validate Paper Inventory has sufficient reserved sheets
+    const { data: paperInventory, error: inventoryError } = await supabase
+        .from('paper_inventory')
+        .select('reserved_sheets, total_sheets, name')
+        .eq('id', material.paper_id)
+        .single();
+
+    if (inventoryError) throw inventoryError;
+
+    if (paperInventory.reserved_sheets < material.sheets_allocated) {
+        throw new Error(
+            `Insufficient reserved sheets for ${paperInventory.name}. ` +
+            `Required: ${material.sheets_allocated}, Available: ${paperInventory.reserved_sheets}`
+        );
+    }
+
+    // 3. Update Status
     const { error: updateError } = await supabase
         .from('job_materials')
         .update({ status: 'consumed', updated_at: new Date().toISOString() })
@@ -188,7 +204,7 @@ export const consumeJobMaterial = async (materialId: string, userId: string) => 
 
     if (updateError) throw updateError;
 
-    // 3. Log Consumption Transaction
+    // 4. Log Consumption Transaction
     // This triggers: reserved_sheets -= qty, total_sheets -= qty
     const { error: txError } = await supabase
         .from('inventory_transactions')
