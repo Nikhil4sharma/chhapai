@@ -387,15 +387,20 @@ export function useCreateOrder(
             setSelectedCustomerId(linkedCustomerId);
         }
 
-        // Populate Form
+        // Populate Form with fallback for customer name
+        const customerName = wooOrderData.customer_name ||
+            (wooOrderData.billing_first_name && wooOrderData.billing_last_name
+                ? `${wooOrderData.billing_first_name} ${wooOrderData.billing_last_name}`.trim()
+                : wooOrderData.shipping_name || 'Customer');
+
         setCustomerData({
-            name: wooOrderData.customer_name || '',
-            phone: wooOrderData.customer_phone || '',
-            email: wooOrderData.customer_email || '',
-            address: wooOrderData.billing_address || '',
-            city: wooOrderData.billing_city || '',
-            state: wooOrderData.billing_state || '',
-            pincode: wooOrderData.billing_pincode || '',
+            name: customerName,
+            phone: wooOrderData.customer_phone || wooOrderData.billing_phone || '',
+            email: wooOrderData.customer_email || wooOrderData.billing_email || '',
+            address: wooOrderData.billing_address || wooOrderData.shipping_address || '',
+            city: wooOrderData.billing_city || wooOrderData.shipping_city || '',
+            state: wooOrderData.billing_state || wooOrderData.shipping_state || '',
+            pincode: wooOrderData.billing_pincode || wooOrderData.shipping_postcode || '',
         });
 
         if (wooOrderData.line_items?.length) {
