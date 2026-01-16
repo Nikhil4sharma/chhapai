@@ -254,10 +254,22 @@ export function useCreateOrder(
     const checkWooCommerceOrder = useCallback(async () => {
         const { data: { session } } = await supabase.auth.getSession();
 
-        if (!orderNumber.trim() || !session?.access_token) {
-            toast({ title: "Error", description: "Please enter an order number first", variant: "destructive" });
+        // Validation
+        if (!orderNumber.trim()) {
+            toast({ title: 'Error', description: 'Order number is required', variant: 'destructive' });
             return;
         }
+
+        if (!customerData.name || !customerData.name.trim()) {
+            toast({ title: 'Error', description: 'Customer name is required', variant: 'destructive' });
+            return;
+        }
+
+        if (products.length === 0 || products.some(p => !p.name.trim())) {
+            toast({ title: 'Error', description: 'At least one product with a name is required', variant: 'destructive' });
+            return;
+        }
+
 
         if (!isAdmin && role !== 'sales') {
             toast({ title: "Access Denied", description: "Only Admin and Sales can check WooCommerce orders", variant: "destructive" });
