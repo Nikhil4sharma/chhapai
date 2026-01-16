@@ -485,11 +485,13 @@ export function useCreateOrder(
             return;
         }
 
-        // Validate customer name
-        if (!customerData.name || !customerData.name.trim()) {
+        // Validate customer name - check for empty string too
+        const trimmedCustomerName = customerData.name?.trim();
+        if (!trimmedCustomerName) {
             toast({ title: "Validation Error", description: "Customer name is required", variant: "destructive" });
             return;
         }
+
 
         const dupCheck = await checkOrderNumberDuplicate(orderNumber, wooOrderData?.id);
         if (dupCheck.isDuplicate) {
@@ -568,7 +570,8 @@ export function useCreateOrder(
                         }
                     },
                     // Enhance Customer/Shipping info from Form if User edited it
-                    customer_name: customerData.name,
+                    // Safeguard: ensure customer_name is never empty
+                    customer_name: customerData.name?.trim() || 'Customer',
                     customer_email: customerData.email,
                     customer_phone: customerData.phone,
                     customer_address: customerData.address,
@@ -646,7 +649,8 @@ export function useCreateOrder(
                     assigned_user: finalUser,
                     source: 'manual',
                     current_department: finalDept,
-                    customer_name: customerData.name,
+                    // Safeguard: ensure customer_name is never empty
+                    customer_name: customerData.name?.trim() || 'Customer',
                     customer_email: customerData.email,
                     customer_phone: customerData.phone,
                     customer_address: customerData.address,
