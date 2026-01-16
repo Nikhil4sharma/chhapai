@@ -5,6 +5,7 @@ import type { LeaveBalance } from '../types';
 
 interface LeaveBalanceCardProps {
     balance: LeaveBalance;
+    className?: string;
 }
 
 export function LeaveBalanceCard({ balance }: LeaveBalanceCardProps) {
@@ -21,8 +22,18 @@ export function LeaveBalanceCard({ balance }: LeaveBalanceCardProps) {
             <CardContent className="p-4">
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex-1">
-                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2">
                             {balance.leave_type?.name || 'Unknown'}
+                            {balance.leave_type?.is_paid === false && (
+                                <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full dark:bg-amber-900/30 dark:text-amber-400">
+                                    Unpaid
+                                </span>
+                            )}
+                            {balance.leave_type?.is_paid !== false && (
+                                <span className="text-[10px] bg-green-100 text-green-800 px-1.5 py-0.5 rounded-full dark:bg-green-900/30 dark:text-green-400">
+                                    Paid
+                                </span>
+                            )}
                         </p>
                         <p
                             className="text-2xl font-bold mt-1"

@@ -96,8 +96,19 @@ CREATE TRIGGER update_hr_profiles_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION public.update_updated_at_column();
 
--- Enable realtime for hr_profiles
-ALTER PUBLICATION supabase_realtime ADD TABLE public.hr_profiles;
+-- Enable realtime for hr_profiles (if not already added)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables 
+        WHERE pubname = 'supabase_realtime' 
+        AND schemaname = 'public' 
+        AND tablename = 'hr_profiles'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.hr_profiles;
+    END IF;
+END $$;
+
 
 -- Grant permissions
 GRANT SELECT, INSERT, UPDATE ON public.hr_profiles TO authenticated;

@@ -132,43 +132,51 @@ export default function Production() {
       );
   }, [orders, isAdmin, profile, user, role]);
 
+  // Filter by selected user tab (for admin)
+  const userFilteredProductionItems = useMemo(() => {
+    if (!isAdmin || selectedUserTab === 'all') {
+      return allProductionItems;
+    }
+    return allProductionItems.filter(({ item }) => item.assigned_to === selectedUserTab);
+  }, [allProductionItems, isAdmin, selectedUserTab]);
+
   // Get urgent items for production department
   const urgentProductionItems = useMemo(() => {
-    return allProductionItems.filter(({ item }) => item.priority_computed === 'red');
-  }, [allProductionItems]);
+    return userFilteredProductionItems.filter(({ item }) => item.priority_computed === 'red');
+  }, [userFilteredProductionItems]);
 
   // Separate assigned items (assigned_to is set) from unassigned items
   const assignedProductionItems = useMemo(() => {
-    return allProductionItems.filter(({ item }) => item.assigned_to === user?.id);
-  }, [allProductionItems, user]);
+    return userFilteredProductionItems.filter(({ item }) => item.assigned_to === user?.id);
+  }, [userFilteredProductionItems, user]);
 
   // Get items by status
   const inProgressItems = useMemo(() => {
-    return allProductionItems.filter(({ item }) => {
+    return userFilteredProductionItems.filter(({ item }) => {
       return item.current_stage === 'production' &&
         item.assigned_department === 'production' &&
         !item.is_dispatched;
     });
-  }, [allProductionItems]);
+  }, [userFilteredProductionItems]);
 
   const completedItems = useMemo(() => {
-    return allProductionItems.filter(({ item }) => {
+    return userFilteredProductionItems.filter(({ item }) => {
       return item.is_dispatched ||
         item.current_stage === 'dispatch' ||
         item.current_stage === 'completed';
     });
-  }, [allProductionItems]);
+  }, [userFilteredProductionItems]);
 
   // Calculate realtime stats for Production dashboard
   const productionStats = useMemo(() => {
     return {
-      totalItems: allProductionItems.length,
+      totalItems: userFilteredProductionItems.length,
       urgentItems: urgentProductionItems.length,
       assignedToMe: assignedProductionItems.length,
-      yellowPriority: allProductionItems.filter(({ item }) => item.priority_computed === 'yellow').length,
-      bluePriority: allProductionItems.filter(({ item }) => item.priority_computed === 'blue').length,
+      yellowPriority: userFilteredProductionItems.filter(({ item }) => item.priority_computed === 'yellow').length,
+      bluePriority: userFilteredProductionItems.filter(({ item }) => item.priority_computed === 'blue').length,
     };
-  }, [allProductionItems, urgentProductionItems, assignedProductionItems]);
+  }, [userFilteredProductionItems, urgentProductionItems, assignedProductionItems]);
 
   // Tab state for filtering
   const [activeTab, setActiveTab] = useState<'in_progress' | 'completed' | 'assigned' | 'urgent' | 'all'>('assigned');
@@ -176,7 +184,7 @@ export default function Production() {
 
   // Filter items based on active tab (for production, also respect substage filter)
   const productionItems = useMemo(() => {
-    let filtered = allProductionItems;
+    let filtered = userFilteredProductionItems;
 
     if (activeTab === 'in_progress') {
       filtered = inProgressItems;
@@ -189,13 +197,8 @@ export default function Production() {
     }
     // 'all' tab already filtered
 
-    // Apply User Filter (Admin only)
-    if (isAdmin && selectedUserTab !== 'all') {
-      filtered = filtered.filter(({ item }) => item.assigned_to === selectedUserTab);
-    }
-
     return filtered;
-  }, [allProductionItems, inProgressItems, completedItems, assignedProductionItems, urgentProductionItems, activeTab, isAdmin, selectedUserTab]);
+  }, [userFilteredProductionItems, inProgressItems, completedItems, assignedProductionItems, urgentProductionItems, activeTab]);
 
   const getItemsBySubstage = (substage: string | null) => {
     if (substage === 'all') return productionItems;
@@ -453,6 +456,34 @@ export default function Production() {
           </Card>
         </div>
 
+        {/* User Tabs for Admin */}
+        {isAdmin && productionUsers.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filter by Team Member</span>
+            <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
+              <TabsList className="h-auto p-1 bg-slate-100 dark:bg-slate-800 rounded-lg flex flex-wrap gap-1 justify-start overflow-visible">
+                <TabsTrigger
+                  value="all"
+                  className="rounded-md px-3 py-1.5 text-xs font-medium data-[state=active]:bg-white dark:data-[state=active]:bg-slate-950 data-[state=active]:shadow-sm transition-all"
+                >
+                  All Users
+                </TabsTrigger>
+                {productionUsers.map((productionUser) => {
+                  return (
+                    <TabsTrigger
+                      key={productionUser.user_id}
+                      value={productionUser.user_id}
+                      className="rounded-md px-3 py-1.5 text-xs font-medium data-[state=active]:bg-white dark:data-[state=active]:bg-slate-950 data-[state=active]:shadow-sm transition-all"
+                    >
+                      {productionUser.full_name}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </Tabs>
+          </div>
+        )}
+
         {/* Main Tabs: Status-based */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
           <div className="overflow-x-auto pb-2">
@@ -484,38 +515,12 @@ export default function Production() {
               <TabsTrigger value="all" className="text-sm">
                 All
                 <Badge variant="secondary" className="ml-2">
-                  {allProductionItems.length}
+                  {userFilteredProductionItems.length}
                 </Badge>
               </TabsTrigger>
             </TabsList>
           </div>
         </Tabs>
-
-        {/* User Tabs for Admin (only show on 'all' tab) */}
-        {isAdmin && productionUsers.length > 0 && activeTab === 'all' && (
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-sm font-medium text-muted-foreground">Filter by User:</span>
-            <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
-              <TabsList className="flex-wrap h-auto">
-                <TabsTrigger value="all" className="text-sm">
-                  All Users
-                  <Badge variant="secondary" className="ml-2">
-                    {allProductionItems.length}
-                  </Badge>
-                </TabsTrigger>
-                {productionUsers.map((productionUser) => {
-                  const userItemCount = allProductionItems.filter(({ item }) => item.assigned_to === productionUser.user_id).length;
-                  return (
-                    <TabsTrigger key={productionUser.user_id} value={productionUser.user_id} className="text-sm">
-                      {productionUser.full_name}
-                      <Badge variant="secondary" className="ml-2">{userItemCount}</Badge>
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
-            </Tabs>
-          </div>
-        )}
 
         {/* Production Stages Filter - Scrollable (Secondary Filter) */}
         <div className="flex-shrink-0 overflow-x-auto pb-2 -mt-2">

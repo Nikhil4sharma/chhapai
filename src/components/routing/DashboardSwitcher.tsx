@@ -39,7 +39,7 @@ export const DashboardSwitcher = () => {
     // Default redirects based on role
     switch (role) {
         case 'admin':
-            return <Navigate to="/admin" replace />;
+            return <Navigate to="/sales" replace />;
         case 'sales':
             return <Navigate to="/sales" replace />;
         case 'design':
@@ -54,9 +54,12 @@ export const DashboardSwitcher = () => {
         case 'outsource':
             return <Navigate to="/production" replace />;
         case 'hr':
-            return <Navigate to="/admin/hr" replace />; // HR goes to HR dashboard
+        case 'hr_admin':
+            return <Navigate to="/admin/hr" replace />; // HR and HR Admin goes to HR dashboard
         case 'accounts':
             return <Navigate to="/accounts" replace />;
+        case 'super_admin':
+            return <Navigate to="/admin" replace />;
         default:
             return <Navigate to="/login" replace />;
     }

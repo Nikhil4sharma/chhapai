@@ -732,7 +732,11 @@ export function useCreateOrder(
         selectedDepartment,
         selectedUser,
         availableUsers,
-        departmentUsers: availableUsers.filter(u => u.department === selectedDepartment || (selectedDepartment === 'sales' && u.department === 'admin')),
+        departmentUsers: availableUsers.filter(u => {
+            const name = (u.full_name || '').toLowerCase();
+            if (name === 'hi' || name.includes('rajesh')) return false;
+            return u.department === selectedDepartment || (selectedDepartment === 'sales' && u.department === 'admin');
+        }),
 
         // Setters (if needed directly)
         setOrderNumber,

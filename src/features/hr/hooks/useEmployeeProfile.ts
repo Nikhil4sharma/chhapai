@@ -13,6 +13,7 @@ export interface Employee {
     phone?: string;
     hr_profile: HRProfile | null;
     roles: { role: string; department: string }[];
+    category?: 'office' | 'factory';
 }
 
 interface EmployeeWithProfile {
@@ -186,8 +187,17 @@ export function useEmployeeList() {
             const mergedData: Employee[] = (employeesData || [])
                 .filter(emp => {
                     const profile = profilesData?.find(p => p.id === emp.user_id);
+                    const userRole = userRolesData?.find(ur => ur.user_id === emp.user_id);
+
                     // Filter out hidden users (Super Admin via is_hidden flag)
                     if (profile?.is_hidden) return false;
+
+                    // Filter out admins and super_admins
+                    if (userRole?.role === 'admin' || userRole?.role === 'super_admin') return false;
+
+                    // Specific exclusions requested
+                    if (emp.email === 'hi@chhapai.in' || profile?.full_name?.includes('Rajesh')) return false;
+
                     return true;
                 })
                 .map(emp => {
@@ -222,7 +232,8 @@ export function useEmployeeList() {
                             department: department, // Override/Ensure department is populated
                             designation: designation // Mapped designation
                         },
-                        roles: userRole ? [{ role: userRole.role, department: department }] : []
+                        roles: userRole ? [{ role: userRole.role, department: department }] : [],
+                        category: emp.category || 'office' // Add category mapping
                     };
                 });
 

@@ -187,8 +187,7 @@ export function ProductionStageControl({
                     </>
                 ) : (
                     <div className="py-4">
-                        <p className="text-muted-foreground">Additional Setup Required</p>
-                        <Button variant="outline" size="sm" className="mt-2 rounded-full">Configure Stages</Button>
+                        <p className="text-muted-foreground">No active stage. Please start the first stage.</p>
                     </div>
                 )}
 

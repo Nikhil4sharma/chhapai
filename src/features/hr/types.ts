@@ -11,6 +11,13 @@ export interface HRProfile {
         bank_name: string;
     } | null;
     base_salary: number | null;
+    blood_group?: string | null;
+    emergency_contact?: string | null;
+    address?: string | null;
+    // Joined fields from profiles
+    full_name?: string | null;
+    email?: string | null;
+    avatar_url?: string | null;
 }
 
 export interface LeaveType {
@@ -19,6 +26,8 @@ export interface LeaveType {
     days_allowed_per_year: number;
     is_carry_forward: boolean;
     color: string;
+    description?: string;
+    is_paid?: boolean;
 }
 
 export interface LeaveBalance {
@@ -39,6 +48,7 @@ export interface LeaveRequest {
     end_date: string;
     days_count: number;
     reason: string;
+    duration_type?: 'full_day' | 'half_day_first' | 'half_day_second' | 'short_morning' | 'short_evening';
     status: 'pending' | 'approved' | 'rejected' | 'cancelled';
     approved_by: string | null;
     rejection_reason: string | null;

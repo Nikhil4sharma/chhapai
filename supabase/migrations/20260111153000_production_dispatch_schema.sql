@@ -22,39 +22,25 @@ COMMENT ON COLUMN public.orders.shipping_method IS 'Method of shipping: courier 
 -- but ensuring specific roles can update them is good practice)
 
 -- Allow "production" role to update order_items production fields
+DROP POLICY IF EXISTS "Production can update their specific fields" ON public.order_items;
 CREATE POLICY "Production can update their specific fields" ON public.order_items
 FOR UPDATE
 TO authenticated
 USING (
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'production' = ANY(roles))
-  OR
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'admin' = ANY(roles))
-  OR
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'super_admin' = ANY(roles))
+  auth.uid() IN (SELECT user_id FROM public.user_roles WHERE role IN ('production', 'admin', 'super_admin'))
 )
 WITH CHECK (
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'production' = ANY(roles))
-  OR
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'admin' = ANY(roles))
-  OR
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'super_admin' = ANY(roles))
+  auth.uid() IN (SELECT user_id FROM public.user_roles WHERE role IN ('production', 'admin', 'super_admin'))
 );
 
 -- Allow "sales" and "dispatch" roles to update dispatch info on orders
+DROP POLICY IF EXISTS "Sales and Dispatch can update dispatch info" ON public.orders;
 CREATE POLICY "Sales and Dispatch can update dispatch info" ON public.orders
 FOR UPDATE
 TO authenticated
 USING (
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'sales' = ANY(roles))
-  OR
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'dispatch' = ANY(roles))
-  OR
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'admin' = ANY(roles)) -- assuming admin has broad access
+  auth.uid() IN (SELECT user_id FROM public.user_roles WHERE role IN ('sales', 'dispatch', 'admin', 'super_admin'))
 )
 WITH CHECK (
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'sales' = ANY(roles))
-  OR
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'dispatch' = ANY(roles))
-  OR
-  auth.uid() IN (SELECT user_id FROM public.users WHERE 'admin' = ANY(roles))
+  auth.uid() IN (SELECT user_id FROM public.user_roles WHERE role IN ('sales', 'dispatch', 'admin', 'super_admin'))
 );

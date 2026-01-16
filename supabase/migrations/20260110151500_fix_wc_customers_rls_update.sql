@@ -35,6 +35,8 @@ USING (true)
 WITH CHECK (true);
 
 -- DELETE: Only admins can delete (optional, can be restricted further)
+-- DELETE: Only admins can delete (optional, can be restricted further)
+DROP POLICY IF EXISTS "Enable delete access for authenticated users" ON public.wc_customers;
 CREATE POLICY "Enable delete access for authenticated users" 
 ON public.wc_customers
 FOR DELETE 

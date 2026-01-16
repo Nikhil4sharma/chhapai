@@ -209,14 +209,14 @@ export default function Profile() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="container mx-auto p-4 space-y-6">
       <div>
         <h1 className="text-2xl font-display font-bold">Profile</h1>
         <p className="text-muted-foreground">Manage your account settings</p>
       </div>
 
       <Tabs defaultValue="general" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="hr">HR & Payroll</TabsTrigger>
         </TabsList>

@@ -136,42 +136,50 @@ export default function Prepress() {
       );
   }, [orders, isAdmin, user, role, profile]);
 
+  // Filter by selected user tab (for admin)
+  const userFilteredPrepressItems = useMemo(() => {
+    if (!isAdmin || selectedUserTab === 'all') {
+      return allPrepressItems;
+    }
+    return allPrepressItems.filter(({ item }) => item.assigned_to === selectedUserTab);
+  }, [allPrepressItems, isAdmin, selectedUserTab]);
+
   // Get urgent items for prepress department
   const urgentPrepressItems = useMemo(() => {
-    return allPrepressItems.filter(({ item }) => item.priority_computed === 'red');
-  }, [allPrepressItems]);
+    return userFilteredPrepressItems.filter(({ item }) => item.priority_computed === 'red');
+  }, [userFilteredPrepressItems]);
 
   // Separate assigned items (assigned_to is set) from unassigned items
   const assignedPrepressItems = useMemo(() => {
-    return allPrepressItems.filter(({ item }) => item.assigned_to === user?.id);
-  }, [allPrepressItems, user]);
+    return userFilteredPrepressItems.filter(({ item }) => item.assigned_to === user?.id);
+  }, [userFilteredPrepressItems, user]);
 
   // Get items by status
   const inProgressItems = useMemo(() => {
-    return allPrepressItems.filter(({ item }) => {
+    return userFilteredPrepressItems.filter(({ item }) => {
       return item.current_stage === 'prepress' &&
         item.assigned_department === 'prepress';
     });
-  }, [allPrepressItems]);
+  }, [userFilteredPrepressItems]);
 
   const completedItems = useMemo(() => {
-    return allPrepressItems.filter(({ item }) => {
+    return userFilteredPrepressItems.filter(({ item }) => {
       return (item.current_stage === 'production' ||
         item.current_stage === 'completed') &&
         (item.assigned_department === 'production');
     });
-  }, [allPrepressItems]);
+  }, [userFilteredPrepressItems]);
 
   // Calculate realtime stats for Prepress dashboard
   const prepressStats = useMemo(() => {
     return {
-      totalItems: allPrepressItems.length,
+      totalItems: userFilteredPrepressItems.length,
       urgentItems: urgentPrepressItems.length,
       assignedToMe: assignedPrepressItems.length,
-      yellowPriority: allPrepressItems.filter(({ item }) => item.priority_computed === 'yellow').length,
-      bluePriority: allPrepressItems.filter(({ item }) => item.priority_computed === 'blue').length,
+      yellowPriority: userFilteredPrepressItems.filter(({ item }) => item.priority_computed === 'yellow').length,
+      bluePriority: userFilteredPrepressItems.filter(({ item }) => item.priority_computed === 'blue').length,
     };
-  }, [allPrepressItems, urgentPrepressItems, assignedPrepressItems]);
+  }, [userFilteredPrepressItems, urgentPrepressItems, assignedPrepressItems]);
 
   // Tab state for filtering
   const [activeTab, setActiveTab] = useState<'in_progress' | 'completed' | 'assigned' | 'urgent' | 'all'>('assigned');
@@ -188,11 +196,8 @@ export default function Prepress() {
       return urgentPrepressItems;
     }
     // 'all' tab
-    if (isAdmin && selectedUserTab !== 'all') {
-      return allPrepressItems.filter(({ item }) => item.assigned_to === selectedUserTab);
-    }
-    return allPrepressItems;
-  }, [allPrepressItems, inProgressItems, completedItems, assignedPrepressItems, urgentPrepressItems, activeTab, isAdmin, selectedUserTab]);
+    return userFilteredPrepressItems;
+  }, [userFilteredPrepressItems, inProgressItems, completedItems, assignedPrepressItems, urgentPrepressItems, activeTab]);
 
 
   const handleSendToProduction = (orderId: string, itemId: string, productName: string, currentSequence?: string[] | null) => {
@@ -320,6 +325,34 @@ export default function Prepress() {
           </Card>
         </div>
 
+        {/* User Tabs for Admin */}
+        {isAdmin && prepressUsers.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filter by Team Member</span>
+            <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
+              <TabsList className="h-auto p-1 bg-slate-100 dark:bg-slate-800 rounded-lg flex flex-wrap gap-1 justify-start overflow-visible">
+                <TabsTrigger
+                  value="all"
+                  className="rounded-md px-3 py-1.5 text-xs font-medium data-[state=active]:bg-white dark:data-[state=active]:bg-slate-950 data-[state=active]:shadow-sm transition-all"
+                >
+                  All Users
+                </TabsTrigger>
+                {prepressUsers.map((prepressUser) => {
+                  return (
+                    <TabsTrigger
+                      key={prepressUser.user_id}
+                      value={prepressUser.user_id}
+                      className="rounded-md px-3 py-1.5 text-xs font-medium data-[state=active]:bg-white dark:data-[state=active]:bg-slate-950 data-[state=active]:shadow-sm transition-all"
+                    >
+                      {prepressUser.full_name}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </Tabs>
+          </div>
+        )}
+
         {/* Main Tabs: Status-based */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
           <div className="overflow-x-auto pb-2">
@@ -351,38 +384,12 @@ export default function Prepress() {
               <TabsTrigger value="all" className="text-sm">
                 All
                 <Badge variant="secondary" className="ml-2">
-                  {allPrepressItems.length}
+                  {userFilteredPrepressItems.length}
                 </Badge>
               </TabsTrigger>
             </TabsList>
           </div>
         </Tabs>
-
-        {/* User Tabs for Admin (only show on 'all' tab) */}
-        {isAdmin && prepressUsers.length > 0 && activeTab === 'all' && (
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-sm font-medium text-muted-foreground">Filter by User:</span>
-            <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
-              <TabsList className="flex-wrap h-auto">
-                <TabsTrigger value="all" className="text-sm">
-                  All Users
-                  <Badge variant="secondary" className="ml-2">
-                    {allPrepressItems.length}
-                  </Badge>
-                </TabsTrigger>
-                {prepressUsers.map((prepressUser) => {
-                  const userItemCount = allPrepressItems.filter(({ item }) => item.assigned_to === prepressUser.user_id).length;
-                  return (
-                    <TabsTrigger key={prepressUser.user_id} value={prepressUser.user_id} className="text-sm">
-                      {prepressUser.full_name}
-                      <Badge variant="secondary" className="ml-2">{userItemCount}</Badge>
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
-            </Tabs>
-          </div>
-        )}
 
         {/* Prepress Queue - Scrollable - Show Products (not orders) */}
         <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 pb-20">

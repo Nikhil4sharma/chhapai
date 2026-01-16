@@ -49,6 +49,7 @@ TO authenticated
 USING (true);
 
 -- SERVICE ROLE: Always full access
+DROP POLICY IF EXISTS "Enable full access for service role" ON public.wc_customers;
 CREATE POLICY "Enable full access for service role"
 ON public.wc_customers FOR ALL
 TO service_role

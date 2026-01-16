@@ -148,8 +148,11 @@ export function AssignUserDialog({
             userProfiles.forEach(profile => {
               // Determine if we should include this user
               if (!profile.is_hidden) {
-                profileMap.set(profile.user_id, profile);
-                allUsers = [...allUsers, profile];
+                const name = (profile.full_name || '').toLowerCase();
+                if (name !== 'hi' && !name.includes('rajesh')) {
+                  profileMap.set(profile.user_id, profile);
+                  allUsers = [...allUsers, profile];
+                }
               } else {
                 // Check if hidden user should be removed from id set? 
                 // Yes, if we are filtering display.

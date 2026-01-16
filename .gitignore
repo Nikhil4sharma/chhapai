@@ -18,6 +18,7 @@ dist-ssr
 .env.production
 .env.development
 .env*.local
+.env.supabase
 
 # Editor directories and files
 .vscode/*

@@ -247,12 +247,9 @@ const App = () => (
                             </ProtectedRoute>
                           } />
 
+                          {/* Consolidated Settings Route */}
                           <Route path="/admin/settings" element={
-                            <ProtectedRoute allowedRoles={['admin', 'super_admin']}>
-                              <Suspense fallback={<PageLoader />}>
-                                <AdminSettings />
-                              </Suspense>
-                            </ProtectedRoute>
+                            <Navigate to="/settings" replace />
                           } />
 
                           <Route path="/reports" element={

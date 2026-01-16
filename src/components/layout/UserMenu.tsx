@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { User, Settings, LogOut, Shield, Loader2 } from 'lucide-react';
+import { User, Settings, LogOut, Shield, Loader2, Briefcase } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -88,20 +88,6 @@ export function UserMenu() {
           <Link to="/profile" className="cursor-pointer">
             <User className="mr-2 h-4 w-4" />
             Profile
-          </Link>
-        </DropdownMenuItem>
-        {isAdmin && (
-          <DropdownMenuItem asChild>
-            <Link to="/admin" className="cursor-pointer">
-              <Shield className="mr-2 h-4 w-4" />
-              Admin Panel
-            </Link>
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem asChild>
-          <Link to="/settings" className="cursor-pointer">
-            <Settings className="mr-2 h-4 w-4" />
-            Settings
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />

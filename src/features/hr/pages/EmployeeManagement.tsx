@@ -16,6 +16,7 @@ export default function EmployeeManagement() {
     const { employees, loading, searchQuery, setSearchQuery, refetch: fetchEmployees } = useEmployeeList();
     const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
     const [statsFilter, setStatsFilter] = useState<'all' | 'active' | 'probation'>('all');
+    const [activeTab, setActiveTab] = useState<'office' | 'factory'>('office');
     const [addMemberOpen, setAddMemberOpen] = useState(false);
 
     const getInitials = (first: string, last: string) => {
@@ -61,14 +62,30 @@ export default function EmployeeManagement() {
             {/* Search Bar */}
             <Card className="mb-6 shadow-lg">
                 <CardContent className="p-4">
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
-                        <Input
-                            placeholder="Search by name, email, department, or designation..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-10 h-12 text-base"
-                        />
+                    <div className="flex flex-col md:flex-row gap-4">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                            <Input
+                                placeholder="Search by name, email, department, or designation..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="pl-10 h-12 text-base"
+                            />
+                        </div>
+                        <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+                            <button
+                                onClick={() => setActiveTab('office')}
+                                className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'office' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                Office
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('factory')}
+                                className={`px-6 py-2 rounded-md text-sm font-medium transition-all ${activeTab === 'factory' ? 'bg-white dark:bg-slate-700 shadow-sm text-indigo-600' : 'text-slate-500 hover:text-slate-700'}`}
+                            >
+                                Factory
+                            </button>
+                        </div>
                     </div>
                 </CardContent>
             </Card>
@@ -82,8 +99,10 @@ export default function EmployeeManagement() {
                     <CardContent className="p-4">
                         <div className="flex items-center justify-between">
                             <div>
-                                <p className="text-sm text-slate-500">Total Employees</p>
-                                <p className="text-2xl font-bold text-indigo-600">{employees.length}</p>
+                                <p className="text-sm text-slate-500">Total {activeTab === 'office' ? 'Employees' : 'Workers'}</p>
+                                <p className="text-2xl font-bold text-indigo-600">
+                                    {employees.filter(e => e.category === activeTab).length}
+                                </p>
                             </div>
                             <Users className="h-8 w-8 text-indigo-200" />
                         </div>
@@ -98,7 +117,7 @@ export default function EmployeeManagement() {
                             <div>
                                 <p className="text-sm text-slate-500">Active</p>
                                 <p className="text-2xl font-bold text-emerald-600">
-                                    {employees.filter(e => e.hr_profile?.employment_status === 'active').length}
+                                    {employees.filter(e => e.category === activeTab && e.hr_profile?.employment_status === 'active').length}
                                 </p>
                             </div>
                             <Briefcase className="h-8 w-8 text-emerald-200" />
@@ -114,7 +133,7 @@ export default function EmployeeManagement() {
                             <div>
                                 <p className="text-sm text-slate-500">On Probation</p>
                                 <p className="text-2xl font-bold text-amber-600">
-                                    {employees.filter(e => e.hr_profile?.employment_status === 'probation').length}
+                                    {employees.filter(e => e.category === activeTab && e.hr_profile?.employment_status === 'probation').length}
                                 </p>
                             </div>
                             <Award className="h-8 w-8 text-amber-200" />
@@ -127,7 +146,7 @@ export default function EmployeeManagement() {
                             <div>
                                 <p className="text-sm text-slate-500">Departments</p>
                                 <p className="text-2xl font-bold text-purple-600">
-                                    {new Set(employees.map(e => e.hr_profile?.department)).size}
+                                    {new Set(employees.filter(e => e.category === activeTab).map(e => e.hr_profile?.department)).size}
                                 </p>
                             </div>
                             <Building2 className="h-8 w-8 text-purple-200" />
@@ -139,7 +158,7 @@ export default function EmployeeManagement() {
             {/* Employee List */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {employees
-                    .filter(e => statsFilter === 'all' || e.hr_profile?.employment_status === statsFilter)
+                    .filter(e => (statsFilter === 'all' || e.hr_profile?.employment_status === statsFilter) && e.category === activeTab)
                     .map((employee) => (
                         <motion.div
                             key={employee.id}
@@ -246,9 +265,23 @@ export default function EmployeeManagement() {
 
                         if (roleError) throw roleError;
 
+                        // 4. Update Employees table to set category (Critical for Factory vs Office separation)
+                        // The user create trigger sets default 'office', we must override it if 'factory'
+                        if (data.category === 'factory') {
+                            const { error: updateEmpError } = await supabase
+                                .from('employees')
+                                .update({
+                                    category: 'factory',
+                                    is_tool_user: false // Factory users typically don't login
+                                })
+                                .eq('user_id', authData.user.id);
+
+                            if (updateEmpError) console.error("Failed to update employee category", updateEmpError);
+                        }
+
                         toast({
                             title: "Success",
-                            description: "Team member added successfully",
+                            description: `${data.category === 'office' ? 'Team member' : 'Factory worker'} added successfully`,
                         });
 
                         // Valid success, close dialog and refresh

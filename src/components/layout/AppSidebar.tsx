@@ -210,7 +210,6 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
       title: 'Administration',
       roles: ['admin', 'super_admin', 'hr_admin'],
       items: [
-        { label: 'HR Portal', path: '/hr', icon: Briefcase },
         {
           label: 'HR Admin',
           path: '/admin/hr',
@@ -218,14 +217,14 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           roles: ['admin', 'super_admin', 'hr_admin']
         },
         {
-          label: 'User Management',
+          label: 'System Access',
           path: '/admin/users',
           icon: Users,
           roles: ['admin', 'super_admin']
         },
         {
           label: 'Settings',
-          path: '/admin/settings',
+          path: '/settings',
           icon: Settings,
           roles: ['admin', 'super_admin']
         },

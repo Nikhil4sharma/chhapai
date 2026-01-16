@@ -166,31 +166,39 @@ export default function Design() {
     return filtered;
   }, [orders, isAdmin, user, role, profile]);
 
+  // Filter by selected user tab (for admin)
+  const userFilteredDesignItems = useMemo(() => {
+    if (!isAdmin || selectedUserTab === 'all') {
+      return allDesignItems;
+    }
+    return allDesignItems.filter(({ item }) => item.assigned_to === selectedUserTab);
+  }, [allDesignItems, isAdmin, selectedUserTab]);
+
   // Separate assigned items (assigned_to is set) from unassigned items
   const assignedDesignItems = useMemo(() => {
     // FIX: Use user?.id instead of user?.uid (Supabase uses id, not uid)
-    return allDesignItems.filter(({ item }) => item.assigned_to === user?.id);
-  }, [allDesignItems, user]);
+    return userFilteredDesignItems.filter(({ item }) => item.assigned_to === user?.id);
+  }, [userFilteredDesignItems, user]);
 
   // Get urgent items for design department
   const urgentDesignItems = useMemo(() => {
-    return allDesignItems.filter(({ item }) => item.priority_computed === 'red');
-  }, [allDesignItems]);
+    return userFilteredDesignItems.filter(({ item }) => item.priority_computed === 'red');
+  }, [userFilteredDesignItems]);
 
   // Calculate realtime stats for Design dashboard
   const designStats = useMemo(() => {
     return {
-      totalItems: allDesignItems.length,
+      totalItems: userFilteredDesignItems.length,
       urgentItems: urgentDesignItems.length,
       assignedToMe: assignedDesignItems.length,
-      yellowPriority: allDesignItems.filter(({ item }) => item.priority_computed === 'yellow').length,
-      bluePriority: allDesignItems.filter(({ item }) => item.priority_computed === 'blue').length,
+      yellowPriority: userFilteredDesignItems.filter(({ item }) => item.priority_computed === 'yellow').length,
+      bluePriority: userFilteredDesignItems.filter(({ item }) => item.priority_computed === 'blue').length,
     };
-  }, [allDesignItems, urgentDesignItems, assignedDesignItems]);
+  }, [userFilteredDesignItems, urgentDesignItems, assignedDesignItems]);
 
   // Get items by status
   const pendingApprovalItems = useMemo(() => {
-    return allDesignItems.filter(({ item, order }) => {
+    return userFilteredDesignItems.filter(({ item, order }) => {
       // Items sent to sales from design (waiting for approval)
       // Or items that are specifically in pending status for customer approval
       const isPendingStatus = item.status === 'pending_for_customer_approval' || item.status === 'pending_client_approval';
@@ -198,10 +206,10 @@ export default function Design() {
 
       return (isWithSales || isPendingStatus) && item.need_design;
     });
-  }, [allDesignItems]);
+  }, [userFilteredDesignItems]);
 
   const inProgressItems = useMemo(() => {
-    return allDesignItems.filter(({ item }) => {
+    return userFilteredDesignItems.filter(({ item }) => {
       // Items currently in design department and not completed
       // Also include rejected items (revisions) and approved items waiting to be handed off
       const isDesignDept = item.assigned_department === 'design' || item.current_stage === 'design';
@@ -209,10 +217,10 @@ export default function Design() {
 
       return isDesignDept && isWorkingStatus;
     });
-  }, [allDesignItems]);
+  }, [userFilteredDesignItems]);
 
   const completedItems = useMemo(() => {
-    return allDesignItems.filter(({ item }) => {
+    return userFilteredDesignItems.filter(({ item }) => {
       // Items that moved out of design (completed design work)
       return (item.current_stage === 'prepress' ||
         item.current_stage === 'production' ||
@@ -220,7 +228,7 @@ export default function Design() {
         (item.assigned_department === 'prepress' ||
           item.assigned_department === 'production');
     });
-  }, [allDesignItems]);
+  }, [userFilteredDesignItems]);
 
   // Tab state for filtering
   const [activeTab, setActiveTab] = useState<'all' | 'pending_approval' | 'in_progress' | 'completed' | 'assigned' | 'urgent'>('assigned');
@@ -239,12 +247,8 @@ export default function Design() {
       return urgentDesignItems;
     }
     // 'all' tab - show all design items
-    // For admin, also respect user filter
-    if (isAdmin && selectedUserTab !== 'all') {
-      return allDesignItems.filter(({ item }) => item.assigned_to === selectedUserTab);
-    }
-    return allDesignItems;
-  }, [allDesignItems, pendingApprovalItems, inProgressItems, completedItems, assignedDesignItems, urgentDesignItems, activeTab, isAdmin, selectedUserTab]);
+    return userFilteredDesignItems;
+  }, [userFilteredDesignItems, pendingApprovalItems, inProgressItems, completedItems, assignedDesignItems, urgentDesignItems, activeTab]);
 
   // PRODUCT-CENTRIC: No need to group back into orders - show products directly
 
@@ -433,6 +437,34 @@ export default function Design() {
           </Card>
         </div>
 
+        {/* User Tabs for Admin */}
+        {isAdmin && designUsers.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Filter by Team Member</span>
+            <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
+              <TabsList className="h-auto p-1 bg-slate-100 dark:bg-slate-800 rounded-lg flex flex-wrap gap-1 justify-start overflow-visible">
+                <TabsTrigger
+                  value="all"
+                  className="rounded-md px-3 py-1.5 text-xs font-medium data-[state=active]:bg-white dark:data-[state=active]:bg-slate-950 data-[state=active]:shadow-sm transition-all"
+                >
+                  All Users
+                </TabsTrigger>
+                {designUsers.map((designUser) => {
+                  return (
+                    <TabsTrigger
+                      key={designUser.user_id}
+                      value={designUser.user_id}
+                      className="rounded-md px-3 py-1.5 text-xs font-medium data-[state=active]:bg-white dark:data-[state=active]:bg-slate-950 data-[state=active]:shadow-sm transition-all"
+                    >
+                      {designUser.full_name}
+                    </TabsTrigger>
+                  );
+                })}
+              </TabsList>
+            </Tabs>
+          </div>
+        )}
+
         {/* Main Tabs: Status-based */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
           <div className="overflow-x-auto pb-2">
@@ -470,38 +502,12 @@ export default function Design() {
               <TabsTrigger value="all" className="text-sm">
                 All
                 <Badge variant="secondary" className="ml-2">
-                  {allDesignItems.length}
+                  {userFilteredDesignItems.length}
                 </Badge>
               </TabsTrigger>
             </TabsList>
           </div>
         </Tabs>
-
-        {/* User Tabs for Admin (only show on 'all' tab) */}
-        {isAdmin && designUsers.length > 0 && activeTab === 'all' && (
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-sm font-medium text-muted-foreground">Filter by User:</span>
-            <Tabs value={selectedUserTab} onValueChange={setSelectedUserTab} className="w-full">
-              <TabsList className="flex-wrap h-auto">
-                <TabsTrigger value="all" className="text-sm">
-                  All Users
-                  <Badge variant="secondary" className="ml-2">
-                    {allDesignItems.length}
-                  </Badge>
-                </TabsTrigger>
-                {designUsers.map((designUser) => {
-                  const userItemCount = allDesignItems.filter(({ item }) => item.assigned_to === designUser.user_id).length;
-                  return (
-                    <TabsTrigger key={designUser.user_id} value={designUser.user_id} className="text-sm">
-                      {designUser.full_name}
-                      <Badge variant="secondary" className="ml-2">{userItemCount}</Badge>
-                    </TabsTrigger>
-                  );
-                })}
-              </TabsList>
-            </Tabs>
-          </div>
-        )}
 
         {/* Design Queue - Scrollable - Show Products (not orders) */}
         <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-2 pb-20">
