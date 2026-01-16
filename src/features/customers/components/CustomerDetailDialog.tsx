@@ -319,110 +319,135 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl h-[100vh] sm:h-[90vh] w-[100vw] sm:w-auto sm:max-w-4xl flex flex-col p-0 gap-0 overflow-hidden bg-slate-50 dark:bg-slate-950 border-none shadow-2xl rounded-none sm:rounded-lg">
+            <DialogContent className="max-w-6xl h-[100vh] sm:h-[90vh] w-[100vw] sm:w-auto sm:max-w-6xl flex flex-col p-0 gap-0 overflow-hidden bg-slate-50 dark:bg-slate-950 border-none shadow-2xl rounded-none sm:rounded-xl ring-1 ring-slate-900/5">
                 <DialogTitle className="sr-only">Customer Details: {displayName}</DialogTitle>
 
                 {/* Header Section */}
                 <div className="bg-white dark:bg-slate-900 border-b shrink-0 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
+                    {/* Background Decor */}
+                    <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+                    <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-500/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3 pointer-events-none" />
 
                     <button
                         onClick={() => onOpenChange(false)}
-                        className="absolute right-2 top-2 sm:right-4 sm:top-4 z-50 p-1.5 sm:p-2 rounded-full bg-white/80 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors shadow-sm ring-1 ring-slate-200 dark:ring-slate-700"
+                        className="absolute right-3 top-3 sm:right-6 sm:top-6 z-50 p-2 rounded-full bg-slate-100/50 dark:bg-slate-800/50 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors"
                         aria-label="Close"
                     >
-                        <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                        <X className="h-5 w-5" />
                     </button>
 
-                    <div className="p-3 sm:p-4 md:p-6 pb-3 sm:pb-4 relative z-10">
-                        <div className="flex flex-col md:flex-row items-start justify-between gap-2 sm:gap-4 md:gap-6">
-                            <div className="flex gap-2 sm:gap-3 md:gap-4 items-start w-full md:w-auto pr-10 sm:pr-0">
-                                <Avatar className="h-12 w-12 sm:h-14 sm:w-14 md:h-20 md:w-20 border-2 sm:border-4 border-slate-50 dark:border-slate-800 shadow-md ring-1 ring-slate-100 dark:ring-slate-700 transition-transform duration-500 hover:scale-105 shrink-0">
+                    <div className="p-4 sm:p-6 md:p-8 relative z-10">
+                        <div className="flex flex-col md:flex-row items-center md:items-start gap-4 md:gap-8">
+
+                            {/* Avatar Section */}
+                            <div className="flex-shrink-0 relative group">
+                                <Avatar className="h-20 w-20 sm:h-24 sm:w-24 md:h-32 md:w-32 border-4 border-white dark:border-slate-800 shadow-xl ring-1 ring-slate-100 dark:ring-slate-700 transition-transform duration-500 group-hover:scale-105">
                                     <AvatarImage src={customer.avatar_url} className="object-cover" />
-                                    <AvatarFallback className="bg-gradient-to-br from-blue-500 to-sky-600 text-white text-base sm:text-lg md:text-2xl font-bold">
+                                    <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl sm:text-3xl md:text-5xl font-bold">
                                         {(customer.first_name?.[0] || customer.email?.[0] || '?').toUpperCase()}
                                     </AvatarFallback>
                                 </Avatar>
-                                <div className="flex-1 min-w-0">
-                                    <h2 className="text-base sm:text-lg md:text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate mt-1">{displayName}</h2>
-                                    <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm mt-1">
-                                        <div className="flex items-center gap-1 min-w-0 max-w-full">
-                                            <MapPin className="h-3.5 w-3.5 shrink-0" />
-                                            <span className="truncate max-w-[200px] sm:max-w-none">{addressString}</span>
-                                        </div>
-                                        {customer.wc_id && <Badge variant="outline" className="bg-slate-100 dark:bg-slate-800 text-[10px] h-5 hidden sm:inline-flex">ID: {customer.wc_id}</Badge>}
+                                {customer.wc_id && (
+                                    <div className="absolute -bottom-2 -right-2 bg-slate-900 text-white text-[10px] sm:text-xs font-medium px-2 py-0.5 rounded-full border-2 border-white dark:border-slate-800 shadow-sm">
+                                        WC #{customer.wc_id}
+                                    </div>
+                                )}
+                            </div>
 
-                                        {/* GST Section */}
-                                        <div className="flex items-center gap-2 ml-2">
+                            {/* Info Section */}
+                            <div className="flex-1 min-w-0 flex flex-col items-center md:items-start text-center md:text-left w-full">
+                                <div className="flex flex-col gap-1 w-full">
+                                    <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate w-full">
+                                        {displayName}
+                                    </h2>
+
+                                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 text-muted-foreground text-sm sm:text-base mt-1">
+                                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                                            <MapPin className="h-4 w-4 shrink-0 text-slate-400" />
+                                            <span className="truncate max-w-[200px] sm:max-w-md">{addressString}</span>
+                                        </div>
+
+                                        {/* GST Badge */}
+                                        <div className="flex items-center">
                                             {startGstEdit ? (
-                                                <div className="flex items-center gap-1 h-6">
+                                                <div className="flex items-center gap-1">
                                                     <input
-                                                        className="h-full w-32 px-2 text-xs border rounded bg-slate-50 dark:bg-slate-800"
+                                                        className="h-7 w-32 px-2 text-xs border rounded bg-slate-50 dark:bg-slate-800 focus:ring-2 ring-blue-500/20 outline-none"
                                                         value={gstNumber}
                                                         onChange={e => setGstNumber(e.target.value)}
-                                                        placeholder="Enter GSTIN"
+                                                        placeholder="GSTIN"
                                                         autoFocus
                                                     />
-                                                    <button onClick={handleUpdateGst} className="text-xs text-emerald-600 font-medium px-1 hover:underline">Save</button>
-                                                    <button onClick={() => setStartGstEdit(false)} className="text-xs text-slate-500 px-1 hover:underline">X</button>
+                                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-emerald-600" onClick={handleUpdateGst}><Check className="h-3.5 w-3.5" /></Button>
+                                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-red-500" onClick={() => setStartGstEdit(false)}><X className="h-3.5 w-3.5" /></Button>
                                                 </div>
                                             ) : (
                                                 <Badge
                                                     variant="secondary"
-                                                    className="bg-purple-50 text-purple-700 border-purple-100 hover:bg-purple-100 cursor-pointer h-5 text-[10px]"
+                                                    className="bg-purple-50/80 text-purple-700 border-purple-100 hover:bg-purple-100 cursor-pointer h-6 px-2.5 font-medium transition-colors ml-2"
                                                     onClick={() => setStartGstEdit(true)}
                                                 >
-                                                    GST: {gstNumber || 'Add GST'}
+                                                    {gstNumber ? `GST: ${gstNumber}` : '+ Add GST'}
                                                 </Badge>
                                             )}
                                         </div>
                                     </div>
-                                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
+
+                                    {/* Contact Chips */}
+                                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mt-3">
                                         {customer.email && (
-                                            <div className="flex items-center gap-1.5 text-[10px] font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700" onClick={() => copyToClipboard(displayCustomer.email, "Email")}>
-                                                <Mail className="h-2.5 w-2.5 text-slate-500 dark:text-slate-400" /> <span className="truncate max-w-[120px] sm:max-w-none">{displayCustomer.email}</span>
+                                            <div
+                                                className="group flex items-center gap-2 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full cursor-pointer hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-all border border-slate-200 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-800"
+                                                onClick={() => copyToClipboard(displayCustomer.email, "Email")}
+                                            >
+                                                <Mail className="h-3.5 w-3.5 text-slate-400 group-hover:text-blue-500" />
+                                                <span className="truncate max-w-[180px] sm:max-w-xs">{displayCustomer.email}</span>
                                             </div>
                                         )}
                                         {displayCustomer.phone && (
-                                            <div className="flex items-center gap-1.5 text-[10px] font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors border border-slate-200 dark:border-slate-700" onClick={() => copyToClipboard(displayCustomer.phone, "Phone")}>
-                                                <Phone className="h-2.5 w-2.5 text-slate-500 dark:text-slate-400" /> {displayCustomer.phone}
+                                            <div
+                                                className="group flex items-center gap-2 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full cursor-pointer hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-300 transition-all border border-slate-200 dark:border-slate-700 hover:border-emerald-200 dark:hover:border-emerald-800"
+                                                onClick={() => copyToClipboard(displayCustomer.phone, "Phone")}
+                                            >
+                                                <Phone className="h-3.5 w-3.5 text-slate-400 group-hover:text-emerald-500" />
+                                                {displayCustomer.phone}
                                             </div>
                                         )}
                                     </div>
+                                </div>
 
-                                    {/* Financial & Order Stats Cards - 4 Cards Grid */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-2.5 w-full">
-                                        {/* Paid Card */}
-                                        <div className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 dark:from-emerald-900/20 dark:to-emerald-900/10 px-2.5 py-2 rounded-lg border border-emerald-200/60 dark:border-emerald-800/40 min-w-0">
-                                            <p className="text-[8px] text-emerald-600/90 dark:text-emerald-400/90 font-bold uppercase tracking-wider mb-0.5 truncate">Paid</p>
-                                            <p className="text-sm sm:text-base font-bold text-emerald-700 dark:text-emerald-400 tracking-tight truncate">₹{balance.total_paid.toLocaleString()}</p>
-                                        </div>
+                                {/* Financial Stats Grid */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mt-6 w-full">
+                                    {/* Paid Card */}
+                                    <div className="bg-emerald-50/50 dark:bg-emerald-900/10 p-3 sm:p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/20 flex flex-col items-center md:items-start text-center md:text-left transition-all hover:shadow-md hover:border-emerald-200">
+                                        <p className="text-[10px] sm:text-xs text-emerald-600/80 font-bold uppercase tracking-wider mb-1">Total Paid</p>
+                                        <p className="text-lg sm:text-xl md:text-2xl font-bold text-emerald-700 dark:text-emerald-400 tracking-tight">₹{balance.total_paid.toLocaleString()}</p>
+                                    </div>
 
-                                        {/* Total Orders Card */}
-                                        <div className="bg-gradient-to-br from-blue-50 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-900/10 px-2.5 py-2 rounded-lg border border-blue-200/60 dark:border-blue-800/40 min-w-0">
-                                            <p className="text-[8px] text-blue-600/90 dark:text-blue-400/90 font-bold uppercase tracking-wider mb-0.5 truncate">Orders</p>
-                                            <p className="text-sm sm:text-base font-bold text-blue-700 dark:text-blue-400 tracking-tight truncate">{displayTotalOrders}</p>
-                                        </div>
+                                    {/* Orders Card */}
+                                    <div className="bg-blue-50/50 dark:bg-blue-900/10 p-3 sm:p-4 rounded-xl border border-blue-100 dark:border-blue-900/20 flex flex-col items-center md:items-start text-center md:text-left transition-all hover:shadow-md hover:border-blue-200">
+                                        <p className="text-[10px] sm:text-xs text-blue-600/80 font-bold uppercase tracking-wider mb-1">Total Orders</p>
+                                        <p className="text-lg sm:text-xl md:text-2xl font-bold text-blue-700 dark:text-blue-400 tracking-tight">{displayTotalOrders}</p>
+                                    </div>
 
-                                        {/* Total Spent Card */}
-                                        <div className="bg-gradient-to-br from-purple-50 to-purple-100/50 dark:from-purple-900/20 dark:to-purple-900/10 px-2.5 py-2 rounded-lg border border-purple-200/60 dark:border-purple-800/40 min-w-0">
-                                            <p className="text-[8px] text-purple-600/90 dark:text-purple-400/90 font-bold uppercase tracking-wider mb-0.5 truncate">Spent</p>
-                                            <p className="text-sm sm:text-base font-bold text-purple-700 dark:text-purple-400 tracking-tight truncate">₹{displayTotalSpent.toLocaleString()}</p>
-                                        </div>
+                                    {/* Spent Card */}
+                                    <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-3 sm:p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/20 flex flex-col items-center md:items-start text-center md:text-left transition-all hover:shadow-md hover:border-indigo-200">
+                                        <p className="text-[10px] sm:text-xs text-indigo-600/80 font-bold uppercase tracking-wider mb-1">Lifetime Spent</p>
+                                        <p className="text-lg sm:text-xl md:text-2xl font-bold text-indigo-700 dark:text-indigo-400 tracking-tight">₹{displayTotalSpent.toLocaleString()}</p>
+                                    </div>
 
-                                        {/* Wallet/Due Card */}
-                                        <div className={`px-2.5 py-2 rounded-lg border min-w-0 ${balance.balance >= 0 ? 'bg-gradient-to-br from-emerald-100 to-emerald-50 border-emerald-200/60 dark:from-emerald-500/20 dark:to-emerald-500/10 dark:border-emerald-500/30' : 'bg-gradient-to-br from-red-100 to-red-50 border-red-200/60 dark:from-red-500/20 dark:to-red-500/10 dark:border-red-500/30'}`}>
-                                            <p className={`text-[8px] font-bold uppercase tracking-wider mb-0.5 truncate ${balance.balance >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
-                                                {balance.balance >= 0 ? 'Wallet' : 'Due'}
-                                            </p>
-                                            <p className={`text-sm sm:text-base font-bold tracking-tight truncate ${balance.balance >= 0 ? 'text-emerald-800 dark:text-emerald-300' : 'text-red-800 dark:text-red-300'}`}>₹{Math.abs(balance.balance).toLocaleString()}</p>
-                                        </div>
+                                    {/* Wallet/Due Card */}
+                                    <div className={`p-3 sm:p-4 rounded-xl border flex flex-col items-center md:items-start text-center md:text-left transition-all hover:shadow-md ${balance.balance >= 0 ? 'bg-teal-50/50 border-teal-100 dark:bg-teal-900/10 dark:border-teal-900/20' : 'bg-red-50/50 border-red-100 dark:bg-red-900/10 dark:border-red-900/20'}`}>
+                                        <p className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider mb-1 ${balance.balance >= 0 ? 'text-teal-600/80' : 'text-red-600/80'}`}>
+                                            {balance.balance >= 0 ? 'Wallet Balance' : 'Payment Due'}
+                                        </p>
+                                        <p className={`text-lg sm:text-xl md:text-2xl font-bold tracking-tight ${balance.balance >= 0 ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-400'}`}>
+                                            ₹{Math.abs(balance.balance).toLocaleString()}
+                                        </p>
                                     </div>
                                 </div>
                             </div>
                         </div>
-
-
                     </div>
                 </div>
 
