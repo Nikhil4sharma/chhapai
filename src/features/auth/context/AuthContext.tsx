@@ -554,8 +554,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateEmail = async (newEmail: string) => {
     try {
+      // Hardcode production URL to ensure links always go to live site
+      // irrespective of where the request originated (local/LAN)
+      const redirectTo = 'https://chhapai.vercel.app';
+
       const { error } = await supabase.auth.updateUser({
         email: newEmail,
+      }, {
+        emailRedirectTo: redirectTo
       });
       if (error) throw error;
       return { error: null };

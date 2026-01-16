@@ -32,17 +32,18 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
           stringValue = value;
         } else if (typeof value === 'object' && value !== null) {
           // If it's an object with display_value, use that
-          if ('display_value' in value && typeof value.display_value === 'string') {
-            stringValue = value.display_value;
+          const objValue = value as any;
+          if ('display_value' in objValue && typeof objValue.display_value === 'string') {
+            stringValue = objValue.display_value;
             // Use display_key for the key
-            const displayKey = value.display_key || key;
+            const displayKey = objValue.display_key || key;
             if (stringValue && stringValue.trim()) {
               allSpecs.push({ key: displayKey, value: stringValue.trim() });
             }
             return; // Already added, skip further processing
-          } else if ('value' in value && typeof value.value === 'string') {
-            stringValue = value.value;
-            const displayKey = value.display_key || value.key || key;
+          } else if ('value' in objValue && typeof objValue.value === 'string') {
+            stringValue = objValue.value;
+            const displayKey = objValue.display_key || objValue.key || key;
             if (stringValue && stringValue.trim()) {
               allSpecs.push({ key: displayKey, value: stringValue.trim() });
             }
@@ -71,15 +72,16 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
     for (const meta of metaArray) {
       if (!meta || typeof meta !== 'object') continue;
 
-      const metaKey = (meta.key || '').toLowerCase();
+      const metaObj = meta as any;
+      const metaKey = (metaObj.key || '').toLowerCase();
 
       // Skip SKU-related fields and internal keys
       if (EXCLUDED_KEYS.some(k => metaKey.includes(k.toLowerCase())) || metaKey.startsWith('_')) {
         continue;
       }
 
-      const displayKey = meta.display_key || meta.key;
-      const displayValue = meta.display_value || meta.value;
+      const displayKey = metaObj.display_key || metaObj.key;
+      const displayValue = metaObj.display_value || metaObj.value;
 
       // Only process if we have a valid string value
       if (displayValue && typeof displayValue === 'string' && displayValue.trim()) {
@@ -119,7 +121,7 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
             <DialogTrigger asChild>
               <Button
                 variant="outline"
-                size="xs"
+                size="sm"
                 className="h-6 px-2 text-[10px] font-normal rounded-full border-dashed"
                 onClick={(e) => e.stopPropagation()}
               >
@@ -153,27 +155,61 @@ export function ProductSpecifications({ item, compact = false }: ProductSpecific
     );
   }
 
-  // Full view: show all specs in a readable block
+  // Always show button only - no specs in card to prevent size increase
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
-        {allSpecs.map((spec, idx) => (
-          <div key={idx} className="text-sm flex flex-col sm:flex-row sm:justify-between gap-1 border-b border-border/40 pb-1 last:border-b-0">
-            <span className="text-muted-foreground font-medium text-xs uppercase tracking-wider">
-              {spec.key}
-            </span>
-            <span className="text-foreground font-medium text-right break-words max-w-[70%]">
-              {spec.value}
-            </span>
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full h-9 text-xs font-medium border-dashed hover:bg-accent"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <FileText className="h-3.5 w-3.5 mr-2" />
+          View Specifications {allSpecs.length > 0 && `(${allSpecs.length})`}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-lg">
+            <FileText className="h-5 w-5" />
+            Product Specifications
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* Quantity Display */}
+        <div className="px-1 pb-2 border-b border-border/50">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-muted-foreground font-medium">Quantity:</span>
+            <span className="font-semibold text-foreground">{item.quantity}</span>
           </div>
-        ))}
-      </div>
-      {item.specifications?.notes && (
-        <div className="mt-2 text-sm bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300 p-2 rounded border border-yellow-200 dark:border-yellow-900/50">
-          <span className="font-semibold mr-1">Note:</span>
-          {item.specifications.notes}
         </div>
-      )}
-    </div>
+
+        <div className="flex-1 overflow-y-auto pr-2">
+          <div className="space-y-3">
+            {allSpecs.map((spec, idx) => (
+              <div
+                key={idx}
+                className="flex flex-col sm:flex-row gap-2 p-3 rounded-lg bg-muted/30 border border-border/50 hover:bg-muted/50 transition-colors"
+              >
+                <span className="text-muted-foreground font-semibold text-sm uppercase tracking-wide min-w-[140px]">
+                  {spec.key}
+                </span>
+                <span className="text-foreground font-medium text-sm break-words flex-1">
+                  {spec.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {item.specifications?.notes && (
+          <div className="mt-3 text-sm bg-yellow-50 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300 p-3 rounded-lg border border-yellow-200 dark:border-yellow-900/50">
+            <span className="font-semibold mr-1">Note:</span>
+            {item.specifications.notes}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

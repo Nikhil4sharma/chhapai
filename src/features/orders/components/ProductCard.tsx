@@ -24,13 +24,15 @@ import { OutsourceAssignmentDialog } from '@/components/dialogs/OutsourceAssignm
 import { FilePreview } from '@/features/orders/components/FilePreview';
 import { DesignBriefDialog } from '@/features/orders/components/DesignBriefDialog';
 import { ProductSpecifications } from '@/features/orders/components/ProductSpecifications';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { OrderTimeline } from '@/features/orders/components/OrderTimeline';
 import { AddNoteDialog } from '@/components/dialogs/AddNoteDialog';
 import { workflowService } from '@/services/workflowService';
@@ -49,11 +51,15 @@ interface ProductCardProps {
 export function ProductCard({ order, item, className, productSuffix }: ProductCardProps) {
   const { user, isAdmin, role } = useAuth();
   const navigate = useNavigate();
+  const { refreshOrders } = useOrders();
+  const [deliveryDate, setDeliveryDate] = useState<Date | undefined>(
+    item.delivery_date ? new Date(item.delivery_date) : undefined
+  );
+  const [isDeliveryDateOpen, setIsDeliveryDateOpen] = useState(false);
   const {
     assignToUser,
     uploadFile,
     assignToOutsource,
-    refreshOrders,
     getTimelineForOrder,
     addNote
   } = useOrders();
@@ -206,17 +212,21 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
 
   return (
     <TooltipProvider>
-      <Card className={cn("transition-all overflow-hidden border border-border/70 bg-card", className)}>
+      <Card className={cn(
+        "transition-all overflow-hidden border border-border/70 bg-card flex flex-col",
+        "min-h-[360px]", // Reduced for more compact cards
+        className
+      )}>
         <div
           className={cn(
-            "h-1 w-full",
+            "h-1 w-full flex-shrink-0",
             item.priority_computed === 'blue' && "bg-priority-blue",
             item.priority_computed === 'yellow' && "bg-priority-yellow",
             item.priority_computed === 'red' && "bg-priority-red",
           )}
         />
 
-        <CardContent className="p-3">
+        <CardContent className="p-3 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-center gap-2 flex-wrap">
@@ -244,24 +254,80 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                 </Badge>
               </div>
 
-              {/* Delivery Date - Enhanced & Moved to Right */}
-              <div className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-semibold shadow-sm",
-                item.delivery_date && new Date(item.delivery_date) < new Date()
-                  ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-900/50"
-                  : differenceInDays(new Date(item.delivery_date || ''), new Date()) <= 2
-                    ? "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-900/50"
-                    : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/50 dark:text-slate-300 dark:border-slate-800"
-              )}>
-                <Calendar className="h-3.5 w-3.5 opacity-70" />
-                <span>
-                  {item.delivery_date ? format(new Date(item.delivery_date), 'MMM d, yyyy') : 'No Date'}
-                </span>
-              </div>
+              {/* Delivery Date - Clickable for Sales */}
+              {role === 'sales' ? (
+                <Popover open={isDeliveryDateOpen} onOpenChange={setIsDeliveryDateOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-semibold shadow-sm cursor-pointer hover:opacity-80 transition-opacity",
+                        item.delivery_date && new Date(item.delivery_date) < new Date()
+                          ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-900/50"
+                          : differenceInDays(new Date(item.delivery_date || ''), new Date()) <= 2
+                            ? "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-900/50"
+                            : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/50 dark:text-slate-300 dark:border-slate-800"
+                      )}
+                    >
+                      <Calendar className="h-3.5 w-3.5 opacity-70" />
+                      <span>
+                        {deliveryDate ? format(deliveryDate, 'MMM d, yyyy') : 'No Date'}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarComponent
+                      mode="single"
+                      selected={deliveryDate}
+                      onSelect={async (date) => {
+                        if (date) {
+                          setDeliveryDate(date);
+                          try {
+                            const { error } = await supabase
+                              .from('order_items')
+                              .update({ delivery_date: date.toISOString() })
+                              .eq('id', item.item_id);
+
+                            if (error) throw error;
+
+                            toast({
+                              title: 'Delivery date updated',
+                              description: `Set to ${format(date, 'MMM d, yyyy')}`,
+                            });
+                            refreshOrders();
+                            setIsDeliveryDateOpen(false);
+                          } catch (error) {
+                            console.error('Error updating delivery date:', error);
+                            toast({
+                              title: 'Error',
+                              description: 'Failed to update delivery date',
+                              variant: 'destructive',
+                            });
+                          }
+                        }
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <div className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-semibold shadow-sm",
+                  item.delivery_date && new Date(item.delivery_date) < new Date()
+                    ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-900/50"
+                    : differenceInDays(new Date(item.delivery_date || ''), new Date()) <= 2
+                      ? "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-900/50"
+                      : "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900/50 dark:text-slate-300 dark:border-slate-800"
+                )}>
+                  <Calendar className="h-3.5 w-3.5 opacity-70" />
+                  <span>
+                    {item.delivery_date ? format(new Date(item.delivery_date), 'MMM d, yyyy') : 'No Date'}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="font-semibold text-lg text-foreground leading-tight">
+              <h3 className="font-semibold text-base text-foreground leading-tight">
                 {item.product_name}
               </h3>
             </div>
@@ -345,7 +411,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
             )}
 
             {/* Specifications - Visible for ALL roles */}
-            <div className="bg-muted/30 border border-border/50 rounded-lg p-3">
+            <div className="bg-muted/20 border border-border/40 rounded-lg p-3">
               <ProductSpecifications item={item} />
             </div>
 

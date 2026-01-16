@@ -14,9 +14,9 @@ BEGIN
 END $$;
 
 -- Now insert departments with ON CONFLICT
--- Use DEFAULT for id if it's a serial/generated column, or omit it
-INSERT INTO public.departments (name, description)
+-- Use gen_random_uuid() for UUID id generation
+INSERT INTO public.departments (id, name, description)
 VALUES 
-  ('accounts', 'Accounts department'),
-  ('hr', 'HR department')
+  (gen_random_uuid(), 'accounts', 'Accounts department'),
+  (gen_random_uuid(), 'hr', 'HR department')
 ON CONFLICT (name) DO NOTHING;
