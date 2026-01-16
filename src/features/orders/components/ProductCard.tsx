@@ -214,7 +214,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
     <TooltipProvider>
       <Card className={cn(
         "transition-all overflow-hidden border border-border/70 bg-card flex flex-col",
-        "min-h-[360px]", // Reduced for more compact cards
+        "min-h-[320px]", // Reduced for more compact cards
         className
       )}>
         <div
@@ -326,17 +326,13 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-baseline gap-2">
               <h3 className="font-semibold text-base text-foreground leading-tight">
                 {item.product_name}
               </h3>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Quantity</p>
-                <p className="font-medium text-base">{item.quantity}</p>
-              </div>
+              <span className="text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
+                Qty: {item.quantity}
+              </span>
             </div>
 
             {/* Department Briefs - Separated from Specifications */}
@@ -671,13 +667,16 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
           // 1. Save Paper if selected
           if (data.paper) {
             try {
+              // Use custom sheets count if provided, otherwise fallback to item quantity
+              const sheetsToAllocate = data.sheets > 0 ? data.sheets : (item.quantity || 0);
+
               await supabase.from('job_materials').insert({
                 job_id: order.id, // Use UUID
                 paper_id: data.paper.id,
-                sheets_allocated: item.quantity, // Default allocation
+                sheets_allocated: sheetsToAllocate,
                 status: 'reserved',
               });
-              toast({ title: 'Paper Allocated', description: `${data.paper.name} reserved.` });
+              toast({ title: 'Paper Allocated', description: `${data.paper.name} reserved (${sheetsToAllocate} sheets).` });
             } catch (err) {
               console.error("Error allocating paper", err);
               toast({ title: "Allocation Failed", variant: "destructive", description: "Could not reserve paper." });
