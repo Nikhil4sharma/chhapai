@@ -531,7 +531,8 @@ export function useCreateOrder(
                     total: isWooCommerceOrder ? (wooOrderData.order_total || 0) : 0,
                     customer: {
                         id: wooOrderData.customer_id?.toString() || `guest-${customerData.email}`,
-                        name: customerData.name,
+                        // Safeguard: ensure name is never empty
+                        name: customerData.name?.trim() || 'Customer',
                         email: customerData.email,
                         phone: customerData.phone,
                         address: customerData.address,
