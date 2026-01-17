@@ -527,6 +527,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
+      // Update auth.users metadata first (this will trigger the sync to profiles)
+      if (updates.full_name || updates.avatar_url) {
+        const { error: authError } = await supabase.auth.updateUser({
+          data: {
+            full_name: updates.full_name,
+            avatar_url: updates.avatar_url,
+          }
+        });
+
+        if (authError) {
+          console.error('[Auth] Error updating auth.users metadata:', authError);
+          // Continue anyway - we'll still try to update profiles directly
+        }
+      }
+
+      // Also update profiles table directly for immediate effect
       const { error } = await supabase
         .from('profiles')
         .update({

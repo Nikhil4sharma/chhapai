@@ -326,6 +326,15 @@ export function useCreateOrder(
                 setShowPreviewCard(true);
                 setWooCommerceCached(false); // Not supported in main function yet
                 setWooCommerceImportedAt(null);
+
+                // Sales Agent Auto-Assignment (from Backend Resolution)
+                if (data.assigned_agent) {
+                    console.log('[WooCommerce] Auto-assigning agent:', data.assigned_agent);
+                    console.log('[WooCommerce] Setting selectedUser to:', data.assigned_agent.id);
+                    setSelectedUser(data.assigned_agent.id);
+                } else {
+                    console.log('[WooCommerce] No assigned_agent in response');
+                }
             } else {
                 setWooCommerceCheckStatus('not_found');
             }
@@ -554,24 +563,29 @@ export function useCreateOrder(
                 orderId = newOrderId;
 
                 // 🪄 POST-RPC ENRICHMENT (Metadata that RPC doesn't handle)
-                const { error: patchError } = await supabase.from('orders').update({
-                    global_notes: globalNotes, // Corrected column name
+
+                // CRITICAL: Determine if we should override the assigned_user
+                // For WooCommerce orders, the RPC handles auto-assignment based on sales_agent_mapping
+                // We should ONLY override if Admin explicitly selected a different user
+                let assignedUserToSet = finalUser;
+                const shouldOverrideAssignment = !isWooCommerceOrder || (isAdmin && selectedUser);
+
+                // Prepare update payload
+                const updatePayload: any = {
+                    global_notes: globalNotes,
                     delivery_date: deliveryDate ? deliveryDate.toISOString() : null,
                     priority: computedPriority,
-                    assigned_user: finalUser,
                     created_by: user.id,
                     current_department: finalDept,
                     order_status: initialStatus,
-                    order_total: isWooCommerceOrder ? (wooOrderData.order_total || 0) : 0, // Ensure total is set
+                    order_total: isWooCommerceOrder ? (wooOrderData.order_total || 0) : 0,
                     department_timeline: {
                         sales: {
                             status: 'completed',
-                            assigned_to: finalDept === 'sales' ? (finalUser || user.id) : user.id,
+                            assigned_to: user.id, // Timeline marks WHO imported it (the logged in user)
                             timestamp: new Date().toISOString()
                         }
                     },
-                    // Enhance Customer/Shipping info from Form if User edited it
-                    // Safeguard: ensure customer_name is never empty
                     customer_name: customerData.name?.trim() || 'Customer',
                     customer_email: customerData.email,
                     customer_phone: customerData.phone,
@@ -584,9 +598,18 @@ export function useCreateOrder(
                     shipping_city: customerData.city,
                     shipping_state: customerData.state,
                     shipping_pincode: customerData.pincode,
-                    woo_order_id: wooOrderData.id?.toString(), // Ensure link
+                    woo_order_id: wooOrderData.id?.toString(),
                     source: 'woocommerce'
-                }).eq('id', orderId);
+                };
+
+                // Only set assigned_user if valid override or manual order
+                if (shouldOverrideAssignment) {
+                    updatePayload.assigned_user = finalUser;
+                }
+
+                const { error: patchError } = await supabase.from('orders')
+                    .update(updatePayload)
+                    .eq('id', orderId);
 
                 if (patchError) console.error("Metadata patch warning:", patchError);
 

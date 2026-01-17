@@ -27,7 +27,8 @@ import {
     Users,
     UserPlus,
     ArrowUpDown,
-    Trash2
+    Trash2,
+    RefreshCw
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
@@ -48,6 +49,27 @@ export default function Customers() {
     const [detailOpen, setDetailOpen] = useState(false);
     const [importOpen, setImportOpen] = useState(false);
     const [deleteWarningOpen, setDeleteWarningOpen] = useState(false);
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    const handleSyncCustomers = async () => {
+        setIsSyncing(true);
+        try {
+            toast.info('Starting bulk import from WooCommerce... Put on some coffee ☕');
+            const { data, error } = await supabase.functions.invoke('woocommerce', {
+                body: { action: 'sync-customers' }
+            });
+            if (error) throw error;
+            if (data?.error) throw new Error(data.error);
+
+            toast.success(`Success! Synced ${data.count || 0} customers.`);
+            await refetch();
+        } catch (err: any) {
+            console.error('Sync failed', err);
+            toast.error('Sync failed: ' + (err.message || 'Unknown error'));
+        } finally {
+            setIsSyncing(false);
+        }
+    };
 
     // Deep Linking: Auto-open customer if "open" param is present
     useEffect(() => {
@@ -222,6 +244,15 @@ export default function Customers() {
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             )}
+                            <Button
+                                onClick={handleSyncCustomers}
+                                disabled={isSyncing}
+                                variant="outline"
+                                className="mr-2 border-blue-200 text-blue-600 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                            >
+                                <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+                                Sync from Woo
+                            </Button>
                             <Button
                                 onClick={() => setImportOpen(true)}
                                 className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200/50 dark:shadow-none transition-all hover:scale-[1.02] active:scale-[0.98]"

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Plus, Download, ArrowRight, Send, CheckCircle, Trash2, UserCircle, Loader2, Search, ChevronDown, ChevronUp, ChevronRight, Package, Calendar, Building2, Settings, AlertTriangle, Clock, IndianRupee, CheckCircle2, Flame } from 'lucide-react';
+import { Plus, Download, ArrowRight, Send, CheckCircle, Trash2, UserCircle, Loader2, Search, ChevronDown, ChevronUp, ChevronRight, Package, Calendar, Building2, Settings, AlertTriangle, Clock, IndianRupee, CheckCircle2, Flame, RefreshCw } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -79,6 +79,32 @@ export default function Sales() {
   } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [piDialogOpen, setPiDialogOpen] = useState(false);
+  const [isSyncingOrders, setIsSyncingOrders] = useState(false);
+
+  const handleSyncOrders = async () => {
+    setIsSyncingOrders(true);
+    try {
+      toast({ title: "Syncing Orders...", description: "Fetching modified orders from last 24 hours." });
+      const { data, error } = await supabase.functions.invoke('woocommerce', {
+        body: { action: 'sync-orders', lookback_minutes: 1440 }
+      });
+
+      if (error) throw error;
+
+      const result = data;
+      if (result.success) {
+        toast({ title: "Sync Complete", description: result.message, variant: "default" });
+        refreshOrders(); // Refresh local list
+      } else {
+        throw new Error(result.error || 'Unknown error');
+      }
+    } catch (err: any) {
+      console.error('Sync failed', err);
+      toast({ title: "Sync Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setIsSyncingOrders(false);
+    }
+  };
 
   // PRODUCT-CENTRIC: Get products (items) in sales stage
   const salesProducts = useMemo(() => {
@@ -335,6 +361,10 @@ export default function Sales() {
                   <DropdownMenuItem onClick={() => setPiDialogOpen(true)}>
                     <IndianRupee className="h-4 w-4 mr-2 text-muted-foreground" />
                     Generate Proforma Invoice
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleSyncOrders} disabled={isSyncingOrders}>
+                    <RefreshCw className={`h-4 w-4 mr-2 text-muted-foreground ${isSyncingOrders ? 'animate-spin' : ''}`} />
+                    Sync Recent Orders (24h)
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => toast({ title: "Coming Soon", description: "More actions coming soon." })}>
                     <Package className="h-4 w-4 mr-2 text-muted-foreground" />

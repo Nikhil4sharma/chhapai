@@ -40,6 +40,7 @@ export interface WCCustomer {
     assigned_to?: string; // Mapped to 'assigned_manager' in UI previously, now aligned with DB
     assigned_to_name?: string; // Optional helper
     gst_number?: string;
+    created_at?: string;
 }
 
 export interface WCOrder {

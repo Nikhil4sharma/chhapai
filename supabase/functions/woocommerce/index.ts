@@ -17,7 +17,8 @@ import {
   formatWooOrder,
   createResponse,
   getWooCredentials,
-  createWooAuth
+  createWooAuth,
+  verifyWebhookSignature
 } from "./_shared/helpers.ts";
 
 const corsHeaders = {
@@ -43,7 +44,63 @@ serve(async (req: Request) => {
   }
 
   try {
-    // Auth verification
+    // Parse request body securely
+    let bodyText = '';
+    let body: any = {};
+    try {
+      if (req.body) {
+        bodyText = await req.text();
+        if (bodyText && bodyText.trim()) {
+          body = JSON.parse(bodyText);
+        }
+      }
+    } catch (parseError) {
+      console.error('Body parse error:', parseError);
+      return createResponse({ error: 'Invalid request body' }, 400, corsHeaders);
+    }
+
+    // Webhook Handling (Bypass Auth Check)
+    const hookTopic = req.headers.get('x-wc-webhook-topic');
+    const hookSignature = req.headers.get('x-wc-webhook-signature');
+
+    if (hookTopic && hookSignature) {
+      console.log(`[Webhook] Received topic: ${hookTopic}`);
+
+      const secret = Deno.env.get('WOOCOMMERCE_CONSUMER_SECRET');
+      if (!secret) {
+        console.error('[Webhook] Missing WOOCOMMERCE_CONSUMER_SECRET');
+        return createResponse({ error: 'Server misconfiguration' }, 500, corsHeaders);
+      }
+
+      const isValid = await verifyWebhookSignature(bodyText, hookSignature, secret);
+      if (!isValid) {
+        console.error('[Webhook] Invalid signature');
+        return createResponse({ error: 'Invalid signature' }, 401, corsHeaders);
+      }
+
+      if (hookTopic === 'order.created' || hookTopic === 'order.updated') {
+        // Init Admin Client
+        const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+        const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+        const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+        // Process Order via RPC
+        console.log(`[Webhook] Syncing order #${body.id || body.order_number}`);
+        const { data, error } = await supabaseAdmin.rpc('sync_wc_order', { payload: body });
+
+        if (error) {
+          console.error('[Webhook] Sync failed:', error);
+          return createResponse({ error: error.message }, 500, corsHeaders);
+        }
+
+        console.log(`[Webhook] Sync success. ID: ${data}`);
+        return createResponse({ success: true, id: data }, 200, corsHeaders);
+      }
+
+      return createResponse({ received: true }, 200, corsHeaders);
+    }
+
+    // Standard App Request (Require Auth)
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return createResponse({ error: 'Unauthorized' }, 401, corsHeaders);
@@ -60,17 +117,6 @@ serve(async (req: Request) => {
       return createResponse({ error: 'Unauthorized' }, 401, corsHeaders);
     }
 
-    // Parse request body
-    let body: any = {};
-    try {
-      const contentType = req.headers.get('content-type');
-      if (contentType?.includes('application/json')) {
-        const bodyText = await req.text();
-        if (bodyText?.trim()) body = JSON.parse(bodyText);
-      }
-    } catch (parseError) {
-      return createResponse({ error: 'Invalid request body' }, 400, corsHeaders);
-    }
 
     const { action } = body;
 
@@ -141,6 +187,144 @@ serve(async (req: Request) => {
       return createResponse({ success: response.ok }, response.ok ? 200 : 500, corsHeaders);
     }
 
+    // Sync Orders (Cron Job / Manual Trigger)
+    if (action === 'sync-orders') {
+      const lookbackMinutes = body.lookback_minutes || 60; // Default 1 hour safety window
+      const afterTime = new Date(Date.now() - lookbackMinutes * 60 * 1000).toISOString();
+
+      console.log(`[Sync] Fetching orders modified after ${afterTime}`);
+
+      const searchParams = new URLSearchParams({
+        modified_after: afterTime,
+        per_page: '50', // Batch size
+        order: 'asc', // Process oldest first
+        orderby: 'modified'
+      });
+
+      const response = await fetch(`${storeUrl}/wp-json/wc/v3/orders?${searchParams}`, {
+        headers: { 'Authorization': `Basic ${auth}` }
+      });
+
+      if (!response.ok) {
+        throw new Error(`WooCommerce fetch failed: ${response.status} ${response.statusText}`);
+      }
+
+      const orders = await response.json();
+      console.log(`[Sync] Found ${orders.length} orders to sync.`);
+
+      const results = [];
+      let successCount = 0;
+      let failCount = 0;
+
+      // Use Admin Client for RPC to ensure permission if not using Security Definer (but we are)
+      // Re-creating client with service role key if available in env would be ideal for cron,
+      // but current context uses 'supabase' client from request auth.
+      // If called via Cron, it should have appropriate headers. 
+
+      for (const order of orders) {
+        try {
+          // Call Atomic RPC
+          const { data, error } = await supabase.rpc('sync_wc_order', { payload: order });
+
+          if (error) {
+            console.error(`[Sync] Failed to sync order #${order.id}:`, error);
+            results.push({ id: order.id, success: false, error: error.message });
+            failCount++;
+          } else {
+            console.log(`[Sync] Synced order #${order.id} -> UUID: ${data}`);
+            results.push({ id: order.id, success: true, uuid: data });
+            successCount++;
+          }
+        } catch (err: any) {
+          console.error(`[Sync] Exception processing order #${order.id}:`, err);
+          results.push({ id: order.id, success: false, error: err.message });
+          failCount++;
+        }
+      }
+
+      return createResponse({
+        success: true,
+        message: `Sync complete. Success: ${successCount}, Failed: ${failCount}`,
+        results
+      }, 200, corsHeaders);
+    }
+
+    // Sync Customers (Bulk Import)
+    if (action === 'sync-customers') {
+      console.log('[Sync] Starting Customer Sync...');
+      let page = 1;
+      const per_page = 50;
+      let totalSynced = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        console.log(`[Sync] Fetching customers page ${page}...`);
+        const searchParams = new URLSearchParams({
+          page: page.toString(),
+          per_page: per_page.toString()
+          // Removed all filters to see if defaults work
+        });
+
+        const response = await fetch(`${storeUrl}/wp-json/wc/v3/customers?${searchParams}`, {
+          headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        if (!response.ok) {
+          console.error(`[Sync] Customer fetch failed on page ${page}: ${response.status}`);
+          break;
+        }
+
+        const customers = await response.json();
+        console.log(`[Sync] Page ${page} fetched. Count: ${customers?.length}`);
+        if (!customers || customers.length === 0) {
+          hasMore = false;
+          break;
+        }
+
+        const payload = customers.map((c: any) => ({
+          wc_id: c.id,
+          email: c.email,
+          first_name: c.first_name,
+          last_name: c.last_name,
+          phone: c.billing?.phone || '',
+          billing: c.billing,
+          shipping: c.shipping,
+          avatar_url: c.avatar_url,
+          total_spent: parseFloat(c.total_spent) || 0,
+          orders_count: parseInt(c.orders_count) || 0,
+          last_synced_at: new Date().toISOString()
+        }));
+
+        const { error } = await supabase.from('wc_customers').upsert(payload, { onConflict: 'wc_id' });
+        if (error) {
+          console.error('[Sync] DB Insert Error:', error);
+          throw error;
+        }
+
+        totalSynced += customers.length;
+        console.log(`[Sync] Synced ${customers.length} customers (Total: ${totalSynced})`);
+
+        if (customers.length < per_page) {
+          hasMore = false;
+        } else {
+          page++;
+        }
+
+        // Safety Break for Execution Time
+        if (page > 200) {
+          console.warn('[Sync] Hit safety limit of 200 pages (10k customers).');
+          break;
+        }
+      }
+
+      return createResponse({
+        success: true,
+        count: totalSynced,
+        message: `Synced ${totalSynced} customers`,
+        debug_url: `${storeUrl}/wp-json/wc/v3/customers?page=1&per_page=50` // Approximation
+      }, 200, corsHeaders);
+    }
+
     // Fetch order by number
     if (action === 'order-by-number') {
       const { orderNumber } = body;
@@ -183,7 +367,83 @@ serve(async (req: Request) => {
         return createResponse({ found: false }, 200, corsHeaders);
       }
 
-      return createResponse(formatWooOrder(wooOrder), 200, corsHeaders);
+      const formatted = formatWooOrder(wooOrder);
+
+      // Resolve Agent for UI Auto-Assignment
+      let assigned_agent = null;
+      if (formatted.order && formatted.order.meta_data) {
+        try {
+          // Fuzzy Logic (Must match useCreateOrder / RPC logic)
+          const agentMeta = formatted.order.meta_data.find((m: any) => {
+            const key = m.key?.toLowerCase() || '';
+            if (!key) return false;
+            if (key.includes('total_sales')) return false;
+            if (key.includes('tax') || key.includes('date')) return false;
+            return (
+              ['sales_agent', 'agent', 'ordered_by', '_sales_agent', 'salesking_assigned_agent'].includes(key) ||
+              key.includes('agent') ||
+              key.includes('sales')
+            );
+          });
+
+          if (agentMeta) {
+            const rawAgentCode = agentMeta.value?.toString() || '';
+            const v_clean_agent_code = rawAgentCode.toLowerCase().replace(/[\s.]/g, '');
+
+            // 1. Check Mapping Table
+            const { data: mapping } = await supabase
+              .from('sales_agent_mapping')
+              .select('user_email')
+              .eq('sales_agent_code', v_clean_agent_code)
+              .maybeSingle();
+
+            let email = mapping?.user_email;
+
+            // 2. Fallback: Check if value looks like a name and match profile
+            if (!email) {
+              // Try exact name match on profile just in case
+              const { data: profileByName } = await supabase
+                .from('profiles')
+                .select('id, user_id, full_name, email')
+                .or(`full_name.ilike.${v_clean_agent_code},full_name.ilike.${rawAgentCode}`)
+                .limit(1)
+                .maybeSingle();
+
+              if (profileByName) {
+                assigned_agent = {
+                  id: profileByName.user_id || profileByName.id, // Prefer user_id
+                  profile_id: profileByName.id,
+                  name: profileByName.full_name,
+                  email: profileByName.email,
+                  source: 'profile_name_match'
+                };
+              }
+            }
+
+            if (email) {
+              const { data: profile } = await supabase
+                .from('profiles')
+                .select('id, user_id, full_name') // Fetch user_id (Auth ID)
+                .eq('email', email)
+                .maybeSingle();
+
+              if (profile) {
+                assigned_agent = {
+                  id: profile.user_id || profile.id, // Prefer user_id (Auth ID) for consistency
+                  profile_id: profile.id,
+                  name: profile.full_name,
+                  email,
+                  source: 'mapping_table'
+                };
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Agent Resolution Error:', e);
+        }
+      }
+
+      return createResponse({ ...formatted, assigned_agent }, 200, corsHeaders);
     }
 
     // Search orders

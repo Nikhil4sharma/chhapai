@@ -66,6 +66,44 @@ export function WooCommercePreview({
                             </p>
                         </div>
                     </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-3 pt-3 border-t border-dashed">
+                        <div>
+                            <p className="text-xs text-muted-foreground mb-1">Sales Agent</p>
+                            <p className="font-semibold text-sm sm:text-base flex items-center gap-1.5 break-all">
+                                <User className="h-3 w-3 sm:h-3.5 sm:w-3.5 flex-shrink-0 text-blue-600 dark:text-blue-400" />
+                                <span>
+                                    {(() => {
+                                        const metaData = wooOrderData.meta_data || [];
+                                        const agentMeta = metaData.find((m: any) => {
+                                            const key = m.key?.toLowerCase() || '';
+                                            if (!key) return false;
+                                            if (key.includes('total_sales')) return false;
+                                            if (key.includes('tax') || key.includes('date')) return false;
+
+                                            return (
+                                                ['sales_agent', 'agent', 'ordered_by', '_sales_agent', 'salesking_assigned_agent'].includes(key) ||
+                                                key.includes('agent') ||
+                                                key.includes('sales')
+                                            );
+                                        });
+
+                                        if (!agentMeta) return 'Unassigned';
+
+                                        // Friendly name mapping (no keys shown)
+                                        const val = agentMeta.value?.toString().trim();
+                                        if (val === '6125') return 'Nikhil Sharma';
+                                        if (val === '1491' || val?.toLowerCase() === 'work') return 'Jaskaran';
+                                        if (val === '3688') return 'Rohini';
+
+                                        // If not mapped, show Unassigned
+                                        return 'Unassigned';
+                                    })()}
+                                </span>
+                            </p>
+                        </div>
+                    </div>
+
                     <Separator />
                     <div>
                         <p className="text-xs text-muted-foreground mb-2">Customer Details</p>

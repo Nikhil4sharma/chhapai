@@ -541,6 +541,7 @@ export async function assignOrderToUser(
   userId: string
 ): Promise<void> {
   try {
+    console.log('[assignOrderToUser] Assigning order', orderId, 'to user', userId);
     const { error } = await supabase
       .from('orders')
       .update({
@@ -549,7 +550,10 @@ export async function assignOrderToUser(
       })
       .eq('id', orderId);
 
-    if (error) throw error;
+    if (error) {
+      console.error('[assignOrderToUser] FK violation - userId:', userId, 'does not exist in profiles');
+      throw error;
+    }
   } catch (error) {
     console.error('Error in assignOrderToUser:', error);
     throw error;

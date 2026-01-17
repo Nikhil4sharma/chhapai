@@ -168,6 +168,7 @@ export function formatWooOrder(wooOrder: any) {
             date_created: wooOrder.date_created || wooOrder.date_created_gmt,
             date_modified: wooOrder.date_modified || wooOrder.date_modified_gmt,
             status: wooOrder.status,
+            meta_data: wooOrder.meta_data || [],
         }
     };
 }
@@ -180,4 +181,37 @@ export function createResponse(data: any, status: number = 200, corsHeaders: any
         status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
+}
+
+/**
+ * Verify WooCommerce Webhook Signature (HMAC-SHA256)
+ */
+export async function verifyWebhookSignature(payload: string, signature: string, secret: string): Promise<boolean> {
+    try {
+        const encoder = new TextEncoder();
+        const key = await crypto.subtle.importKey(
+            'raw',
+            encoder.encode(secret),
+            { name: 'HMAC', hash: 'SHA-256' },
+            false,
+            ['verify']
+        );
+
+        // Decode base64 signature
+        const binarySignature = atob(signature);
+        const signatureBytes = new Uint8Array(binarySignature.length);
+        for (let i = 0; i < binarySignature.length; i++) {
+            signatureBytes[i] = binarySignature.charCodeAt(i);
+        }
+
+        return await crypto.subtle.verify(
+            'HMAC',
+            key,
+            signatureBytes,
+            encoder.encode(payload)
+        );
+    } catch (err) {
+        console.error('Signature verification error:', err);
+        return false;
+    }
 }

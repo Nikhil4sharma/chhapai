@@ -20,7 +20,7 @@ export function useWooCommerce() {
                     .neq('id', '00000000-0000-0000-0000-000000000000'),
                 supabase
                     .from('orders')
-                    .select('customer_email, order_total, created_at')
+                    .select('customer_email, customer_phone, order_total, created_at')
             ]);
 
             if (customersResponse.error) throw customersResponse.error;
@@ -29,32 +29,50 @@ export function useWooCommerce() {
             const wcCustomers = customersResponse.data || [];
             const localOrders = ordersResponse.data || [];
 
-            // Aggregate Local Stats by Email
-            const localStats = localOrders.reduce((acc, order) => {
+            // Aggregate Local Stats by Email AND Phone
+            const localStats: Record<string, { count: number; total: number; lastActive: Date | null }> = {};
+
+            localOrders.forEach(order => {
                 const email = order.customer_email?.toLowerCase();
-                if (!email) return acc;
+                const phone = order.customer_phone?.replace(/\D/g, ''); // Normalize phone
 
-                if (!acc[email]) {
-                    acc[email] = { count: 0, total: 0, lastActive: null };
-                }
-                acc[email].count += 1;
-                acc[email].total += (order.order_total || 0);
-
-                // Track latest order date
-                if (order.created_at) {
-                    const orderDate = new Date(order.created_at);
-                    if (!acc[email].lastActive || orderDate > acc[email].lastActive!) {
-                        acc[email].lastActive = orderDate;
+                // Helper to update stats
+                const updateStat = (key: string) => {
+                    if (!localStats[key]) {
+                        localStats[key] = { count: 0, total: 0, lastActive: null };
                     }
-                }
+                    localStats[key].count += 1;
+                    localStats[key].total += (order.order_total || 0);
 
-                return acc;
-            }, {} as Record<string, { count: number; total: number; lastActive: Date | null }>);
+                    if (order.created_at) {
+                        const orderDate = new Date(order.created_at);
+                        if (!localStats[key].lastActive || orderDate > localStats[key].lastActive!) {
+                            localStats[key].lastActive = orderDate;
+                        }
+                    }
+                };
+
+                if (email) updateStat(`email:${email}`);
+                if (phone) updateStat(`phone:${phone}`);
+            });
 
             // Merge WC Data with Local Real-time Stats
             const mergedCustomers = wcCustomers.map(c => {
-                const email = c.email.toLowerCase();
-                const stats = localStats[email];
+                const email = c.email?.toLowerCase();
+                const phone = c.phone?.replace(/\D/g, '');
+
+                const emailStats = email ? localStats[`email:${email}`] : undefined;
+                const phoneStats = phone ? localStats[`phone:${phone}`] : undefined;
+
+                // Use the best available stats (prioritize found stats)
+                // Note: This might double count if we simply added them, but usually an order has both.
+                // Since we iterate orders and key by both, simply picking the existing one is safer.
+                // However, an order might have ONLY email or ONLY phone.
+                // A safer bet for "Total Spent" for a CUSTOMER is to take the max found, 
+                // assuming the map keys point to the SAME set of orders essentially.
+                // But simplified: If we find stats by email, use them. If not, try phone.
+
+                const stats = emailStats || phoneStats;
 
                 if (stats) {
                     // Determine latest date

@@ -176,6 +176,9 @@ export default function Profile() {
 
       if (updateError) throw updateError;
 
+      // Force refresh profile to show new avatar
+      window.location.reload();
+
       toast({
         title: "Success",
         description: "Profile picture updated successfully",

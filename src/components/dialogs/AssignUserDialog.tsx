@@ -161,16 +161,14 @@ export function AssignUserDialog({
           }
         }
 
-        // CRITICAL: Include users that have role but no profile entry
-        // Create entries for users found in user_roles but missing from profiles
+        // CRITICAL: DO NOT include users without profiles - this causes FK violations
+        // Only show users that have valid profile entries in the database
+        // Users without profiles cannot be assigned until their profile is created
         userIdsArray.forEach(userId => {
           if (!profileMap.has(userId)) {
-            console.warn(`[AssignUserDialog] User ${userId} has role but no profile entry - creating fallback entry`);
-            allUsers.push({
-              user_id: userId,
-              full_name: null,
-              department: department,
-            });
+            console.warn(`[AssignUserDialog] User ${userId} has role but no profile - SKIPPING to prevent FK violation`);
+            // Remove from allUserIds to prevent display
+            allUserIds.delete(userId);
           }
         });
       } else {

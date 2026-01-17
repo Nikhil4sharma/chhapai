@@ -29,7 +29,7 @@ export async function uploadFileToSupabase(
     const timestamp = Date.now();
     const randomString = Math.random().toString(36).substring(2, 15);
     const fileName = `${timestamp}_${randomString}.${fileExt}`;
-    
+
     // Construct full path
     const filePath = folderPath ? `${folderPath}/${fileName}` : fileName;
 
@@ -94,51 +94,51 @@ export async function uploadAvatar(
   try {
     const fileExt = file.name.split('.').pop();
     const fileName = `avatar.${fileExt}`;
-    const folderPath = `avatars/${userId}`;
-    
+    const folderPath = userId; // Just user ID, no 'avatars/' prefix
+
     // Upload with upsert to replace existing avatar
     const filePath = `${folderPath}/${fileName}`;
-    
+
     // First, try to delete existing avatar if it exists
     try {
       const { data: existingFiles } = await supabase.storage
-        .from('order-files')
+        .from('avatars') // Changed from 'order-files'
         .list(folderPath, {
-          limit: 1,
+          limit: 10,
           search: 'avatar'
         });
-      
+
       if (existingFiles && existingFiles.length > 0) {
         // Delete old avatar files
         const filesToDelete = existingFiles.map(f => `${folderPath}/${f.name}`);
         await supabase.storage
-          .from('order-files')
+          .from('avatars') // Changed from 'order-files'
           .remove(filesToDelete);
       }
     } catch (deleteError) {
       // Ignore delete errors - file might not exist
       console.log('No existing avatar to delete');
     }
-    
+
     // Upload new avatar
     const { data, error } = await supabase.storage
-      .from('order-files')
+      .from('avatars') // Changed from 'order-files'
       .upload(filePath, file, {
         cacheControl: '3600',
-        upsert: false, // Don't use upsert, we delete first
+        upsert: true, // Use upsert for avatars
       });
 
     if (error) {
       // If bucket not found, provide helpful error
       if (error.message?.includes('Bucket not found') || error.message?.includes('not found')) {
-        throw new Error(`Storage bucket 'order-files' not found. Please create it in Supabase Dashboard → Storage.`);
+        throw new Error(`Storage bucket 'avatars' not found. Please create it in Supabase Dashboard → Storage.`);
       }
       throw new Error(`Avatar upload failed: ${error.message}`);
     }
 
-    // Get public URL (for private buckets, use signed URL)
+    // Get public URL
     const { data: urlData } = supabase.storage
-      .from('order-files')
+      .from('avatars') // Changed from 'order-files'
       .getPublicUrl(filePath);
 
     if (!urlData?.publicUrl) {
