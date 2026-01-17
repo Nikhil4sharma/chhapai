@@ -276,16 +276,14 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
             if (error || !data.success) throw new Error(error?.message || data?.error || 'Sync failed');
 
             // Better Message Logic
-            if (data.message.includes('Synced 0')) {
+            if (data.healed || (data.new_wc_id && customer && customer.wc_id !== data.new_wc_id)) {
+                toast.success('Customer linked to WooCommerce Account! 🔗');
+                // Update local view if ID was healed
+                setActiveCustomer(prev => prev ? ({ ...prev, wc_id: data.new_wc_id }) : null);
+            } else if (data.message.includes('Synced 0')) {
                 toast.success('History is up to date.');
             } else {
                 toast.success(data.message || 'Orders synced successfully');
-            }
-
-            // Refresh logic:
-            if (data.new_wc_id && customer && customer.wc_id !== data.new_wc_id) {
-                // Update local view if ID was healed
-                setActiveCustomer(prev => prev ? ({ ...prev, wc_id: data.new_wc_id }) : null);
             }
 
             // Refetch orders from database

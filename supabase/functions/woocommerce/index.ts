@@ -655,15 +655,14 @@ serve(async (req: Request) => {
     }
 
 
-    // Sync All Customer Details (Fetch phone, latest billing etc from WooCommerce)
+    // Sync All Customer Details (Bulk Heal & Update)
     if (action === 'sync-all-customers-details') {
       console.log(`[Sync] Starting bulk customer details refreshment`);
 
-      // 1. Fetch customers with a valid WooCommerce ID from local DB
+      // 1. Fetch ALL customers (including those with negative IDs)
       const { data: localCustomers, error: fetchError } = await supabase
         .from('wc_customers')
-        .select('id, wc_id, email, phone')
-        .gt('wc_id', 0); // Only process registered WC customers
+        .select('id, wc_id, email, phone');
 
       if (fetchError) {
         console.error('[Sync] Failed to fetch local customers:', fetchError);
@@ -671,36 +670,67 @@ serve(async (req: Request) => {
       }
 
       if (!localCustomers || localCustomers.length === 0) {
-        return createResponse({ success: true, message: 'No registered WooCommerce customers found to sync.' }, 200, corsHeaders);
+        return createResponse({ success: true, message: 'No customers found to sync.' }, 200, corsHeaders);
       }
 
       console.log(`[Sync] Found ${localCustomers.length} customers to update.`);
 
       let updated = 0;
+      let healed = 0;
       let failed = 0;
-      const batchSize = 10; // Process in small batches to avoid timeouts
+      const batchSize = 5; // Reduced batch size for heavier healing logic
 
       for (let i = 0; i < localCustomers.length; i += batchSize) {
         const batch = localCustomers.slice(i, i + batchSize);
         const promises = batch.map(async (customer: any) => {
           try {
-            // Fetch latest data from WooCommerce
-            const wcResponse = await fetch(`${storeUrl}/wp-json/wc/v3/customers/${customer.wc_id}`, {
-              headers: { 'Authorization': `Basic ${auth}` }
-            });
+            let targetWcId = customer.wc_id;
+            let wcData = null;
 
-            if (!wcResponse.ok) {
-              console.warn(`[Sync] Failed to fetch WC data for ID ${customer.wc_id}: ${wcResponse.status}`);
+            // STRATEGY: 
+            // 1. If ID > 0, fetch directly.
+            // 2. If ID < 0 (Temp), search by Email -> Phone
+
+            if (targetWcId > 0) {
+              // Standard Fetch
+              const wcResponse = await fetch(`${storeUrl}/wp-json/wc/v3/customers/${targetWcId}`, {
+                headers: { 'Authorization': `Basic ${auth}` }
+              });
+              if (wcResponse.ok) wcData = await wcResponse.json();
+            } else {
+              // HEAL: Search by Email
+              if (customer.email) {
+                const searchEmail = customer.email.trim().toLowerCase();
+                const searchRes = await fetch(`${storeUrl}/wp-json/wc/v3/customers?email=${encodeURIComponent(searchEmail)}`, {
+                  headers: { 'Authorization': `Basic ${auth}` }
+                });
+                if (searchRes.ok) {
+                  const matches = await searchRes.json();
+                  if (matches.length > 0) {
+                    wcData = matches[0];
+                    targetWcId = matches[0].id;
+                    console.log(`[Sync] HEADED: Found real WC ID ${targetWcId} for ${customer.email}`);
+                  }
+                }
+              }
+              // Fallback: Search by Phone (if still no data)
+              if (!wcData && customer.phone) {
+                // Limited phone support in WC API, but useful if supported or via custom endpoint
+                // For now we rely mostly on email.
+              }
+            }
+
+            if (!wcData) {
+              console.warn(`[Sync] No WC data found for ${customer.email} (ID: ${customer.wc_id})`);
               failed++;
               return;
             }
 
-            const wcData = await wcResponse.json();
-
-            // Update local record with latest details (especially phone)
+            // Update local record
             const { error: updateError } = await supabase
               .from('wc_customers')
               .update({
+                wc_id: targetWcId > 0 ? targetWcId : customer.wc_id, // Update ID if healed
                 first_name: wcData.first_name,
                 last_name: wcData.last_name,
                 email: wcData.email,
@@ -708,6 +738,8 @@ serve(async (req: Request) => {
                 billing: wcData.billing,
                 shipping: wcData.shipping,
                 avatar_url: wcData.avatar_url,
+                orders_count: wcData.orders_count,
+                total_spent: wcData.total_spent,
                 updated_at: new Date().toISOString()
               })
               .eq('id', customer.id);
@@ -717,6 +749,7 @@ serve(async (req: Request) => {
               failed++;
             } else {
               updated++;
+              if (customer.wc_id !== targetWcId) healed++;
             }
           } catch (err) {
             console.error(`[Sync] Exception syncing customer ${customer.wc_id}:`, err);
@@ -729,8 +762,9 @@ serve(async (req: Request) => {
 
       return createResponse({
         success: true,
-        message: `Sync complete. Updated: ${updated}, Failed: ${failed}`,
+        message: `Sync complete. Updated: ${updated}, Healed: ${healed}, Failed: ${failed}`,
         updated,
+        healed,
         failed
       }, 200, corsHeaders);
     }
