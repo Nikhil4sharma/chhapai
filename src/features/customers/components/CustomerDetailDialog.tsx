@@ -525,8 +525,27 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
 
     const copyToClipboard = (text: string, label: string) => {
         if (!text) return;
-        navigator.clipboard.writeText(text);
-        toast.success(`${label} copied!`);
+        if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+                toast.success(`${label} copied!`);
+            }).catch(err => {
+                console.error('Failed to copy', err);
+                toast.error(`Failed to copy ${label}`);
+            });
+        } else {
+            // Fallback for non-secure contexts
+            try {
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand("copy");
+                document.body.removeChild(textArea);
+                toast.success(`${label} copied!`);
+            } catch (err) {
+                console.error('Fallback copy failed', err);
+            }
+        }
     };
 
     // Derived Stats (Real-time from fetched orders)
@@ -1316,43 +1335,33 @@ function CollapsibleOrderCard({ order, paymentStatus }: { order: WCOrder, paymen
                             </div>
                             <div>
                                 <div className="flex items-center gap-2.5 mb-1">
-                                    <span className="font-semibold text-base text-slate-900 dark:text-slate-100 tracking-tight">Order #{order.number}</span>
-                                    <Badge variant="secondary" className={`capitalize font-medium px-2 py-0.5 rounded-full text-[10px] tracking-wide ${order.status === 'completed' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400' :
-                                        order.status === 'processing' ? 'bg-blue-100 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400' :
-                                            order.status === 'cancelled' ? 'bg-red-100 text-red-700 dark:bg-red-500/10 dark:text-red-400' :
-                                                'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                                        }`}>
-                                        {order.status}
-                                    </Badge>
+                                    <span className="font-semibold text-base text-slate-900 dark:text-slate-100 tracking-tight">
+                                        Order #{String(order.number || order.id).length < 10 ? order.number : String(order.number || order.id).slice(0, 8).toUpperCase()}
+                                    </span>
+                                    {paymentBadge}
                                 </div>
-                                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
                                     <span className="flex items-center gap-1">
-                                        <Calendar className="h-3.5 w-3.5" />
+                                        <Calendar className="h-3 w-3" />
                                         {format(new Date(order.date_created), "MMM dd, yyyy")}
                                     </span>
                                     <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
-                                    <span>{order.line_items.length} items</span>
+                                    <span>{order.line_items?.length || 0} items</span>
                                 </div>
                             </div>
                         </div>
-                        <div className="text-right">
-
-                            <div className="flex flex-col items-end gap-1">
-                                <span className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">₹{orderTotal.toLocaleString()}</span>
-                                <div className="flex items-center gap-2">
-                                    {isPartiallyPaid && (
-                                        <span className="text-[10px] font-medium text-red-600 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded">
-                                            Due: ₹{pendingAmount.toLocaleString()}
-                                        </span>
-                                    )}
-                                    {paymentBadge}
-                                </div>
+                        <div className="flex items-center gap-4">
+                            <div className="text-right hidden sm:block">
+                                <p className="text-sm font-bold text-slate-900 dark:text-slate-100">₹{orderTotal.toLocaleString()}</p>
+                                <Badge variant={
+                                    order.status === 'completed' ? 'default' :
+                                        order.status === 'processing' ? 'secondary' :
+                                            order.status === 'cancelled' ? 'destructive' : 'outline'
+                                } className="mt-0.5 h-5 px-1.5 text-[10px] uppercase tracking-wider font-bold">
+                                    {order.status}
+                                </Badge>
                             </div>
-
-                            <div className={`flex items-center justify-end gap-1.5 text-xs font-medium transition-colors duration-300 mt-2 ${isOpen ? 'text-primary' : 'text-slate-400'}`}>
-                                {isOpen ? 'Hide Details' : 'View Details'}
-                                <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
-                            </div>
+                            <ChevronDown className={`h-5 w-5 text-slate-400 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
                         </div>
                     </div>
                 </CollapsibleTrigger>

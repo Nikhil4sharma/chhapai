@@ -68,7 +68,20 @@ BEGIN
   WHERE wc_customer_id = v_wc_customer_id_raw
   RETURNING id INTO v_customer_id;
 
-  -- If not found, insert new
+  -- If not found by ID, try to find by EMAIL (Healing Logic)
+  IF v_customer_id IS NULL AND v_cust_email IS NOT NULL AND v_cust_email <> '' THEN
+    UPDATE wc_customers
+    SET
+        wc_customer_id = v_wc_customer_id_raw, -- Heal the link
+        first_name = split_part(v_cust_name, ' ', 1),
+        last_name = substr(v_cust_name, length(split_part(v_cust_name, ' ', 1)) + 2),
+        phone = COALESCE(phone, v_cust_phone),
+        assigned_manager = COALESCE(assigned_manager, v_assigned_user_id)
+    WHERE email = v_cust_email
+    RETURNING id INTO v_customer_id;
+  END IF;
+
+  -- If still not found, insert new
   IF v_customer_id IS NULL THEN
     INSERT INTO wc_customers (wc_customer_id, first_name, last_name, email, phone, billing, assigned_manager)
     VALUES (
