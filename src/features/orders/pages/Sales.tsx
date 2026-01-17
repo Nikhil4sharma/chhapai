@@ -322,15 +322,6 @@ export default function Sales() {
 
 
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2">Loading orders...</span>
-      </div>
-    );
-  }
-
   // Calculate unique customers count
   const [uniqueCustomersCount, setTotalCustomersCount] = useState(0);
 
@@ -343,6 +334,15 @@ export default function Sales() {
     };
     fetchCount();
   }, [refreshKey]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Loading orders...</span>
+      </div>
+    );
+  }
 
   return (
     <TooltipProvider>

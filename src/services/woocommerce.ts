@@ -53,6 +53,7 @@ export interface WCOrder {
         name: string;
         quantity: number;
         total: string;
+        total_tax?: string;
         sku: string;
         meta_data: Array<{
             id: number;

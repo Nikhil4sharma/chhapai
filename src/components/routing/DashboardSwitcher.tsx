@@ -9,6 +9,7 @@ const AdminDashboard = lazy(() => import('@/features/admin/pages/Admin')); // Co
 const SalesDashboard = lazy(() => import('@/features/orders/pages/Sales'));
 const DesignDashboard = lazy(() => import('@/features/orders/pages/Design'));
 const ProductionDashboard = lazy(() => import('@/features/orders/pages/Production'));
+const DispatchDashboard = lazy(() => import('@/features/orders/pages/Dispatch'));
 const HRDashboard = lazy(() => import('@/features/admin/pages/HRDashboard'));
 // const EmployeeManagement = lazy(() => import('@/features/hr/pages/EmployeeManagement'));
 const AccountsDashboard = lazy(() => import('@/features/accounts/pages/AccountsDashboard'));
@@ -31,7 +32,7 @@ export const DashboardSwitcher = () => {
     if (location.pathname.includes('/sales') && role === 'sales') return <SalesDashboard />;
     if (location.pathname.includes('/design') && role === 'design') return <DesignDashboard />;
     if (location.pathname.includes('/production') && role === 'production') return <ProductionDashboard />;
-    if (location.pathname.includes('/dispatch') && role === 'dispatch') return <ProductionDashboard />;
+    if (location.pathname.includes('/dispatch') && role === 'dispatch') return <DispatchDashboard />;
     if (location.pathname.includes('/outsource') && role === 'outsource') return <ProductionDashboard />;
     if (location.pathname.includes('/hr') && role === 'hr') return <HRDashboard />;
     if (location.pathname.includes('/accounts') && role === 'accounts') return <AccountsDashboard />;

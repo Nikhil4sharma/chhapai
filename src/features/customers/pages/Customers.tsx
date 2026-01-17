@@ -28,7 +28,8 @@ import {
     UserPlus,
     ArrowUpDown,
     Trash2,
-    RefreshCw
+    RefreshCw,
+    FileSpreadsheet
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
@@ -49,27 +50,7 @@ export default function Customers() {
     const [detailOpen, setDetailOpen] = useState(false);
     const [importOpen, setImportOpen] = useState(false);
     const [deleteWarningOpen, setDeleteWarningOpen] = useState(false);
-    const [isSyncing, setIsSyncing] = useState(false);
 
-    const handleSyncCustomers = async () => {
-        setIsSyncing(true);
-        try {
-            toast.info('Starting bulk import from WooCommerce... Put on some coffee ☕');
-            const { data, error } = await supabase.functions.invoke('woocommerce', {
-                body: { action: 'sync-customers' }
-            });
-            if (error) throw error;
-            if (data?.error) throw new Error(data.error);
-
-            toast.success(`Success! Synced ${data.count || 0} customers.`);
-            await refetch();
-        } catch (err: any) {
-            console.error('Sync failed', err);
-            toast.error('Sync failed: ' + (err.message || 'Unknown error'));
-        } finally {
-            setIsSyncing(false);
-        }
-    };
 
     // Deep Linking: Auto-open customer if "open" param is present
     useEffect(() => {
@@ -115,19 +96,21 @@ export default function Customers() {
     const processedCustomers = useMemo(() => {
         let result = customers.filter(c => {
             const searchLower = searchTerm.toLowerCase();
-            const fullName = [c.first_name, c.last_name].filter(Boolean).join(' ').toLowerCase();
-            const address = JSON.stringify(c.billing).toLowerCase();
+            const fullName = [c.first_name || '', c.last_name || ''].filter(Boolean).join(' ').toLowerCase();
+            const email = (c.email || '').toLowerCase();
+            const phone = (c.phone || '');
+            const address = c.billing ? JSON.stringify(c.billing).toLowerCase() : '';
 
             const matchesSearch =
                 fullName.includes(searchLower) ||
-                c.email.toLowerCase().includes(searchLower) ||
-                c.phone.includes(searchLower) ||
+                email.includes(searchLower) ||
+                phone.includes(searchLower) ||
                 address.includes(searchLower);
 
             if (!matchesSearch) return false;
 
-            if (filter === 'high-value') return Number(c.total_spent) > 10000;
-            if (filter === 'repeat') return Number(c.orders_count) > 2;
+            if (filter === 'high-value') return Number(c.total_spent || 0) > 10000;
+            if (filter === 'repeat') return Number(c.orders_count || 0) > 2;
             if (filter === 'my-customers') {
                 if (!user) return false;
 
@@ -245,20 +228,36 @@ export default function Customers() {
                                 </DropdownMenu>
                             )}
                             <Button
-                                onClick={handleSyncCustomers}
-                                disabled={isSyncing}
+                                onClick={async () => {
+                                    try {
+                                        toast.info("Syncing customer details from WooCommerce...");
+                                        const { data, error } = await supabase.functions.invoke('woocommerce', {
+                                            body: { action: 'sync-all-customers-details' }
+                                        });
+                                        if (error) throw error;
+                                        if (data.success) {
+                                            toast.success(data.message);
+                                            refetch();
+                                        } else {
+                                            toast.error(data.error || "Sync failed");
+                                        }
+                                    } catch (err: any) {
+                                        console.error("Sync failed", err);
+                                        toast.error(err.message || "Failed to sync customer details");
+                                    }
+                                }}
                                 variant="outline"
-                                className="mr-2 border-blue-200 text-blue-600 hover:bg-blue-50 dark:border-blue-900 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                                className="border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30"
                             >
-                                <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
-                                Sync from Woo
+                                <RefreshCw className="h-4 w-4 mr-2" />
+                                Sync Details
                             </Button>
                             <Button
                                 onClick={() => setImportOpen(true)}
                                 className="bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200/50 dark:shadow-none transition-all hover:scale-[1.02] active:scale-[0.98]"
                             >
-                                <UserPlus className="h-4 w-4 mr-2" />
-                                Import Customer
+                                <FileSpreadsheet className="h-4 w-4 mr-2" />
+                                Import CSV
                             </Button>
                         </div>
                     </div>
@@ -570,6 +569,16 @@ export default function Customers() {
                             </AlertDialogFooter>
                         </AlertDialogContent>
                     </AlertDialog>
+
+                    {/* Customer Import Dialog */}
+                    <CustomerImportDialog
+                        open={importOpen}
+                        onOpenChange={setImportOpen}
+                        onImportSuccess={() => {
+                            refetch(); // Refresh customer list after import
+                            setImportOpen(false);
+                        }}
+                    />
                 </div>
             </div>
         </TooltipProvider >

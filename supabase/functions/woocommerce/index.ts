@@ -174,7 +174,11 @@ serve(async (req: Request) => {
 
     // Require credentials for other actions
     if (!storeUrl || !consumerKey || !consumerSecret) {
-      return createResponse({ error: 'WooCommerce credentials not configured' }, 400, corsHeaders);
+      console.error('[WooCommerce] Missing credentials. storeUrl:', !!storeUrl, 'consumerKey:', !!consumerKey, 'consumerSecret:', !!consumerSecret);
+      return createResponse({
+        error: 'WooCommerce credentials not configured. Please go to Settings > WooCommerce to set them.',
+        missing: { storeUrl: !storeUrl, consumerKey: !consumerKey, consumerSecret: !consumerSecret }
+      }, 400, corsHeaders);
     }
 
     const auth = createWooAuth(consumerKey, consumerSecret);
@@ -251,77 +255,89 @@ serve(async (req: Request) => {
 
     // Sync Customers (Bulk Import)
     if (action === 'sync-customers') {
-      console.log('[Sync] Starting Customer Sync...');
-      let page = 1;
-      const per_page = 50;
-      let totalSynced = 0;
-      let hasMore = true;
+      const page = body.page || 1;
+      const per_page = body.per_page || 100;
 
-      while (hasMore) {
-        console.log(`[Sync] Fetching customers page ${page}...`);
-        const searchParams = new URLSearchParams({
-          page: page.toString(),
-          per_page: per_page.toString()
-          // Removed all filters to see if defaults work
-        });
+      console.log(`[Sync] Fetching Page ${page} (Batch Size: ${per_page})`);
 
-        const response = await fetch(`${storeUrl}/wp-json/wc/v3/customers?${searchParams}`, {
-          headers: { 'Authorization': `Basic ${auth}` }
-        });
+      const searchParams = new URLSearchParams({
+        page: page.toString(),
+        per_page: per_page.toString(),
+        orderby: 'id',
+        order: 'asc'
+      });
 
-        if (!response.ok) {
-          console.error(`[Sync] Customer fetch failed on page ${page}: ${response.status}`);
-          break;
-        }
+      const response = await fetch(`${storeUrl}/wp-json/wc/v3/customers?${searchParams}`, {
+        headers: { 'Authorization': `Basic ${auth}` }
+      });
 
-        const customers = await response.json();
-        console.log(`[Sync] Page ${page} fetched. Count: ${customers?.length}`);
-        if (!customers || customers.length === 0) {
-          hasMore = false;
-          break;
-        }
+      if (!response.ok) {
+        throw new Error(`WooCommerce API Error: ${response.statusText}`);
+      }
 
-        const payload = customers.map((c: any) => ({
-          wc_id: c.id,
-          email: c.email,
-          first_name: c.first_name,
-          last_name: c.last_name,
-          phone: c.billing?.phone || '',
-          billing: c.billing,
-          shipping: c.shipping,
-          avatar_url: c.avatar_url,
-          total_spent: parseFloat(c.total_spent) || 0,
-          orders_count: parseInt(c.orders_count) || 0,
-          last_synced_at: new Date().toISOString()
-        }));
+      const customers = await response.json();
 
-        const { error } = await supabase.from('wc_customers').upsert(payload, { onConflict: 'wc_id' });
-        if (error) {
-          console.error('[Sync] DB Insert Error:', error);
-          throw error;
-        }
+      if (!Array.isArray(customers)) {
+        throw new Error('Invalid response from WooCommerce');
+      }
 
-        totalSynced += customers.length;
-        console.log(`[Sync] Synced ${customers.length} customers (Total: ${totalSynced})`);
+      console.log(`[Sync] Page ${page}: Found ${customers.length} customers`);
 
-        if (customers.length < per_page) {
-          hasMore = false;
-        } else {
-          page++;
-        }
+      const totalCustomers = response.headers.get('x-wp-total');
+      const totalPages = response.headers.get('x-wp-totalpages');
 
-        // Safety Break for Execution Time
-        if (page > 200) {
-          console.warn('[Sync] Hit safety limit of 200 pages (10k customers).');
-          break;
-        }
+      if (customers.length === 0) {
+        return createResponse({
+          success: true,
+          count: 0,
+          page,
+          total_customers: totalCustomers ? parseInt(totalCustomers) : 0,
+          total_pages: totalPages ? parseInt(totalPages) : 0,
+          has_more: false,
+          message: 'No more customers to sync'
+        }, 200, corsHeaders);
+      }
+
+      const upsertData = customers.map((c: any) => ({
+        wc_id: c.id,
+        email: c.email,
+        first_name: c.first_name,
+        last_name: c.last_name,
+        phone: c.billing?.phone || c.shipping?.phone,
+        billing: c.billing,
+        shipping: c.shipping,
+        orders_count: c.orders_count,
+        total_spent: c.total_spent,
+        last_order_date: c.date_last_active,
+        avatar_url: c.avatar_url,
+        source: 'woocommerce',
+        updated_at: new Date().toISOString()
+      })).filter((c: any) => {
+        // Filter 'No Name' customers.
+        // We strictly require at least a First Name OR Last Name.
+        const fName = c.first_name ? c.first_name.trim() : '';
+        const lName = c.last_name ? c.last_name.trim() : '';
+        return fName.length > 0 || lName.length > 0;
+      });
+
+      // Upsert batch
+      const { error } = await supabase
+        .from('wc_customers')
+        .upsert(upsertData, { onConflict: 'wc_id' });
+
+      if (error) {
+        console.error('Upsert Error:', error);
+        throw error;
       }
 
       return createResponse({
         success: true,
-        count: totalSynced,
-        message: `Synced ${totalSynced} customers`,
-        debug_url: `${storeUrl}/wp-json/wc/v3/customers?page=1&per_page=50` // Approximation
+        count: upsertData.length,
+        page,
+        total_customers: totalCustomers ? parseInt(totalCustomers) : 0,
+        total_pages: totalPages ? parseInt(totalPages) : 0,
+        has_more: customers.length === per_page, // Fallback check
+        message: `Synced page ${page} (${upsertData.length} records)`
       }, 200, corsHeaders);
     }
 
@@ -623,7 +639,8 @@ serve(async (req: Request) => {
           avatar_url: customer.avatar_url,
           total_spent: customer.total_spent,
           orders_count: customer.orders_count,
-          last_order_date: customer.date_last_order, // Note: WC returns date_last_order
+          last_order_date: customer.date_last_order,
+          assigned_to: user.id, // Assign to the user who triggered the import
           updated_at: new Date().toISOString()
         }, { onConflict: 'wc_id' })
         .select()
@@ -635,6 +652,219 @@ serve(async (req: Request) => {
       }
 
       return createResponse({ success: true, customer: data }, 200, corsHeaders);
+    }
+
+
+    // Sync All Customer Details (Fetch phone, latest billing etc from WooCommerce)
+    if (action === 'sync-all-customers-details') {
+      console.log(`[Sync] Starting bulk customer details refreshment`);
+
+      // 1. Fetch customers with a valid WooCommerce ID from local DB
+      const { data: localCustomers, error: fetchError } = await supabase
+        .from('wc_customers')
+        .select('id, wc_id, email, phone')
+        .gt('wc_id', 0); // Only process registered WC customers
+
+      if (fetchError) {
+        console.error('[Sync] Failed to fetch local customers:', fetchError);
+        return createResponse({ error: `Database error: ${fetchError.message}` }, 500, corsHeaders);
+      }
+
+      if (!localCustomers || localCustomers.length === 0) {
+        return createResponse({ success: true, message: 'No registered WooCommerce customers found to sync.' }, 200, corsHeaders);
+      }
+
+      console.log(`[Sync] Found ${localCustomers.length} customers to update.`);
+
+      let updated = 0;
+      let failed = 0;
+      const batchSize = 10; // Process in small batches to avoid timeouts
+
+      for (let i = 0; i < localCustomers.length; i += batchSize) {
+        const batch = localCustomers.slice(i, i + batchSize);
+        const promises = batch.map(async (customer: any) => {
+          try {
+            // Fetch latest data from WooCommerce
+            const wcResponse = await fetch(`${storeUrl}/wp-json/wc/v3/customers/${customer.wc_id}`, {
+              headers: { 'Authorization': `Basic ${auth}` }
+            });
+
+            if (!wcResponse.ok) {
+              console.warn(`[Sync] Failed to fetch WC data for ID ${customer.wc_id}: ${wcResponse.status}`);
+              failed++;
+              return;
+            }
+
+            const wcData = await wcResponse.json();
+
+            // Update local record with latest details (especially phone)
+            const { error: updateError } = await supabase
+              .from('wc_customers')
+              .update({
+                first_name: wcData.first_name,
+                last_name: wcData.last_name,
+                email: wcData.email,
+                phone: wcData.billing?.phone || wcData.phone || customer.phone,
+                billing: wcData.billing,
+                shipping: wcData.shipping,
+                avatar_url: wcData.avatar_url,
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', customer.id);
+
+            if (updateError) {
+              console.error(`[Sync] Failed to update local record ${customer.id}:`, updateError);
+              failed++;
+            } else {
+              updated++;
+            }
+          } catch (err) {
+            console.error(`[Sync] Exception syncing customer ${customer.wc_id}:`, err);
+            failed++;
+          }
+        });
+
+        await Promise.all(promises);
+      }
+
+      return createResponse({
+        success: true,
+        message: `Sync complete. Updated: ${updated}, Failed: ${failed}`,
+        updated,
+        failed
+      }, 200, corsHeaders);
+    }
+
+
+    // Sync Customer History (Smart Heal + Backfill + Guest Support)
+    if (action === 'sync-customer-history') {
+      let { email, phone, wc_id, current_db_id } = body;
+
+      if (!email && !wc_id && !phone) {
+        return createResponse({ error: 'Email, Phone or WC ID required' }, 400, corsHeaders);
+      }
+
+      let targetWcId = wc_id;
+      let healed = false;
+      let ordersToSync: any[] = [];
+      let isGuestSync = false;
+
+      // 1. Resolve Real ID if needed (for CSV negative IDs or just email)
+      if (email && (!targetWcId || targetWcId < 0)) {
+        console.log(`[History] Resolving real ID for email: ${email}`);
+
+        // Normalize Email
+        const searchEmail = email.trim().toLowerCase();
+
+        const response = await fetch(`${storeUrl}/wp-json/wc/v3/customers?email=${encodeURIComponent(searchEmail)}`, {
+          headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        if (response.ok) {
+          const matches = await response.json();
+          if (matches && matches.length > 0) {
+            targetWcId = matches[0].id;
+            console.log(`[History] Resolved real WC ID: ${targetWcId}`);
+
+            // HEAL: Update local DB immediately if we have a DB ID to target
+            if (current_db_id && targetWcId) {
+              const { error: updateError } = await supabase
+                .from('wc_customers')
+                .update({ wc_id: targetWcId, avatar_url: matches[0].avatar_url })
+                .eq('id', current_db_id);
+
+              if (!updateError) healed = true;
+            }
+          } else {
+            console.log('[History] Customer not found via standard lookup. Trying Guest Order Search...');
+          }
+        }
+      }
+
+      // 2. Fetch Orders
+      if (targetWcId && targetWcId > 0) {
+        // Standard Fetch by ID
+        console.log(`[History] Fetching orders for WC ID: ${targetWcId}`);
+        const searchParams = new URLSearchParams({
+          customer: targetWcId.toString(),
+          per_page: '100', // Good chunk of history
+          status: 'any'
+        });
+
+        const response = await fetch(`${storeUrl}/wp-json/wc/v3/orders?${searchParams}`, {
+          headers: { 'Authorization': `Basic ${auth}` }
+        });
+
+        if (response.ok) {
+          ordersToSync = await response.json();
+        }
+      } else {
+        // Guest Fetch by Email or Phone
+        if (email || phone) {
+          console.log(`[History] Searching orders for guest. Email: ${email}, Phone: ${phone}`);
+          const searchParams = new URLSearchParams({
+            search: email || phone, // WC searches multiple fields
+            per_page: '100',
+            status: 'any'
+          });
+
+          const response = await fetch(`${storeUrl}/wp-json/wc/v3/orders?${searchParams}`, {
+            headers: { 'Authorization': `Basic ${auth}` }
+          });
+
+          if (response.ok) {
+            const allMatches = await response.json();
+            // Strict Filter: Normalized Email OR Phone Match
+            const normalizedEmail = email?.trim().toLowerCase();
+            const normalizedPhone = phone?.replace(/\D/g, '');
+
+            ordersToSync = allMatches.filter((o: any) => {
+              const orderEmail = o.billing?.email?.trim().toLowerCase();
+              const orderPhone = o.billing?.phone?.replace(/\D/g, '');
+              return (normalizedEmail && orderEmail === normalizedEmail) ||
+                (normalizedPhone && orderPhone === normalizedPhone);
+            });
+            isGuestSync = true;
+          }
+        }
+      }
+
+      if (ordersToSync.length === 0) {
+        // Return 200 with success: false to avoid frontend 404/500 errors
+        console.log('[History] No orders found.');
+        return createResponse({ success: false, error: 'No orders found for this customer (Guest or Registered).' }, 200, corsHeaders);
+      }
+
+      console.log(`[History] Found ${ordersToSync.length} orders to sync.`);
+
+      let synced = 0;
+      const errors = [];
+
+      // 3. Persist (Sync) Orders
+      for (const order of ordersToSync) {
+        try {
+          // For guest orders, the sync_wc_order RPC handles logic to link to existing email
+          const { error } = await supabase.rpc('sync_wc_order', {
+            payload: { ...order, _current_user_id: user.id }
+          });
+          if (!error) {
+            synced++;
+          } else {
+            errors.push(error.message);
+          }
+        } catch (err: any) {
+          errors.push(err.message);
+        }
+      }
+
+      return createResponse({
+        success: true,
+        message: `Synced ${synced} historical orders.${isGuestSync ? ' (Guest Mode)' : ''}`,
+        healed,
+        new_wc_id: targetWcId,
+        is_guest: isGuestSync,
+        errors: errors.length > 0 ? errors.slice(0, 5) : undefined // Return first 5 errors
+      }, 200, corsHeaders);
     }
 
     // Default: Unknown action

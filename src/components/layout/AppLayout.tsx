@@ -68,7 +68,7 @@ const getBreadcrumbs = (pathname: string) => {
 };
 
 export function AppLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
 
   // Normalize pathname - handle root path

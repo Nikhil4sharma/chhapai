@@ -17,7 +17,7 @@ import { Separator } from '@/components/ui/separator';
 import {
     Mail, Phone, MapPin, Copy, Check, Edit2, ExternalLink, Package, ShoppingBag,
     Calendar, ArrowUpRight, TrendingUp, User, CreditCard, Truck,
-    ChevronDown, X, Search, Banknote, Smartphone, Globe
+    ChevronDown, X, Search, Banknote, Smartphone, Globe, RefreshCw
 } from 'lucide-react';
 import { WCCustomer, WCOrder, fetchCustomerOrders } from '@/services/woocommerce';
 import { useState, useEffect } from 'react';
@@ -89,6 +89,92 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
         setGstNumber(customer?.gst_number || '');
     }, [customer]);
 
+    // Realtime subscription for orders
+    useEffect(() => {
+        if (!customer?.id) return;
+
+        const ordersSubscription = supabase
+            .channel(`customer-orders-${customer.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'orders',
+                    filter: `customer_id=eq.${customer.id}`
+                },
+                (payload) => {
+                    console.log('[Realtime] Order change:', payload);
+                    // Refetch orders when any change occurs
+                    if (open) {
+                        supabase
+                            .from('orders')
+                            .select('*, order_items(*)')
+                            .eq('customer_id', customer.id)
+                            .order('created_at', { ascending: false })
+                            .then(({ data }) => {
+                                if (data) {
+                                    const transformedOrders: WCOrder[] = data.map(order => ({
+                                        id: order.wc_order_id || 0,
+                                        number: order.wc_order_number || order.id.slice(0, 8),
+                                        status: order.status || 'processing',
+                                        date_created: order.created_at,
+                                        total: order.total_amount?.toString() || '0',
+                                        line_items: (order.order_items || []).map((item: any) => ({
+                                            name: item.product_name,
+                                            quantity: item.quantity,
+                                            total: item.line_total?.toString() || '0',
+                                            total_tax: '0',
+                                            sku: '',
+                                            meta_data: []
+                                        })),
+                                        meta_data: [],
+                                        shipping: customer.shipping || {},
+                                        billing: customer.billing || {},
+                                        customer_note: ''
+                                    }));
+                                    setOrders(transformedOrders);
+                                }
+                            });
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            ordersSubscription.unsubscribe();
+        };
+    }, [customer?.id, open]);
+
+    // Realtime subscription for payments
+    useEffect(() => {
+        if (!customer?.id) return;
+
+        const paymentsSubscription = supabase
+            .channel(`customer-payments-${customer.id}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'payment_ledger',
+                    filter: `customer_id=eq.${customer.id}`
+                },
+                (payload) => {
+                    console.log('[Realtime] Payment change:', payload);
+                    // Refetch finance data when payment changes
+                    if (open) {
+                        fetchFinanceData();
+                    }
+                }
+            )
+            .subscribe();
+
+        return () => {
+            paymentsSubscription.unsubscribe();
+        };
+    }, [customer?.id, open]);
+
     const handleUpdateGst = async () => {
         if (!customer?.id) return;
         try {
@@ -105,6 +191,155 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
             toast.error("Failed to update GST Number");
         }
     };
+
+    // Auto-Fetch Orders when dialog opens or customer changes
+    useEffect(() => {
+        if (open && customer) {
+            // Fetch orders from Supabase database instead of WooCommerce API
+            // This works for all customers (WC, CSV, Guest)
+            const fetchOrders = async () => {
+                try {
+                    setLoadingOrders(true);
+                    console.log('[Order Fetch] Customer ID:', customer.id);
+                    console.log('[Order Fetch] Customer Email:', customer.email);
+
+                    const { data, error } = await supabase
+                        .from('orders')
+                        .select('*, order_items(*)')
+                        .or(`customer_id.eq.${customer.id}${customer.email ? `,customer_email.ilike.${customer.email}` : ''}`)
+                        .order('created_at', { ascending: false });
+
+                    console.log('[Order Fetch] Query Result:', { data, error, count: data?.length });
+
+                    if (error) throw error;
+
+                    // Transform Supabase orders to WCOrder format for compatibility
+                    const transformedOrders: WCOrder[] = (data || []).map(order => ({
+                        id: order.wc_order_id || 0,
+                        number: order.wc_order_number || order.id.slice(0, 8),
+                        status: order.status || 'processing',
+                        date_created: order.created_at,
+                        total: order.total_amount?.toString() || '0',
+                        line_items: (order.order_items || []).map((item: any) => ({
+                            name: item.product_name,
+                            quantity: item.quantity,
+                            total: item.line_total?.toString() || '0',
+                            total_tax: '0', // Can be calculated if needed
+                            sku: '',
+                            meta_data: []
+                        })),
+                        meta_data: [],
+                        shipping: {
+                            first_name: customer.shipping?.first_name || '',
+                            last_name: customer.shipping?.last_name || '',
+                            company: customer.shipping?.company || '',
+                            address_1: customer.shipping?.address_1 || '',
+                            address_2: customer.shipping?.address_2 || '',
+                            city: customer.shipping?.city || '',
+                            state: customer.shipping?.state || '',
+                            postcode: customer.shipping?.postcode || '',
+                            country: customer.shipping?.country || ''
+                        },
+                        billing: customer.billing || {},
+                        customer_note: ''
+                    }));
+
+                    console.log('[Order Fetch] Transformed Orders:', transformedOrders.length);
+                    setOrders(transformedOrders);
+                    fetchOrderPaymentStatuses(transformedOrders, customer.id);
+                } catch (err) {
+                    console.error('[Order Fetch] Error:', err);
+                    setOrders([]);
+                } finally {
+                    setLoadingOrders(false);
+                }
+            };
+
+            fetchOrders();
+        }
+    }, [open, customer?.id]);
+
+    const handleSyncHistory = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setLoadingOrders(true);
+        try {
+            const { data, error } = await supabase.functions.invoke('woocommerce', {
+                body: {
+                    action: 'sync-customer-history',
+                    wc_id: customer?.wc_id,
+                    email: customer?.email,
+                    phone: customer?.phone,
+                    current_db_id: customer?.id
+                }
+            });
+
+            if (error || !data.success) throw new Error(error?.message || data?.error || 'Sync failed');
+
+            // Better Message Logic
+            if (data.message.includes('Synced 0')) {
+                toast.success('History is up to date.');
+            } else {
+                toast.success(data.message || 'Orders synced successfully');
+            }
+
+            // Refresh logic:
+            if (data.new_wc_id && customer && customer.wc_id !== data.new_wc_id) {
+                // Update local view if ID was healed
+                setActiveCustomer(prev => prev ? ({ ...prev, wc_id: data.new_wc_id }) : null);
+            }
+
+            // Refetch orders from database
+            const { data: ordersData, error: ordersError } = await supabase
+                .from('orders')
+                .select('*, order_items(*)')
+                .or(`customer_id.eq.${customer?.id}${customer?.email ? `,customer_email.ilike.${customer?.email}` : ''}`)
+                .order('created_at', { ascending: false });
+
+            if (!ordersError && ordersData) {
+                const transformedOrders: WCOrder[] = ordersData.map(order => ({
+                    id: order.wc_order_id || 0,
+                    number: order.wc_order_number || order.id.slice(0, 8),
+                    status: order.status || 'processing',
+                    date_created: order.created_at,
+                    total: order.total_amount?.toString() || '0',
+                    line_items: (order.order_items || []).map((item: any) => ({
+                        name: item.product_name,
+                        quantity: item.quantity,
+                        total: item.line_total?.toString() || '0',
+                        total_tax: '0',
+                        sku: '',
+                        meta_data: []
+                    })),
+                    meta_data: [],
+                    shipping: {
+                        first_name: customer?.shipping?.first_name || '',
+                        last_name: customer?.shipping?.last_name || '',
+                        company: customer?.shipping?.company || '',
+                        address_1: customer?.shipping?.address_1 || '',
+                        address_2: customer?.shipping?.address_2 || '',
+                        city: customer?.shipping?.city || '',
+                        state: customer?.shipping?.state || '',
+                        postcode: customer?.shipping?.postcode || '',
+                        country: customer?.shipping?.country || ''
+                    },
+                    billing: customer?.billing || {},
+                    customer_note: ''
+                }));
+
+                setOrders(transformedOrders);
+                if (customer) {
+                    fetchOrderPaymentStatuses(transformedOrders, customer.id);
+                }
+            }
+
+        } catch (err: any) {
+            console.error(err);
+            toast.error('Sync failed: ' + err.message);
+        } finally {
+            setLoadingOrders(false);
+        }
+    };
+
 
     // Filtered & Paginated Ledger
     const filteredLedger = ledger.filter(txn => {
@@ -319,12 +554,13 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-6xl h-[100vh] sm:h-[90vh] w-[100vw] sm:w-auto sm:max-w-6xl flex flex-col p-0 gap-0 overflow-hidden bg-slate-50 dark:bg-slate-950 border-none shadow-2xl rounded-none sm:rounded-xl ring-1 ring-slate-900/5">
+            <DialogContent className="max-w-[95vw] sm:max-w-6xl h-[100vh] sm:h-[90vh] flex flex-col p-0 gap-0 overflow-hidden bg-slate-50 dark:bg-slate-950 border-none shadow-2xl rounded-none sm:rounded-2xl ring-1 ring-slate-900/5 [&>button]:hidden">
                 <DialogTitle className="sr-only">Customer Details: {displayName}</DialogTitle>
 
                 {/* Header Section */}
                 <div className="bg-white dark:bg-slate-900 border-b shrink-0 relative overflow-hidden">
                     {/* Background Decor */}
+
                     <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/3 pointer-events-none" />
                     <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-500/5 rounded-full blur-3xl translate-y-1/2 -translate-x-1/3 pointer-events-none" />
 
@@ -336,38 +572,35 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                         <X className="h-5 w-5" />
                     </button>
 
-                    <div className="p-4 sm:p-6 md:p-8 relative z-10">
-                        <div className="flex flex-col md:flex-row items-center md:items-start gap-4 md:gap-8">
 
-                            {/* Avatar Section */}
+                    <div className="p-4 sm:p-8 relative z-10">
+                        <div className="flex flex-col md:flex-row items-center md:items-start gap-6 md:gap-10">
+
+                            {/* Avatar Section - Cleaned up */}
                             <div className="flex-shrink-0 relative group">
-                                <Avatar className="h-20 w-20 sm:h-24 sm:w-24 md:h-32 md:w-32 border-4 border-white dark:border-slate-800 shadow-xl ring-1 ring-slate-100 dark:ring-slate-700 transition-transform duration-500 group-hover:scale-105">
+                                <Avatar className="h-24 w-24 sm:h-28 sm:w-28 md:h-32 md:w-32 border-4 border-white dark:border-slate-800 shadow-xl ring-1 ring-slate-100 dark:ring-slate-700 transition-transform duration-500 group-hover:scale-105">
                                     <AvatarImage src={customer.avatar_url} className="object-cover" />
-                                    <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-2xl sm:text-3xl md:text-5xl font-bold">
+                                    <AvatarFallback className="bg-gradient-to-br from-blue-600 to-indigo-600 text-white text-3xl sm:text-4xl md:text-5xl font-bold">
                                         {(customer.first_name?.[0] || customer.email?.[0] || '?').toUpperCase()}
                                     </AvatarFallback>
                                 </Avatar>
-                                {customer.wc_id && (
-                                    <div className="absolute -bottom-2 -right-2 bg-slate-900 text-white text-[10px] sm:text-xs font-medium px-2 py-0.5 rounded-full border-2 border-white dark:border-slate-800 shadow-sm">
-                                        WC #{customer.wc_id}
-                                    </div>
-                                )}
+                                {/* WC Badge Removed Per Request */}
                             </div>
 
-                            {/* Info Section */}
-                            <div className="flex-1 min-w-0 flex flex-col items-center md:items-start text-center md:text-left w-full">
-                                <div className="flex flex-col gap-1 w-full">
+                            {/* Info Section - Tighter layout */}
+                            <div className="flex-1 min-w-0 flex flex-col items-center md:items-start text-center md:text-left w-full space-y-4">
+                                <div className="flex flex-col gap-2 w-full">
                                     <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-100 truncate w-full">
                                         {displayName}
                                     </h2>
 
-                                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 text-muted-foreground text-sm sm:text-base mt-1">
-                                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                                            <MapPin className="h-4 w-4 shrink-0 text-slate-400" />
+                                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-4 text-sm sm:text-base">
+                                        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                                            <MapPin className="h-4 w-4 shrink-0" />
                                             <span className="truncate max-w-[200px] sm:max-w-md">{addressString}</span>
                                         </div>
 
-                                        {/* GST Badge */}
+                                        {/* GST Section */}
                                         <div className="flex items-center">
                                             {startGstEdit ? (
                                                 <div className="flex items-center gap-1">
@@ -384,7 +617,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                             ) : (
                                                 <Badge
                                                     variant="secondary"
-                                                    className="bg-purple-50/80 text-purple-700 border-purple-100 hover:bg-purple-100 cursor-pointer h-6 px-2.5 font-medium transition-colors ml-2"
+                                                    className="bg-purple-50/80 text-purple-700 border-purple-100 hover:bg-purple-100 cursor-pointer h-6 px-2.5 font-medium transition-colors"
                                                     onClick={() => setStartGstEdit(true)}
                                                 >
                                                     {gstNumber ? `GST: ${gstNumber}` : '+ Add GST'}
@@ -394,19 +627,19 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                     </div>
 
                                     {/* Contact Chips */}
-                                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mt-3">
+                                    <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 pt-1">
                                         {customer.email && (
                                             <div
-                                                className="group flex items-center gap-2 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full cursor-pointer hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-all border border-slate-200 dark:border-slate-700 hover:border-blue-200 dark:hover:border-blue-800"
+                                                className="group flex items-center gap-2 text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100/50 dark:bg-slate-800/50 px-3 py-1.5 rounded-full cursor-pointer hover:bg-white hover:shadow-sm hover:text-blue-600 dark:hover:bg-slate-700 dark:hover:text-blue-400 transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                                                 onClick={() => copyToClipboard(displayCustomer.email, "Email")}
                                             >
                                                 <Mail className="h-3.5 w-3.5 text-slate-400 group-hover:text-blue-500" />
-                                                <span className="truncate max-w-[180px] sm:max-w-xs">{displayCustomer.email}</span>
+                                                <span className="truncate max-w-[200px]">{displayCustomer.email}</span>
                                             </div>
                                         )}
                                         {displayCustomer.phone && (
                                             <div
-                                                className="group flex items-center gap-2 text-xs sm:text-sm font-medium text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-full cursor-pointer hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-300 transition-all border border-slate-200 dark:border-slate-700 hover:border-emerald-200 dark:hover:border-emerald-800"
+                                                className="group flex items-center gap-2 text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300 bg-slate-100/50 dark:bg-slate-800/50 px-3 py-1.5 rounded-full cursor-pointer hover:bg-white hover:shadow-sm hover:text-emerald-600 dark:hover:bg-slate-700 dark:hover:text-emerald-400 transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
                                                 onClick={() => copyToClipboard(displayCustomer.phone, "Phone")}
                                             >
                                                 <Phone className="h-3.5 w-3.5 text-slate-400 group-hover:text-emerald-500" />
@@ -416,32 +649,46 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                     </div>
                                 </div>
 
-                                {/* Financial Stats Grid */}
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mt-6 w-full">
+                                {/* Financial Stats Row - Enhanced & overflow fixed */}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6 w-full pt-4">
                                     {/* Paid Card */}
-                                    <div className="bg-emerald-50/50 dark:bg-emerald-900/10 p-3 sm:p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/20 flex flex-col items-center md:items-start text-center md:text-left transition-all hover:shadow-md hover:border-emerald-200">
+                                    <div className="bg-emerald-50/50 dark:bg-emerald-900/10 p-3 sm:p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/20 flex flex-col items-center md:items-start text-center md:text-left hover:shadow-md transition-all">
                                         <p className="text-[10px] sm:text-xs text-emerald-600/80 font-bold uppercase tracking-wider mb-1">Total Paid</p>
-                                        <p className="text-lg sm:text-xl md:text-2xl font-bold text-emerald-700 dark:text-emerald-400 tracking-tight">₹{balance.total_paid.toLocaleString()}</p>
+                                        <p className="text-lg sm:text-xl md:text-2xl font-bold text-emerald-700 dark:text-emerald-400 tracking-tight truncate w-full" title={`₹${balance.total_paid.toLocaleString()}`}>
+                                            ₹{balance.total_paid.toLocaleString()}
+                                        </p>
                                     </div>
 
                                     {/* Orders Card */}
-                                    <div className="bg-blue-50/50 dark:bg-blue-900/10 p-3 sm:p-4 rounded-xl border border-blue-100 dark:border-blue-900/20 flex flex-col items-center md:items-start text-center md:text-left transition-all hover:shadow-md hover:border-blue-200">
+                                    <div className="bg-blue-50/50 dark:bg-blue-900/10 p-3 sm:p-4 rounded-xl border border-blue-100 dark:border-blue-900/20 flex flex-col items-center md:items-start text-center md:text-left hover:shadow-md transition-all relative group">
                                         <p className="text-[10px] sm:text-xs text-blue-600/80 font-bold uppercase tracking-wider mb-1">Total Orders</p>
                                         <p className="text-lg sm:text-xl md:text-2xl font-bold text-blue-700 dark:text-blue-400 tracking-tight">{displayTotalOrders}</p>
+                                        <Button
+                                            size="icon"
+                                            variant="ghost"
+                                            className="absolute top-2 right-2 h-6 w-6 text-blue-400 hover:text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            disabled={loadingOrders}
+                                            onClick={handleSyncHistory}
+                                        >
+                                            <RefreshCw className={`h-3.5 w-3.5 ${loadingOrders ? 'animate-spin' : ''}`} />
+                                            <span className="sr-only">Sync History</span>
+                                        </Button>
                                     </div>
 
                                     {/* Spent Card */}
-                                    <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-3 sm:p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/20 flex flex-col items-center md:items-start text-center md:text-left transition-all hover:shadow-md hover:border-indigo-200">
+                                    <div className="bg-indigo-50/50 dark:bg-indigo-900/10 p-3 sm:p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/20 flex flex-col items-center md:items-start text-center md:text-left hover:shadow-md transition-all">
                                         <p className="text-[10px] sm:text-xs text-indigo-600/80 font-bold uppercase tracking-wider mb-1">Lifetime Spent</p>
-                                        <p className="text-lg sm:text-xl md:text-2xl font-bold text-indigo-700 dark:text-indigo-400 tracking-tight">₹{displayTotalSpent.toLocaleString()}</p>
+                                        <p className="text-lg sm:text-xl md:text-2xl font-bold text-indigo-700 dark:text-indigo-400 tracking-tight truncate w-full" title={`₹${displayTotalSpent.toLocaleString()}`}>
+                                            ₹{displayTotalSpent.toLocaleString()}
+                                        </p>
                                     </div>
 
                                     {/* Wallet/Due Card */}
-                                    <div className={`p-3 sm:p-4 rounded-xl border flex flex-col items-center md:items-start text-center md:text-left transition-all hover:shadow-md ${balance.balance >= 0 ? 'bg-teal-50/50 border-teal-100 dark:bg-teal-900/10 dark:border-teal-900/20' : 'bg-red-50/50 border-red-100 dark:bg-red-900/10 dark:border-red-900/20'}`}>
+                                    <div className={`p-3 sm:p-4 rounded-xl border flex flex-col items-center md:items-start text-center md:text-left hover:shadow-md transition-all ${balance.balance >= 0 ? 'bg-teal-50/50 border-teal-100 dark:bg-teal-900/10 dark:border-teal-900/20' : 'bg-red-50/50 border-red-100 dark:bg-red-900/10 dark:border-red-900/20'}`}>
                                         <p className={`text-[10px] sm:text-xs font-bold uppercase tracking-wider mb-1 ${balance.balance >= 0 ? 'text-teal-600/80' : 'text-red-600/80'}`}>
                                             {balance.balance >= 0 ? 'Wallet Balance' : 'Payment Due'}
                                         </p>
-                                        <p className={`text-lg sm:text-xl md:text-2xl font-bold tracking-tight ${balance.balance >= 0 ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-400'}`}>
+                                        <p className={`text-lg sm:text-xl md:text-2xl font-bold tracking-tight truncate w-full ${balance.balance >= 0 ? 'text-teal-700 dark:text-teal-400' : 'text-red-700 dark:text-red-400'}`} title={`₹${Math.abs(balance.balance).toLocaleString()}`}>
                                             ₹{Math.abs(balance.balance).toLocaleString()}
                                         </p>
                                     </div>
@@ -969,7 +1216,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                             </Card>
                         </TabsContent>
 
-                        <TabsContent value="orders" className="mt-0 animate-in fade-in-50 slide-in-from-bottom-2 duration-300">
+                        <TabsContent value="orders" className="mt-0 flex flex-col justify-start min-h-0">
                             {/* ... Existing Order History ... */}
                             {loadingOrders ? (
                                 <div className="space-y-4">
@@ -1150,38 +1397,35 @@ function CollapsibleOrderCard({ order, paymentStatus }: { order: WCOrder, paymen
                                                                 </div>
                                                             </div>
 
-                                                            {/* Meta Specs Grid */}
+                                                            {/* Product Specs - Single Line + Read More */}
                                                             {meta.length > 0 && (
-                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2 text-sm">
-                                                                    {meta.map((m) => (
-                                                                        <div key={m.id} className="flex gap-2 items-baseline">
-                                                                            <span className="font-medium text-slate-500 dark:text-slate-400 text-xs uppercase tracking-wide shrink-0">
-                                                                                {(m.display_key || m.key).replace(/_/g, ' ')}
-                                                                            </span>
-                                                                            <span className="text-slate-700 dark:text-slate-300 font-medium truncate">
-                                                                                {m.display_value || m.value}
-                                                                            </span>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
+                                                                <ProductSpecsDisplay meta={meta} productName={item.name} />
                                                             )}
                                                         </div>
 
-                                                        {/* Pricing Section */}
-                                                        <div className="text-right shrink-0 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-100 dark:border-slate-800 min-w-[120px]">
+                                                        {/* Pricing Section - With GST */}
+                                                        <div className="text-right shrink-0 bg-slate-50 dark:bg-slate-900/50 p-3 rounded-lg border border-slate-100 dark:border-slate-800 min-w-[140px]">
                                                             <div className="space-y-1">
                                                                 <div className="flex justify-between items-center gap-4 text-xs text-slate-500">
-                                                                    <span>Unit</span>
+                                                                    <span>Rate</span>
                                                                     <span>₹{unitPrice.toLocaleString()}</span>
                                                                 </div>
+
+                                                                {/* GST Row */}
+                                                                <div className="flex justify-between items-center gap-4 text-xs text-slate-500">
+                                                                    <span>GST</span>
+                                                                    <span>
+                                                                        {item.total_tax && parseFloat(item.total_tax) > 0
+                                                                            ? `₹${parseFloat(item.total_tax).toLocaleString()}`
+                                                                            : '-'}
+                                                                    </span>
+                                                                </div>
+
                                                                 <div className="h-px bg-slate-200 dark:bg-slate-700" />
                                                                 <div className="flex justify-between items-center gap-4 text-sm font-bold text-slate-900 dark:text-slate-100">
                                                                     <span>Total</span>
-                                                                    <span>₹{itemTotal.toLocaleString()}</span>
+                                                                    <span>₹{(itemTotal + (parseFloat(item.total_tax) || 0)).toLocaleString()}</span>
                                                                 </div>
-                                                                <p className="text-[10px] text-slate-400 text-right pt-0.5">
-                                                                    (Excl. GST)
-                                                                </p>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -1194,94 +1438,66 @@ function CollapsibleOrderCard({ order, paymentStatus }: { order: WCOrder, paymen
                         </div>
 
                         {/* Order Summary & Details Grid */}
+                        {/* Order Summary & Details Grid - HIDDEN PER REQUEST */}
+                        {/* 
                         <div className="px-5 pb-5">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-                                {/* Left Column: Shipping & Notes */}
-                                <div className="space-y-4">
-                                    {/* Shipping Address - Only show if valid */}
-                                    {order.shipping && (order.shipping.address_1 || order.shipping.city) && (
-                                        <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-                                            <div className="flex items-center gap-2 mb-3 text-slate-400">
-                                                <MapPin className="h-3.5 w-3.5" />
-                                                <span className="text-[10px] font-bold uppercase tracking-wider">Shipping To</span>
-                                            </div>
-                                            <div className="space-y-1 text-sm text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-                                                <p className="text-slate-900 dark:text-slate-100">{order.shipping.first_name} {order.shipping.last_name}</p>
-                                                <p>{order.shipping.address_1}</p>
-                                                {order.shipping.address_2 && <p>{order.shipping.address_2}</p>}
-                                                <p>{[order.shipping.city, order.shipping.state, order.shipping.postcode].filter(Boolean).join(', ')}</p>
-                                                <p>{order.shipping.country}</p>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Customer Note */}
-                                    {order.customer_note && (
-                                        <div className="bg-amber-50 dark:bg-amber-950/10 p-4 rounded-xl border border-amber-100 dark:border-amber-900/20">
-                                            <div className="flex items-center gap-2 mb-2 text-amber-600/70 dark:text-amber-500/70">
-                                                <Copy className="h-3.5 w-3.5" />
-                                                <span className="text-[10px] font-bold uppercase tracking-wider">Customer Note</span>
-                                            </div>
-                                            <p className="text-sm text-amber-900 dark:text-amber-100 italic">"{order.customer_note}"</p>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Right Column: Financial Breakdown */}
-                                <div className="space-y-4">
-                                    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm">
-                                        <div className="flex items-center gap-2 mb-3 text-slate-400">
-                                            <CreditCard className="h-3.5 w-3.5" />
-                                            <span className="text-[10px] font-bold uppercase tracking-wider">Payment Details</span>
-                                        </div>
-
-                                        {/* Progress Bar */}
-                                        <div className="mb-4">
-                                            <div className="flex justify-between text-xs mb-1.5">
-                                                <span className="text-slate-500">Payment Progress</span>
-                                                <span className={`${isFullyPaid ? 'text-emerald-600' : 'text-slate-700'} font-medium`}>
-                                                    {Math.min(100, Math.round((paidAmount / orderTotal) * 100))}%
-                                                </span>
-                                            </div>
-                                            <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                                <div
-                                                    className={`h-full rounded-full transition-all duration-500 ${isFullyPaid ? 'bg-emerald-500' : 'bg-blue-500'}`}
-                                                    style={{ width: `${Math.min(100, (paidAmount / orderTotal) * 100)}%` }}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-2 text-sm">
-                                            <div className="flex justify-between text-slate-500">
-                                                <span>Order Value</span>
-                                                <span>₹{orderTotal.toLocaleString()}</span>
-                                            </div>
-
-                                            <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-medium">
-                                                <span>Paid Amount</span>
-                                                <span>₹{paidAmount.toLocaleString()}</span>
-                                            </div>
-
-                                            <div className={`flex justify-between font-medium ${pendingAmount > 0 ? 'text-red-600 dark:text-red-400' : 'text-slate-400'}`}>
-                                                <span>Pending Due</span>
-                                                <span>₹{pendingAmount.toLocaleString()}</span>
-                                            </div>
-
-                                            <div className="h-px bg-slate-100 dark:bg-slate-800 my-2" />
-                                            <div className="flex justify-between font-bold text-base text-slate-900 dark:text-slate-100">
-                                                <span>Grand Total</span>
-                                                <span>₹{orderTotal.toLocaleString()}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                            </div>
+                             ... (Hidden content) ...
                         </div>
+                        */}
                     </div>
                 </CollapsibleContent>
             </div>
         </Collapsible>
+    );
+}
+
+// Product Specs Display Component with Read More
+function ProductSpecsDisplay({ meta, productName }: { meta: any[], productName: string }) {
+    const [showDialog, setShowDialog] = useState(false);
+
+    // Create single line summary
+    const specsSummary = meta.map(m => `${(m.display_key || m.key).replace(/_/g, ' ')}: ${m.display_value || m.value}`).join(' • ');
+
+    return (
+        <>
+            <div className="flex items-center gap-2">
+                <p className="text-xs text-slate-600 dark:text-slate-400 truncate flex-1">
+                    {specsSummary}
+                </p>
+                {meta.length > 2 && (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowDialog(true)}
+                        className="h-6 px-2 text-[10px] text-blue-600 hover:text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 shrink-0"
+                    >
+                        Read More
+                    </Button>
+                )}
+            </div>
+
+            <Dialog open={showDialog} onOpenChange={setShowDialog}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="text-base">Product Specifications</DialogTitle>
+                        <DialogDescription className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            {productName}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+                        {meta.map((m) => (
+                            <div key={m.id} className="flex justify-between items-start gap-4 py-2 border-b border-slate-100 dark:border-slate-800 last:border-0">
+                                <span className="font-medium text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 shrink-0">
+                                    {(m.display_key || m.key).replace(/_/g, ' ')}
+                                </span>
+                                <span className="text-sm text-slate-700 dark:text-slate-300 font-medium text-right">
+                                    {m.display_value || m.value}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </DialogContent>
+            </Dialog>
+        </>
     );
 }
