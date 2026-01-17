@@ -48,7 +48,7 @@ GRANT EXECUTE ON FUNCTION get_customer_stats TO authenticated;
 -- 3. Update wc_customers to use opening_balance as total_spent
 -- This ensures backward compatibility with existing UI
 UPDATE wc_customers
-SET total_spent = opening_balance::text
+SET total_spent = opening_balance
 WHERE opening_balance > 0;
 
 -- 4. Create view for easy customer financial summary

@@ -218,151 +218,131 @@ export function CustomerImportDialog({ open, onOpenChange, onImportSuccess }: Cu
     const processCSVImport = async (rows: any[]) => {
         let successCount = 0;
         let failCount = 0;
+        let healedCount = 0;
         const total = rows.length;
-        const CHUNK_SIZE = 50;
+        const BATCH_SIZE = 3;
         const timestamp = Date.now();
 
-        for (let i = 0; i < total; i += CHUNK_SIZE) {
-            const chunk = rows.slice(i, i + CHUNK_SIZE);
-            const upsertData: any[] = [];
+        const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            chunk.forEach((row, index) => {
+        for (let i = 0; i < total; i += BATCH_SIZE) {
+            const chunk = rows.slice(i, i + BATCH_SIZE);
+
+            await Promise.all(chunk.map(async (row, index) => {
                 const email = row['Email']?.trim();
                 const name = row['Name']?.trim();
 
-                if (!email || !name) {
+                if (!email) {
                     failCount++;
                     return;
                 }
 
-                const nameParts = name.split(' ');
-                const firstName = nameParts[0];
-                const lastName = nameParts.slice(1).join(' ') || '';
-                const tempId = -1 * (timestamp + i + index);
+                try {
+                    let wcMatchId: number | null = null;
 
-                upsertData.push({
-                    wc_id: tempId,
-                    email: email,
-                    first_name: firstName,
-                    last_name: lastName,
-                    billing: {
-                        first_name: firstName,
-                        last_name: lastName,
-                        email: email,
-                        city: row['City'],
-                        state: row['Region'],
-                        postcode: row['Postal Code'],
-                        country: row['Country / Region']
-                    },
-                    shipping: {},
-                    orders_count: parseInt(row['Orders'] || '0'),
-                    total_spent: parseFloat(row['Total Spend'] || '0'),
-                    last_order_date: row['Last Active'] ? new Date(row['Last Active']).toISOString() : null,
-                    assigned_to: user?.id,
-                    source: 'csv_import',
-                    updated_at: new Date().toISOString()
-                });
-            });
-
-            if (upsertData.length > 0) {
-                // Check for existing customers by email
-                const emails = upsertData.map(c => c.email);
-                const { data: existing } = await supabase
-                    .from('wc_customers')
-                    .select('email, wc_id, assigned_to')
-                    .in('email', emails);
-
-                const existingMap = new Map(existing?.map(e => [e.email, e]));
-
-                // Separate into updates and inserts
-                const toUpdate: any[] = [];
-                const toInsert: any[] = [];
-
-                upsertData.forEach(c => {
-                    const match = existingMap.get(c.email) as { wc_id: number; assigned_to?: string } | undefined;
-                    if (match) {
-                        // Update existing customer - use their wc_id
-                        // Only "claim" if it's currently unassigned
-                        toUpdate.push({
-                            ...c,
-                            wc_id: match.wc_id,
-                            assigned_to: match.assigned_to || user?.id
+                    // 1. Search WC by Email
+                    try {
+                        const { data: searchData, error: searchError } = await supabase.functions.invoke('woocommerce', {
+                            body: { action: 'search_customers', query: email }
                         });
-                    } else {
-                        // New customer - use temp wc_id
-                        toInsert.push(c);
-                    }
-                });
 
-                // Insert new customers (one by one to handle duplicates)
-                if (toInsert.length > 0) {
-                    for (const customer of toInsert) {
-                        const { error: insertError } = await supabase
-                            .from('wc_customers')
-                            .insert(customer);
-
-                        if (insertError) {
-                            // Check if it's a duplicate constraint error
-                            if (insertError.code === '23505') {
-                                // Could be duplicate email OR duplicate wc_id
-                                // Try to update by email instead
-                                const { error: updateError } = await supabase
-                                    .from('wc_customers')
-                                    .update({
-                                        first_name: customer.first_name,
-                                        last_name: customer.last_name,
-                                        billing: customer.billing,
-                                        orders_count: customer.orders_count,
-                                        total_spent: customer.total_spent,
-                                        last_order_date: customer.last_order_date,
-                                        assigned_to: customer.assigned_to, // Will contain current user since it's a new insert attempt
-                                        updated_at: customer.updated_at
-                                    })
-                                    .eq('email', customer.email);
-
-                                if (updateError) {
-                                    console.error('Update after duplicate error:', updateError);
-                                    failCount++;
-                                } else {
-                                    successCount++;
-                                }
-                            } else {
-                                console.error('Insert Error:', insertError);
-                                failCount++;
+                        if (!searchError && searchData?.customers?.length > 0) {
+                            const exactMatch = searchData.customers.find((c: any) => c.email.toLowerCase() === email.toLowerCase());
+                            if (exactMatch) {
+                                wcMatchId = exactMatch.id;
                             }
+                        }
+                    } catch (e) {
+                        // Search failed, proceed as if not found
+                    }
+
+                    // 2. Check Local DB for Email
+                    const { data: localCus } = await supabase
+                        .from('wc_customers')
+                        .select('id, wc_id')
+                        .eq('email', email)
+                        .maybeSingle();
+
+                    // 3. Logic Branch
+                    if (wcMatchId) {
+                        // CASE A: Found in WC
+
+                        // Heal Local: If local exists but has different/negative ID, update it to real ID first
+                        if (localCus && localCus.wc_id !== wcMatchId) {
+                            await supabase
+                                .from('wc_customers')
+                                .update({ wc_id: wcMatchId }) // Set real WC ID
+                                .eq('id', localCus.id);
+                            healedCount++;
+                        }
+
+                        // Sync: Call Import Action (Full Update)
+                        const { error: importError } = await supabase.functions.invoke('woocommerce', {
+                            body: { action: 'import_customer', wc_id: wcMatchId }
+                        });
+
+                        if (importError) throw importError;
+                        successCount++;
+
+                    } else {
+                        // CASE B: Not in WC -> Local Only
+
+                        const nameParts = (name || '').split(' ');
+                        const firstName = nameParts[0] || email.split('@')[0];
+                        const lastName = nameParts.slice(1).join(' ') || '';
+
+                        const payload = {
+                            email: email,
+                            first_name: firstName,
+                            last_name: lastName,
+                            billing: {
+                                first_name: firstName,
+                                last_name: lastName,
+                                email: email,
+                                phone: row['Phone'],
+                                city: row['City'],
+                                state: row['Region'],
+                                postcode: row['Postal Code'],
+                                country: row['Country / Region']
+                            },
+                            shipping: {},
+                            orders_count: parseInt(row['Orders'] || '0'),
+                            total_spent: parseFloat(row['Total Spend'] || '0'),
+                            last_order_date: row['Last Active'] ? new Date(row['Last Active']).toISOString() : null,
+                            assigned_to: user?.id,
+                            source: 'csv_import',
+                            updated_at: new Date().toISOString()
+                        };
+
+                        if (localCus) {
+                            // Update Existing Local (No ID change)
+                            const { error: updateError } = await supabase
+                                .from('wc_customers')
+                                .update(payload)
+                                .eq('id', localCus.id);
+
+                            if (updateError) throw updateError;
+                            successCount++;
                         } else {
+                            // Insert New Local
+                            const tempId = -1 * (timestamp + i + index + Math.floor(Math.random() * 10000));
+                            const { error: insertError } = await supabase
+                                .from('wc_customers')
+                                .insert({ ...payload, wc_id: tempId });
+
+                            if (insertError) throw insertError;
                             successCount++;
                         }
                     }
-                }
 
-                // Update existing customers
-                if (toUpdate.length > 0) {
-                    for (const customer of toUpdate) {
-                        const { error: updateError } = await supabase
-                            .from('wc_customers')
-                            .update({
-                                first_name: customer.first_name,
-                                last_name: customer.last_name,
-                                billing: customer.billing,
-                                orders_count: customer.orders_count,
-                                total_spent: customer.total_spent,
-                                last_order_date: customer.last_order_date,
-                                assigned_to: customer.assigned_to,
-                                updated_at: customer.updated_at
-                            })
-                            .eq('wc_id', customer.wc_id);
-
-                        if (updateError) {
-                            console.error('Update Error:', updateError);
-                            failCount++;
-                        } else {
-                            successCount++;
-                        }
-                    }
+                } catch (err) {
+                    console.error(`Row processing failed for ${email}:`, err);
+                    failCount++;
                 }
-            }
+            }));
+
             setProgress(Math.round(((i + chunk.length) / total) * 100));
+            await delay(100);
         }
 
         setSummary({ total, success: successCount, failed: failCount });
@@ -370,7 +350,7 @@ export function CustomerImportDialog({ open, onOpenChange, onImportSuccess }: Cu
         onImportSuccess();
         toast({
             title: "Import Complete",
-            description: `Imported ${successCount} customers. ${failCount} failed/skipped.`,
+            description: `Processed ${total}. Synced: ${successCount}. Failed: ${failCount}`,
         });
     };
 

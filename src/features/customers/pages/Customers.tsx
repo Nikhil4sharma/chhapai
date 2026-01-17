@@ -45,6 +45,7 @@ export default function Customers() {
     const [searchTerm, setSearchTerm] = useState(searchParams.get('search') || '');
     const [filter, setFilter] = useState<'all' | 'high-value' | 'repeat' | 'my-customers'>('all');
     const [sortBy, setSortBy] = useState<SortOption>('date-new');
+    const [selectedAlpha, setSelectedAlpha] = useState<string | null>(null);
 
     const [selectedCustomer, setSelectedCustomer] = useState<WCCustomer | null>(null);
     const [detailOpen, setDetailOpen] = useState(false);
@@ -111,6 +112,17 @@ export default function Customers() {
 
             if (filter === 'high-value') return Number(c.total_spent || 0) > 10000;
             if (filter === 'repeat') return Number(c.orders_count || 0) > 2;
+
+            // Allow searching by alphabet
+            if (selectedAlpha && selectedAlpha !== 'ALL') {
+                const firstLetter = (c.first_name || c.last_name || c.email || '').charAt(0).toUpperCase();
+                if (firstLetter !== selectedAlpha) return false;
+            }
+
+            // HIDE NAMELESS CUSTOMERS STRICTLY
+            const hasName = (c.first_name && c.first_name.trim().length > 0) || (c.last_name && c.last_name.trim().length > 0);
+            if (!hasName) return false;
+
             if (filter === 'my-customers') {
                 if (!user) return false;
 
@@ -150,7 +162,7 @@ export default function Customers() {
         });
 
         return result;
-    }, [customers, searchTerm, filter, sortBy, orders, user]);
+    }, [customers, searchTerm, filter, sortBy, orders, user, selectedAlpha]);
 
     const handleDownloadCSV = () => {
         const headers = ["ID", "Name", "Email", "Phone", "Total Spent", "Orders", "City", "Assigned To"];
@@ -260,6 +272,35 @@ export default function Customers() {
                                 Import CSV
                             </Button>
                         </div>
+                    </div>
+                </div>
+
+
+                {/* Alphabet Filter Bar */}
+                <div className="bg-white dark:bg-slate-900 rounded-xl p-2 shadow-sm border border-slate-100 dark:border-slate-800 -mt-2 overflow-x-auto no-scrollbar">
+                    <div className="flex items-center gap-1 min-w-max">
+                        <button
+                            onClick={() => setSelectedAlpha(null)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${!selectedAlpha
+                                ? 'bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-none'
+                                : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                }`}
+                        >
+                            ALL
+                        </button>
+                        <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
+                        {Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ').map((alpha) => (
+                            <button
+                                key={alpha}
+                                onClick={() => setSelectedAlpha(alpha)}
+                                className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-semibold transition-all ${selectedAlpha === alpha
+                                    ? 'bg-blue-600 text-white shadow-md shadow-blue-200 dark:shadow-none scale-110'
+                                    : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-600'
+                                    }`}
+                            >
+                                {alpha}
+                            </button>
+                        ))}
                     </div>
                 </div>
 

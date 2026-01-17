@@ -39,7 +39,7 @@ interface CustomerDetailDialogProps {
 }
 
 export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerDetailDialogProps) {
-    const [orders, setOrders] = useState<WCOrder[]>([]);
+    const [orders, setOrders] = useState<WCOrder[] | null>(null);
     const [loadingOrders, setLoadingOrders] = useState(false);
 
     // Payment Status Map: Key = Order Number (string), Value = Status
@@ -443,7 +443,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
             setBalance(balanceData);
 
             // Re-calc order statuses if we have orders loaded
-            if (orders.length > 0) {
+            if (orders && orders.length > 0) {
                 fetchOrderPaymentStatuses(orders, customer.id);
             }
         } catch (error) {
@@ -530,12 +530,12 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
     };
 
     // Derived Stats (Real-time from fetched orders)
-    const realtimeTotalOrders = orders.length;
-    const realtimeTotalSpent = orders.reduce((sum, order) => sum + (parseFloat(order.total) || 0), 0);
+    const realtimeTotalOrders = orders ? orders.length : 0;
+    const realtimeTotalSpent = orders ? orders.reduce((sum, order) => sum + (parseFloat(order.total) || 0), 0) : 0;
 
     // Fallback to customer string data if orders haven't loaded yet, or strictly use orders if loaded
-    const displayTotalOrders = realtimeTotalOrders > 0 ? realtimeTotalOrders : (displayCustomer.orders_count || 0);
-    const displayTotalSpent = realtimeTotalOrders > 0 ? realtimeTotalSpent : (displayCustomer.total_spent ? Number(displayCustomer.total_spent) : 0);
+    const displayTotalOrders = orders ? realtimeTotalOrders : (displayCustomer.orders_count || 0);
+    const displayTotalSpent = orders ? realtimeTotalSpent : (displayCustomer.total_spent ? Number(displayCustomer.total_spent) : 0);
 
     // Calculate Average
     const avgOrderValue = displayTotalOrders > 0 ? (displayTotalSpent / displayTotalOrders).toFixed(2) : "0.00";
@@ -548,7 +548,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
     const addressString = [displayCustomer.billing?.city, displayCustomer.billing?.country].filter(Boolean).join(', ') || 'No location';
 
     // Recent products (simple extraction)
-    const recentProducts = orders.slice(0, 5).flatMap(o => o.line_items).slice(0, 5);
+    const recentProducts = (orders || []).slice(0, 5).flatMap(o => o.line_items).slice(0, 5);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -697,7 +697,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                 </div>
 
                 {/* Tabs Section */}
-                <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0 overflow-hidden"
+                <Tabs value={activeTab} className="flex-1 flex flex-col min-h-0 overflow-hidden"
                     onValueChange={(val) => {
                         setActiveTab(val);
                         if (val === 'ledger') fetchFinanceData();
@@ -788,8 +788,10 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                         </div>
                     )}
 
-                    <div className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 px-3 py-4 sm:px-6 sm:pb-6">
-                        <TabsContent value="overview" className="mt-0 space-y-6 animate-in fade-in-50 slide-in-from-bottom-2 duration-300">
+
+
+                    <div className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50 p-0">
+                        <TabsContent value="overview" className="mt-0 space-y-6 px-3 py-4 sm:px-6 sm:pb-6 animate-in fade-in-50 slide-in-from-bottom-2 duration-300">
                             {/* Edit Profile Toggle */}
                             <div className="flex justify-between items-center">
                                 <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Profile Details</h3>
@@ -963,13 +965,13 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                                 <p className="text-2xl font-bold text-indigo-900 dark:text-indigo-100">₹{avgOrderValue}</p>
                                             </div>
 
-                                            {orders.length > 1 && (
+                                            {orders && orders.length > 1 && (
                                                 <div className="mt-3 pt-3 border-t border-indigo-200 dark:border-indigo-800/50">
                                                     <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase tracking-wider mb-0.5">Purchase Frequency</p>
                                                     <p className="text-xs font-medium text-indigo-800 dark:text-indigo-200">
                                                         {(() => {
                                                             const first = new Date(orders[orders.length - 1].date_created).getTime();
-                                                            const last = new Date(orders[0].date_created).getTime();
+                                                            const last = new Date(orders[0]?.date_created || new Date()).getTime();
                                                             const diffDays = (last - first) / (1000 * 60 * 60 * 24);
                                                             const freq = diffDays / orders.length;
                                                             return `Every ~${Math.round(freq)} days`;
@@ -1029,8 +1031,8 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                             <div>
                                                 <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold uppercase tracking-wider mb-1">Status</p>
                                                 <div className="flex flex-wrap gap-2 mt-1">
-                                                    {orders.length > 0 && (() => {
-                                                        const lastOrderDate = new Date(orders[0].date_created);
+                                                    {orders && orders.length > 0 && (() => {
+                                                        const lastOrderDate = new Date(orders[0].date_created || new Date());
                                                         const daysSince = Math.floor((new Date().getTime() - lastOrderDate.getTime()) / (1000 * 3600 * 24));
 
                                                         return (
@@ -1048,10 +1050,10 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                                 </div>
                                             </div>
                                             <div className="mt-3 text-xs text-emerald-800 dark:text-emerald-200">
-                                                {orders.length > 0 ? (
+                                                {orders && orders.length > 0 ? (
                                                     <span className="flex items-center gap-1.5">
                                                         <Calendar className="h-3.5 w-3.5 opacity-70" />
-                                                        Last Order: {Math.floor((new Date().getTime() - new Date(orders[0].date_created).getTime()) / (1000 * 3600 * 24))} days ago
+                                                        Last Order: {Math.floor((new Date().getTime() - new Date(orders[0]?.date_created || new Date()).getTime()) / (1000 * 3600 * 24))} days ago
                                                     </span>
                                                 ) : <span className="italic opacity-70">No orders yet</span>}
                                             </div>
@@ -1064,7 +1066,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                                                 <Package className="h-3 w-3 text-slate-400" />
                                             </div>
 
-                                            {orders.length > 0 ? (
+                                            {orders && orders.length > 0 ? (
                                                 <div className="space-y-2">
                                                     {/* Frequency map logic */}
                                                     {(() => {
@@ -1096,148 +1098,151 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                             </Card>
                         </TabsContent>
 
+                        <TabsContent value="ledger" className="mt-0 p-0 overflow-visible data-[state=inactive]:hidden custom-h-full">
+                            <div className="flex flex-col h-full px-3 py-4 sm:px-6 sm:pb-6">
+                                <Card className="shadow-none border-0 flex-1 flex flex-col min-h-0">
+                                    <CardContent className="p-0">
+                                        {paginatedLedger.length === 0 ? (
+                                            <div className="text-center py-12 text-muted-foreground bg-slate-50/50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800">
+                                                <CreditCard className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
+                                                <p className="font-medium">No transactions found</p>
+                                                <p className="text-sm mt-1">Try adjusting your filters or search.</p>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                    {paginatedLedger.map((txn) => {
+                                                        const isCredit = txn.transaction_type === 'CREDIT';
+                                                        const isRefund = isCredit && Number(txn.amount) < 0;
 
-                        <TabsContent value="ledger" className="mt-0 h-full flex flex-col">
-                            <Card className="shadow-none border-0 flex-1 flex flex-col min-h-0">
-                                <CardContent className="p-0">
-                                    {paginatedLedger.length === 0 ? (
-                                        <div className="text-center py-12 text-muted-foreground bg-slate-50/50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800">
-                                            <CreditCard className="h-12 w-12 mx-auto text-slate-300 dark:text-slate-700 mb-3" />
-                                            <p className="font-medium">No transactions found</p>
-                                            <p className="text-sm mt-1">Try adjusting your filters or search.</p>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                                                {paginatedLedger.map((txn) => {
-                                                    const isCredit = txn.transaction_type === 'CREDIT';
-                                                    const isRefund = isCredit && Number(txn.amount) < 0;
+                                                        // Icon Logic
+                                                        let Icon = isCredit ? ArrowUpRight : ShoppingBag;
+                                                        let iconBg = isCredit ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-orange-100 dark:bg-orange-900/30';
+                                                        let iconColor = isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400';
 
-                                                    // Icon Logic
-                                                    let Icon = isCredit ? ArrowUpRight : ShoppingBag;
-                                                    let iconBg = isCredit ? 'bg-emerald-100 dark:bg-emerald-900/30' : 'bg-orange-100 dark:bg-orange-900/30';
-                                                    let iconColor = isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-600 dark:text-orange-400';
+                                                        // Override for refunds (negative CREDIT amounts)
+                                                        if (isRefund) {
+                                                            iconBg = 'bg-red-100 dark:bg-red-900/30';
+                                                            iconColor = 'text-red-600 dark:text-red-400';
+                                                        } else if (isCredit) {
+                                                            if (txn.payment_method === 'cash') { Icon = Banknote; iconBg = 'bg-green-100 dark:bg-green-900/30'; iconColor = 'text-green-600 dark:text-green-400'; }
+                                                            if (txn.payment_method === 'upi') { Icon = Smartphone; iconBg = 'bg-purple-100 dark:bg-purple-900/30'; iconColor = 'text-purple-600 dark:text-purple-400'; }
+                                                            if (txn.payment_method === 'online') { Icon = Globe; iconBg = 'bg-blue-100 dark:bg-blue-900/30'; iconColor = 'text-blue-600 dark:text-blue-400'; }
+                                                        }
 
-                                                    // Override for refunds (negative CREDIT amounts)
-                                                    if (isRefund) {
-                                                        iconBg = 'bg-red-100 dark:bg-red-900/30';
-                                                        iconColor = 'text-red-600 dark:text-red-400';
-                                                    } else if (isCredit) {
-                                                        if (txn.payment_method === 'cash') { Icon = Banknote; iconBg = 'bg-green-100 dark:bg-green-900/30'; iconColor = 'text-green-600 dark:text-green-400'; }
-                                                        if (txn.payment_method === 'upi') { Icon = Smartphone; iconBg = 'bg-purple-100 dark:bg-purple-900/30'; iconColor = 'text-purple-600 dark:text-purple-400'; }
-                                                        if (txn.payment_method === 'online') { Icon = Globe; iconBg = 'bg-blue-100 dark:bg-blue-900/30'; iconColor = 'text-blue-600 dark:text-blue-400'; }
-                                                    }
-
-                                                    return (
-                                                        <div key={txn.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors group border-b border-slate-100 dark:border-slate-800 last:border-0">
-                                                            <div className="flex items-start sm:items-center gap-3 sm:gap-4">
-                                                                <div className={`h-8 w-8 sm:h-10 sm:w-10 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor} shadow-sm border border-black/5 dark:border-white/5`}>
-                                                                    <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
-                                                                </div>
-                                                                <div>
-                                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                                        <p className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
-                                                                            {isRefund ? (
-                                                                                <span className="text-red-600 dark:text-red-400">Refund</span>
-                                                                            ) : isCredit ? (
-                                                                                <span>Received via <span className="capitalize">{txn.payment_method?.replace(/_/g, ' ') || 'Payment'}</span></span>
-                                                                            ) : (
-                                                                                <span className="text-orange-600 dark:text-orange-400">Used for Order</span>
+                                                        return (
+                                                            <div key={txn.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 sm:p-4 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors group border-b border-slate-100 dark:border-slate-800 last:border-0">
+                                                                <div className="flex items-start sm:items-center gap-3 sm:gap-4">
+                                                                    <div className={`h-8 w-8 sm:h-10 sm:w-10 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${iconColor} shadow-sm border border-black/5 dark:border-white/5`}>
+                                                                        <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
+                                                                    </div>
+                                                                    <div>
+                                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                                            <p className="text-sm sm:text-base font-semibold text-slate-900 dark:text-slate-100">
+                                                                                {isRefund ? (
+                                                                                    <span className="text-red-600 dark:text-red-400">Refund</span>
+                                                                                ) : isCredit ? (
+                                                                                    <span>Received via <span className="capitalize">{txn.payment_method?.replace(/_/g, ' ') || 'Payment'}</span></span>
+                                                                                ) : (
+                                                                                    <span className="text-orange-600 dark:text-orange-400">Used for Order</span>
+                                                                                )}
+                                                                            </p>
+                                                                            {txn.order_id && (
+                                                                                <Badge variant="outline" className="h-4 sm:h-5 px-1 sm:px-1.5 text-[9px] sm:text-[10px] bg-slate-50 dark:bg-slate-900 text-slate-500 font-normal">
+                                                                                    Order #{txn.order_id.slice(0, 8)}
+                                                                                </Badge>
                                                                             )}
+                                                                        </div>
+                                                                        <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1 sm:gap-1.5">
+                                                                            <Calendar className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                                                                            {format(new Date(txn.created_at), "dd MMM yyyy")}
+                                                                            <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                                                            {format(new Date(txn.created_at), "hh:mm a")}
                                                                         </p>
-                                                                        {txn.order_id && (
-                                                                            <Badge variant="outline" className="h-4 sm:h-5 px-1 sm:px-1.5 text-[9px] sm:text-[10px] bg-slate-50 dark:bg-slate-900 text-slate-500 font-normal">
-                                                                                Order #{txn.order_id.slice(0, 8)}
-                                                                            </Badge>
+                                                                        {txn.reference_note && (
+                                                                            <p className="text-[10px] sm:text-xs text-slate-600 dark:text-slate-300 mt-1 sm:mt-1.5 bg-slate-100 dark:bg-slate-800 px-1.5 sm:px-2 py-0.5 rounded inline-block">
+                                                                                {txn.reference_note}
+                                                                            </p>
                                                                         )}
                                                                     </div>
-                                                                    <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1 sm:gap-1.5">
-                                                                        <Calendar className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
-                                                                        {format(new Date(txn.created_at), "dd MMM yyyy")}
-                                                                        <span className="w-1 h-1 rounded-full bg-slate-300 dark:bg-slate-700" />
-                                                                        {format(new Date(txn.created_at), "hh:mm a")}
+                                                                </div>
+                                                                <div className="mt-2 sm:mt-0 text-right pl-11 sm:pl-0">
+                                                                    <p className={`text-base sm:text-lg font-bold tabular-nums tracking-tight ${isRefund ? 'text-red-600 dark:text-red-400' :
+                                                                        isCredit ? 'text-emerald-600 dark:text-emerald-400' :
+                                                                            'text-orange-600 dark:text-orange-400'
+                                                                        }`}>
+                                                                        {isRefund ? '-' : isCredit ? '+' : '-'} ₹{Math.abs(Number(txn.amount)).toLocaleString()}
                                                                     </p>
-                                                                    {txn.reference_note && (
-                                                                        <p className="text-[10px] sm:text-xs text-slate-600 dark:text-slate-300 mt-1 sm:mt-1.5 bg-slate-100 dark:bg-slate-800 px-1.5 sm:px-2 py-0.5 rounded inline-block">
-                                                                            {txn.reference_note}
-                                                                        </p>
-                                                                    )}
+                                                                    <p className="text-[9px] sm:text-[10px] text-slate-400 uppercase font-medium tracking-wider mt-0.5">
+                                                                        {isRefund ? 'Refund' : isCredit ? 'Credit' : 'Debit'}
+                                                                    </p>
                                                                 </div>
                                                             </div>
-                                                            <div className="mt-2 sm:mt-0 text-right pl-11 sm:pl-0">
-                                                                <p className={`text-base sm:text-lg font-bold tabular-nums tracking-tight ${isRefund ? 'text-red-600 dark:text-red-400' :
-                                                                    isCredit ? 'text-emerald-600 dark:text-emerald-400' :
-                                                                        'text-orange-600 dark:text-orange-400'
-                                                                    }`}>
-                                                                    {isRefund ? '-' : isCredit ? '+' : '-'} ₹{Math.abs(Number(txn.amount)).toLocaleString()}
-                                                                </p>
-                                                                <p className="text-[9px] sm:text-[10px] text-slate-400 uppercase font-medium tracking-wider mt-0.5">
-                                                                    {isRefund ? 'Refund' : isCredit ? 'Credit' : 'Debit'}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                    )
-                                                })}
-                                            </div>
-
-                                            {/* Pagination Footer */}
-                                            {totalPages > 1 && (
-                                                <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/30">
-                                                    <div className="text-xs text-slate-500">
-                                                        Page {currentPage} of {totalPages}
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                                                            disabled={currentPage === 1}
-                                                            className="h-8 px-3 text-xs"
-                                                        >
-                                                            Previous
-                                                        </Button>
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                                                            disabled={currentPage === totalPages}
-                                                            className="h-8 px-3 text-xs"
-                                                        >
-                                                            Next
-                                                        </Button>
-                                                    </div>
+                                                        )
+                                                    })}
                                                 </div>
-                                            )}
-                                        </>
-                                    )}
-                                </CardContent>
-                            </Card>
+
+                                                {/* Pagination Footer */}
+                                                {totalPages > 1 && (
+                                                    <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/30">
+                                                        <div className="text-xs text-slate-500">
+                                                            Page {currentPage} of {totalPages}
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                                                disabled={currentPage === 1}
+                                                                className="h-8 px-3 text-xs"
+                                                            >
+                                                                Previous
+                                                            </Button>
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                                                disabled={currentPage === totalPages}
+                                                                className="h-8 px-3 text-xs"
+                                                            >
+                                                                Next
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </>
+                                        )}
+                                    </CardContent>
+                                </Card>
+                            </div>
                         </TabsContent>
 
-                        <TabsContent value="orders" className="mt-0 flex flex-col justify-start min-h-0">
-                            {/* ... Existing Order History ... */}
-                            {loadingOrders ? (
-                                <div className="space-y-4">
-                                    {[1, 2, 3].map(i => <div key={i} className="h-24 bg-white dark:bg-slate-900 animate-pulse rounded-lg border border-slate-200 dark:border-slate-800" />)}
-                                </div>
-                            ) : (
-                                <div className="space-y-3">
-                                    {orders.map((order) => (
-                                        <CollapsibleOrderCard
-                                            key={order.id}
-                                            order={order}
-                                            paymentStatus={paymentStatusMap[order.number]}
-                                        />
-                                    ))}
-                                    {orders.length === 0 && (
-                                        <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground bg-white dark:bg-slate-900 rounded-lg border border-dashed border-slate-300 dark:border-slate-700">
-                                            <ShoppingBag className="h-10 w-10 opacity-20 mb-3" />
-                                            <p className="font-medium">No orders found</p>
-                                            <p className="text-sm">This customer hasn't placed any orders yet.</p>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                        <TabsContent value="orders" className="mt-0 p-0 overflow-visible data-[state=inactive]:hidden custom-h-full">
+                            <div className="flex flex-col justify-start h-full min-h-0 px-3 pb-4 pt-0 sm:px-6">
+                                {/* ... Existing Order History ... */}
+                                {loadingOrders ? (
+                                    <div className="space-y-4">
+                                        {[1, 2, 3].map(i => <div key={i} className="h-24 bg-white dark:bg-slate-900 animate-pulse rounded-lg border border-slate-200 dark:border-slate-800" />)}
+                                    </div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {orders?.map((order) => (
+                                            <CollapsibleOrderCard
+                                                key={order.id}
+                                                order={order}
+                                                paymentStatus={paymentStatusMap[order.number]}
+                                            />
+                                        ))}
+                                        {orders?.length === 0 && (
+                                            <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground bg-white dark:bg-slate-900 rounded-lg border border-dashed border-slate-300 dark:border-slate-700">
+                                                <ShoppingBag className="h-10 w-10 opacity-20 mb-3" />
+                                                <p className="font-medium">No orders found</p>
+                                                <p className="text-sm">This customer hasn't placed any orders yet.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </TabsContent>
                     </div>
                 </Tabs >

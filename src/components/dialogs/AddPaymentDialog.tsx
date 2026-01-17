@@ -31,7 +31,7 @@ export function AddPaymentDialog({ open, onOpenChange, customerId, customerName,
     const [selectedOrderId, setSelectedOrderId] = useState<string>('');
 
     // Filter for unpaid orders
-    const unpaidOrders = orders.filter(o => o.status !== 'completed' && o.status !== 'cancelled' && o.status !== 'refunded');
+    const unpaidOrders = (orders || []).filter(o => o.status !== 'completed' && o.status !== 'cancelled' && o.status !== 'refunded');
 
     useEffect(() => {
         if (open) {
