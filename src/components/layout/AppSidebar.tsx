@@ -27,7 +27,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import { useOrders } from '@/features/orders/context/OrderContext';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 interface NavItem {
@@ -54,6 +55,15 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
   const location = useLocation();
   const { isAdmin, role, profile, user, isLoading: authLoading } = useAuth();
   const { orders, getCompletedOrders, getOrdersForDepartment } = useOrders();
+  const [customerCount, setCustomerCount] = useState(0);
+
+  useEffect(() => {
+    const fetchCustomerCount = async () => {
+      const { count } = await supabase.from('wc_customers').select('*', { count: 'exact', head: true });
+      if (count) setCustomerCount(count);
+    };
+    fetchCustomerCount();
+  }, []);
 
   // State for collapsible sections
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
@@ -153,7 +163,8 @@ export function AppSidebar({ isOpen, onToggle }: AppSidebarProps) {
           label: 'Customers',
           path: '/customers',
           icon: Users,
-          roles: ['admin', 'sales', 'super_admin']
+          roles: ['admin', 'sales', 'super_admin'],
+          badge: customerCount
         },
         {
           label: 'Sales',

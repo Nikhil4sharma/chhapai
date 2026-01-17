@@ -331,8 +331,18 @@ export default function Sales() {
     );
   }
 
-  // Calculate unique customers count (from all orders)
-  const uniqueCustomersCount = new Set(orders.map(o => o.customer.email || o.customer.phone)).size;
+  // Calculate unique customers count
+  const [uniqueCustomersCount, setTotalCustomersCount] = useState(0);
+
+  useEffect(() => {
+    const fetchCount = async () => {
+      const { count } = await supabase
+        .from('wc_customers')
+        .select('*', { count: 'exact', head: true });
+      if (count !== null) setTotalCustomersCount(count);
+    };
+    fetchCount();
+  }, [refreshKey]);
 
   return (
     <TooltipProvider>
