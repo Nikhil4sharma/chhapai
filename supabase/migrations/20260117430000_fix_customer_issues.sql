@@ -68,6 +68,11 @@ CREATE POLICY "Allow sales and admin to update customers"
 -- Ensure assigned_to foreign key is correct
 DO $$
 BEGIN
+  -- First, sanitize any bad data that might violate the foreign key
+  UPDATE wc_customers 
+  SET assigned_to = NULL 
+  WHERE assigned_to IS NOT NULL 
+  AND assigned_to NOT IN (SELECT id FROM profiles);
   -- Check if constraint exists and drop it
   IF EXISTS (
     SELECT 1 FROM information_schema.table_constraints 

@@ -45,7 +45,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { uploadFileToSupabase } from '@/services/supabaseStorage';
 import { useWorkflow } from '@/contexts/WorkflowContext';
 import { WorkflowSettingsTab } from '@/features/settings/components/WorkflowSettingsTab';
-import { Network } from 'lucide-react'; // For workflow icon
+import { UiVisibilitySettings } from '@/features/settings/components/UiVisibilitySettings';
+import { Network, Layout } from 'lucide-react'; // For workflow icon
 
 export default function Settings() {
   const { isAdmin, user, isLoading: authLoading } = useAuth();
@@ -378,6 +379,11 @@ export default function Settings() {
                 <TabsTrigger value="workflow" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
                   <Network className="h-4 w-4 sm:mr-2" />
                   <span className="hidden sm:inline">Workflow</span>
+                </TabsTrigger>
+
+                <TabsTrigger value="ui_visibility" className="text-xs sm:text-sm px-2 sm:px-3 py-1.5">
+                  <Layout className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Dashboard View</span>
                 </TabsTrigger>
               </>
             )}
@@ -988,6 +994,12 @@ export default function Settings() {
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+          )}
+
+          {isAdmin && (
+            <TabsContent value="ui_visibility">
+              <UiVisibilitySettings />
             </TabsContent>
           )}
         </Tabs>

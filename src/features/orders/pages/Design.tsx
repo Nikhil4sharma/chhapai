@@ -115,8 +115,11 @@ export default function Design() {
             const itemStage = (item.current_stage || '').toLowerCase().trim();
 
             // CRITICAL: Item must be assigned to design department
-            // Check both assigned_department and current_stage as fallback
-            const isDesignDept = itemDept === deptLower || (itemStage === deptLower && !item.assigned_department);
+            // Check assigned_department, current_stage, AND status for robustness
+            const isDesignDept =
+              itemDept === 'design' ||
+              itemStage === 'design' ||
+              (item.status && item.status.toLowerCase().includes('design'));
 
             // ALSO INCLUDE: Items sent to Sales for Approval (so they show in Pending Approval tab)
             const isPendingApprovalInSales = (itemDept === 'sales') &&
@@ -231,7 +234,7 @@ export default function Design() {
   }, [userFilteredDesignItems]);
 
   // Tab state for filtering
-  const [activeTab, setActiveTab] = useState<'all' | 'pending_approval' | 'in_progress' | 'completed' | 'assigned' | 'urgent'>('assigned');
+  const [activeTab, setActiveTab] = useState<'all' | 'assigned' | 'completed' | 'urgent' | 'pending_approval' | 'in_progress'>('all');
 
   // Filter items based on active tab
   const designItems = useMemo(() => {
@@ -469,22 +472,10 @@ export default function Design() {
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
           <div className="overflow-x-auto pb-2">
             <TabsList className="inline-flex h-auto">
-              <TabsTrigger value="in_progress" className="text-sm">
-                In Progress
+              <TabsTrigger value="all" className="text-sm">
+                All Orders
                 <Badge variant="secondary" className="ml-2">
-                  {inProgressItems.length}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="pending_approval" className="text-sm">
-                Pending Approval
-                <Badge variant="secondary" className="ml-2">
-                  {pendingApprovalItems.length}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="completed" className="text-sm">
-                Completed
-                <Badge variant="secondary" className="ml-2">
-                  {completedItems.length}
+                  {userFilteredDesignItems.length}
                 </Badge>
               </TabsTrigger>
               <TabsTrigger value="assigned" className="text-sm">
@@ -493,16 +484,28 @@ export default function Design() {
                   {assignedDesignItems.length}
                 </Badge>
               </TabsTrigger>
+              <TabsTrigger value="completed" className="text-sm">
+                Completed
+                <Badge variant="secondary" className="ml-2">
+                  {completedItems.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="pending_approval" className="text-sm">
+                Pending Approval
+                <Badge variant="secondary" className="ml-2">
+                  {pendingApprovalItems.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="in_progress" className="text-sm">
+                In Progress
+                <Badge variant="secondary" className="ml-2">
+                  {inProgressItems.length}
+                </Badge>
+              </TabsTrigger>
               <TabsTrigger value="urgent" className="text-sm">
                 Urgent
                 <Badge variant="destructive" className="ml-2">
                   {urgentDesignItems.length}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="all" className="text-sm">
-                All
-                <Badge variant="secondary" className="ml-2">
-                  {userFilteredDesignItems.length}
                 </Badge>
               </TabsTrigger>
             </TabsList>

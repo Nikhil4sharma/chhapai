@@ -118,7 +118,8 @@ export default function Sales() {
               item.status === 'pending_for_customer_approval' ||
               item.status === 'pending_client_approval';
             const isReadyForDispatch = item.status === 'ready_for_dispatch';
-            return dept === 'sales' || isPendingApproval || isReadyForDispatch;
+            const isWaitingForPickup = item.status === 'waiting_for_pickup';
+            return dept === 'sales' || isPendingApproval || isReadyForDispatch || isWaitingForPickup;
           })
           .map(item => ({ order, item }))
       );
@@ -280,6 +281,11 @@ export default function Sales() {
     return filteredSalesProducts.filter(({ item }) => item.status === 'ready_for_dispatch');
   }, [filteredSalesProducts]);
 
+  // Waiting for Pickup items
+  const waitingForPickupItems = useMemo(() => {
+    return filteredSalesProducts.filter(({ item }) => item.status === 'waiting_for_pickup');
+  }, [filteredSalesProducts]);
+
   // Completed Orders: Order is completed or item is completed/dispatched
   const completedSalesItems = useMemo(() => {
     const completedOrders = orders.filter(o => o.is_completed);
@@ -315,6 +321,31 @@ export default function Sales() {
   const wpPendingOrders = orders.filter(o =>
     o.source === 'wordpress' && o.items.some(i => i.current_stage === 'sales')
   );
+
+  // -- TRACKING: Other Departments --
+  const designItems = useMemo(() => {
+    return orders
+      .filter(order => !order.is_completed)
+      .flatMap(order => order.items.filter(i => (i.assigned_department === 'design' || i.current_stage === 'design') && i.status !== 'pending_for_customer_approval').map(item => ({ order, item })));
+  }, [orders]);
+
+  const prepressItems = useMemo(() => {
+    return orders
+      .filter(order => !order.is_completed)
+      .flatMap(order => order.items.filter(i => (i.assigned_department === 'prepress' || i.current_stage === 'prepress')).map(item => ({ order, item })));
+  }, [orders]);
+
+  const productionItems = useMemo(() => {
+    return orders
+      .filter(order => !order.is_completed)
+      .flatMap(order => order.items.filter(i => (i.assigned_department === 'production' || i.current_stage === 'production') && i.status !== 'ready_for_dispatch').map(item => ({ order, item })));
+  }, [orders]);
+
+  const outsourceItems = useMemo(() => {
+    return orders
+      .filter(order => !order.is_completed)
+      .flatMap(order => order.items.filter(i => (i.assigned_department === 'outsource' || i.current_stage === 'outsource')).map(item => ({ order, item })));
+  }, [orders]);
 
   const [activeTab, setActiveTab] = useState('all');
 
@@ -498,31 +529,62 @@ export default function Sales() {
         {/* Main Tabs */}
         <div className="flex-1 min-h-0">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-            <TabsList className="flex-shrink-0 w-full justify-start overflow-x-auto">
-              <TabsTrigger value="all" className="flex gap-2">
-                Show All Orders
-                <Badge variant="secondary">{totalSalesItems}</Badge>
-              </TabsTrigger>
-              <TabsTrigger value="my_orders" className="flex gap-2">
-                My Orders
-                <Badge variant="secondary">{mySalesItems.length}</Badge>
-              </TabsTrigger>
-              <TabsTrigger value="pending_approval" className="flex gap-2">
-                Pending Approval
-                <Badge variant={pendingApprovalItems.length > 0 ? "destructive" : "secondary"}>
-                  {pendingApprovalItems.length}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="ready_dispatch" className="flex gap-2">
-                Ready to Dispatch
-                <Badge variant={readyToDispatchItems.length > 0 ? "default" : "secondary"} className={readyToDispatchItems.length > 0 ? "bg-blue-600 hover:bg-blue-700" : ""}>
-                  {readyToDispatchItems.length}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="completed" className="flex gap-2">
-                Completed Orders
-                <Badge variant="secondary">{completedSalesItems.length}</Badge>
-              </TabsTrigger>
+            <TabsList className="mb-4 flex-wrap h-auto gap-2 bg-transparent p-0">
+              <div className="flex items-center p-1 bg-muted/20 rounded-lg overflow-x-auto">
+                <TabsTrigger value="all" className="flex gap-2">
+                  Action Required
+                  <Badge variant="secondary">{totalSalesItems}</Badge>
+                </TabsTrigger>
+                <TabsTrigger value="pending_approval" className="flex gap-2">
+                  Approvals
+                  <Badge variant={pendingApprovalItems.length > 0 ? "destructive" : "secondary"}>
+                    {pendingApprovalItems.length}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="ready_dispatch" className="flex gap-2">
+                  Dispatch
+                  <Badge variant={readyToDispatchItems.length > 0 ? "default" : "secondary"} className={readyToDispatchItems.length > 0 ? "bg-blue-600 hover:bg-blue-700" : ""}>
+                    {readyToDispatchItems.length}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger value="waiting_pickup" className="flex gap-2">
+                  Pickup
+                  <Badge variant={waitingForPickupItems.length > 0 ? "default" : "secondary"} className={waitingForPickupItems.length > 0 ? "bg-amber-600 hover:bg-amber-700" : ""}>
+                    {waitingForPickupItems.length}
+                  </Badge>
+                </TabsTrigger>
+              </div>
+
+              {/* Tracking Section */}
+              <div className="flex items-center p-1 bg-blue-50/50 dark:bg-blue-950/20 rounded-lg overflow-x-auto border border-blue-100 dark:border-blue-900/30">
+                <span className="text-[10px] uppercase font-bold text-blue-600/60 dark:text-blue-400/60 px-2 tracking-wider">Tracking:</span>
+                <TabsTrigger value="track_design" className="flex gap-2 data-[state=active]:bg-blue-100 dark:data-[state=active]:bg-blue-900/40">
+                  Design
+                  <Badge variant="outline" className="text-xs">{designItems.length}</Badge>
+                </TabsTrigger>
+                <TabsTrigger value="track_prepress" className="flex gap-2 data-[state=active]:bg-blue-100 dark:data-[state=active]:bg-blue-900/40">
+                  Prepress
+                  <Badge variant="outline" className="text-xs">{prepressItems.length}</Badge>
+                </TabsTrigger>
+                <TabsTrigger value="track_production" className="flex gap-2 data-[state=active]:bg-blue-100 dark:data-[state=active]:bg-blue-900/40">
+                  Production
+                  <Badge variant="outline" className="text-xs">{productionItems.length}</Badge>
+                </TabsTrigger>
+                <TabsTrigger value="track_outsource" className="flex gap-2 data-[state=active]:bg-blue-100 dark:data-[state=active]:bg-blue-900/40">
+                  Outsource
+                  <Badge variant="outline" className="text-xs">{outsourceItems.length}</Badge>
+                </TabsTrigger>
+              </div>
+
+              <div className="flex items-center p-1 bg-muted/20 rounded-lg">
+                <TabsTrigger value="my_orders" className="flex gap-2">
+                  My Orders
+                  <Badge variant="secondary">{mySalesItems.length}</Badge>
+                </TabsTrigger>
+                <TabsTrigger value="completed" className="flex gap-2">
+                  Completed
+                </TabsTrigger>
+              </div>
             </TabsList>
 
             {/* Main Tabs */}
@@ -531,6 +593,18 @@ export default function Sales() {
                 <OrderGroupList
                   products={filteredSalesProducts}
                   emptyMessage="No products found in Sales"
+                  onAddPayment={handleAddPayment}
+                  showFinancials={true}
+                  assignableUsers={salesUsers}
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="waiting_pickup" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                <OrderGroupList
+                  products={waitingForPickupItems}
+                  emptyMessage="No items waiting for pickup"
                   onAddPayment={handleAddPayment}
                   showFinancials={true}
                   assignableUsers={salesUsers}
@@ -634,6 +708,54 @@ export default function Sales() {
               </div>
             </TabsContent>
 
+            {/* TRACKING TABS CONTENT */}
+            <TabsContent value="track_design" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                <OrderGroupList
+                  products={designItems}
+                  emptyMessage="No active orders in Design"
+                  onAddPayment={handleAddPayment}
+                  showFinancials={true}
+                  assignableUsers={salesUsers}
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="track_prepress" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                <OrderGroupList
+                  products={prepressItems}
+                  emptyMessage="No active orders in Prepress"
+                  onAddPayment={handleAddPayment}
+                  showFinancials={true}
+                  assignableUsers={salesUsers}
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="track_production" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                <OrderGroupList
+                  products={productionItems}
+                  emptyMessage="No active orders in Production"
+                  onAddPayment={handleAddPayment}
+                  showFinancials={true}
+                  assignableUsers={salesUsers}
+                />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="track_outsource" className="flex-1 mt-4 overflow-hidden">
+              <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
+                <OrderGroupList
+                  products={outsourceItems}
+                  emptyMessage="No active outsourced orders"
+                  onAddPayment={handleAddPayment}
+                  showFinancials={true}
+                  assignableUsers={salesUsers}
+                />
+              </div>
+            </TabsContent>
             <TabsContent value="completed" className="flex-1 mt-4 overflow-hidden">
               <div className="h-full overflow-y-auto custom-scrollbar pr-2 pb-20">
                 <OrderGroupList

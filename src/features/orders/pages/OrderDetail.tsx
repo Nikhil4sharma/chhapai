@@ -28,12 +28,18 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
+import { useUiVisibility } from '@/hooks/useUiVisibility';
+
+// ... imports
+
 export default function OrderDetailNew() {
     const { orderId } = useParams();
     const navigate = useNavigate();
     const { isAdmin, role } = useAuth();
     const { canViewFinancials } = useFinancialAccess();
     const { openNewChat } = useChat();
+    // UI Visibility Hook
+    const { canView } = useUiVisibility('order_details');
 
     const {
         getOrderById,
@@ -49,6 +55,7 @@ export default function OrderDetailNew() {
         fetchOrderTimeline,
     } = useOrders();
 
+    // ... (rest of the hook usage and state)
     // Get order data
     const order = getOrderById(orderId || '');
     const timeline = orderId ? getTimelineForOrder(orderId) : [];
@@ -91,7 +98,7 @@ export default function OrderDetailNew() {
     const deliveryDate = mainItem?.delivery_date || order?.order_level_delivery_date;
     const canDelete = isAdmin || role === 'sales';
 
-    // Handlers
+    // Handlers (keep as is)
     const handleEdit = useCallback(() => {
         setEditDialogOpen(true);
     }, []);
@@ -281,67 +288,79 @@ export default function OrderDetailNew() {
 
     return (
         <div className="min-h-screen bg-background">
-            <OrderHeader
-                orderId={order.order_id}
-                onEdit={handleEdit}
-                onDelete={canDelete ? () => setDeleteDialogOpen(true) : undefined}
-                canDelete={canDelete}
-                onChat={handleChat}
-            />
+            {canView('od_header') && (
+                <OrderHeader
+                    orderId={order.order_id}
+                    onEdit={handleEdit}
+                    onDelete={canDelete ? () => setDeleteDialogOpen(true) : undefined}
+                    canDelete={canDelete}
+                    onChat={handleChat}
+                />
+            )}
 
             <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-                <OrderStatusCard
-                    order={order}
-                    mainItem={mainItem}
-                    deliveryDate={deliveryDate}
-                />
+                {canView('od_status_card') && (
+                    <OrderStatusCard
+                        order={order}
+                        mainItem={mainItem}
+                        deliveryDate={deliveryDate}
+                    />
+                )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div className="lg:col-span-2 space-y-4">
-                        <div className="flex items-center gap-2 mb-4">
-                            <Package className="h-5 w-5 text-muted-foreground" />
-                            <h2 className="text-lg font-semibold">
-                                Order Items ({filteredItems.length})
-                            </h2>
-                        </div>
+                        {canView('od_items_list') && (
+                            <>
+                                <div className="flex items-center gap-2 mb-4">
+                                    <Package className="h-5 w-5 text-muted-foreground" />
+                                    <h2 className="text-lg font-semibold">
+                                        Order Items ({filteredItems.length})
+                                    </h2>
+                                </div>
 
-                        {filteredItems.length > 0 ? (
-                            <div className="space-y-4">
-                                {filteredItems.map((item) => (
-                                    <ProductItemCard
-                                        key={item.item_id}
-                                        item={item}
-                                        orderId={order.order_id}
-                                        orderUUID={order.id || ''}
-                                        onUpload={() => openUploadForItem(item.item_id)}
-                                        onAssignUser={() => openAssignUserForItem(item.item_id)}
-                                        onAddNote={() => openNoteForItem(item.item_id)}
-                                        onAssignDepartment={() => openAssignDepartmentForItem(item.item_id)}
-                                        onWorkflowAction={(action) => handleWorkflowAction(item.item_id, action)}
-                                        canEdit={canEditItem(item.item_id)}
-                                    />
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="text-center py-12 text-muted-foreground">
-                                <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                                <p>No items to display</p>
-                            </div>
+                                {filteredItems.length > 0 ? (
+                                    <div className="space-y-4">
+                                        {filteredItems.map((item) => (
+                                            <ProductItemCard
+                                                key={item.item_id}
+                                                item={item}
+                                                orderId={order.order_id}
+                                                orderUUID={order.id || ''}
+                                                onUpload={() => openUploadForItem(item.item_id)}
+                                                onAssignUser={() => openAssignUserForItem(item.item_id)}
+                                                onAddNote={() => openNoteForItem(item.item_id)}
+                                                onAssignDepartment={() => openAssignDepartmentForItem(item.item_id)}
+                                                onWorkflowAction={(action) => handleWorkflowAction(item.item_id, action)}
+                                                canEdit={canEditItem(item.item_id)}
+                                            />
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-center py-12 text-muted-foreground">
+                                        <Package className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                                        <p>No items to display</p>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
 
                     <div className="space-y-4">
-                        <OrderCommunication
-                            orderId={order.id}
-                            timeline={timeline}
-                            globalNotes={order.global_notes}
-                            className="h-[600px]"
-                        />
-                        <PaymentCard
-                            order={order}
-                            canView={canViewFinancials}
-                            onUpdatePayment={handleUpdatePayment}
-                        />
+                        {canView('od_timeline') && (
+                            <OrderCommunication
+                                orderId={order.id}
+                                timeline={timeline}
+                                globalNotes={order.global_notes}
+                                className="h-[600px]"
+                            />
+                        )}
+                        {canView('od_payment_card') && (
+                            <PaymentCard
+                                order={order}
+                                canView={canViewFinancials}
+                                onUpdatePayment={handleUpdatePayment}
+                            />
+                        )}
                     </div>
                 </div>
             </div>

@@ -70,7 +70,22 @@ export function AddPaymentDialog({ open, onOpenChange, customerId, customerName,
         try {
             const targetOrderId = mode === 'order' ? selectedOrderId : undefined;
 
-            if (mode === 'order' && !targetOrderId) {
+            // If mode is order, we must resolve the UUID if we only have the numeric ID selected
+            // But wait, selectedOrderId corresponds to whatever we put in <SelectItem value=...>
+            // Let's ensure selectedOrderId IS the UUID if available.
+            // Or better: Lookup order by selectedOrderId and get its UUID.
+
+            let finalTargetId = targetOrderId;
+            if (mode === 'order' && targetOrderId) {
+                const selectedOrder = orders.find(o => String(o.id) === targetOrderId);
+                if (selectedOrder?.uuid) {
+                    finalTargetId = selectedOrder.uuid;
+                } else if (selectedOrder) {
+                    console.warn("Selected order has no UUID, payment might fail if FK enforced", selectedOrder);
+                }
+            }
+
+            if (mode === 'order' && !finalTargetId) {
                 toast.error("Please select an order to pay");
                 setIsSubmitting(false);
                 return;
@@ -87,7 +102,7 @@ export function AddPaymentDialog({ open, onOpenChange, customerId, customerName,
                 Number(amount),
                 paymentMethod,
                 finalNote,
-                targetOrderId
+                finalTargetId
             );
 
             toast.success(Number(amount) > 0

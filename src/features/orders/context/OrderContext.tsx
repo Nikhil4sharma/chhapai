@@ -1478,7 +1478,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
 
   const markAsDispatched = useCallback(async (orderId: string, itemId: string, dispatchInfo?: DispatchInfo) => {
     try {
-      const order = orders.find(o => o.order_id === orderId);
+      const order = orders.find(o => o.id === orderId || o.order_id === orderId);
       if (!order) return;
 
       const item = order.items.find(i => i.item_id === itemId);
@@ -1486,6 +1486,7 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       // Prepare update data
       const updateData: any = {
         current_stage: 'completed',
+        status: 'completed', // CRITICAL: Also update status
         is_dispatched: true,
         updated_at: new Date().toISOString(),
       };

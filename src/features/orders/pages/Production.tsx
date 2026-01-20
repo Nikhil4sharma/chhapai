@@ -179,7 +179,7 @@ export default function Production() {
   }, [userFilteredProductionItems, urgentProductionItems, assignedProductionItems]);
 
   // Tab state for filtering
-  const [activeTab, setActiveTab] = useState<'in_progress' | 'completed' | 'assigned' | 'urgent' | 'all'>('assigned');
+  const [activeTab, setActiveTab] = useState<'all' | 'assigned' | 'completed' | 'in_progress' | 'urgent'>('all');
   const [activeStage, setActiveStage] = useState<string>('all');
 
   // Filter items based on active tab (for production, also respect substage filter)
@@ -488,16 +488,10 @@ export default function Production() {
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
           <div className="overflow-x-auto pb-2">
             <TabsList className="inline-flex h-auto">
-              <TabsTrigger value="in_progress" className="text-sm">
-                In Progress
+              <TabsTrigger value="all" className="text-sm">
+                All Orders
                 <Badge variant="secondary" className="ml-2">
-                  {inProgressItems.length}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="completed" className="text-sm">
-                Completed
-                <Badge variant="secondary" className="ml-2">
-                  {completedItems.length}
+                  {userFilteredProductionItems.length}
                 </Badge>
               </TabsTrigger>
               <TabsTrigger value="assigned" className="text-sm">
@@ -506,16 +500,22 @@ export default function Production() {
                   {assignedProductionItems.length}
                 </Badge>
               </TabsTrigger>
+              <TabsTrigger value="completed" className="text-sm">
+                Completed
+                <Badge variant="secondary" className="ml-2">
+                  {completedItems.length}
+                </Badge>
+              </TabsTrigger>
+              <TabsTrigger value="in_progress" className="text-sm">
+                In Progress
+                <Badge variant="secondary" className="ml-2">
+                  {inProgressItems.length}
+                </Badge>
+              </TabsTrigger>
               <TabsTrigger value="urgent" className="text-sm">
                 Urgent
                 <Badge variant="destructive" className="ml-2">
                   {urgentProductionItems.length}
-                </Badge>
-              </TabsTrigger>
-              <TabsTrigger value="all" className="text-sm">
-                All
-                <Badge variant="secondary" className="ml-2">
-                  {userFilteredProductionItems.length}
                 </Badge>
               </TabsTrigger>
             </TabsList>

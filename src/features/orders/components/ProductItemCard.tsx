@@ -17,6 +17,7 @@ import { ProductSpecifications } from '@/features/orders/components/ProductSpeci
 import { FilePreview } from '@/features/orders/components/FilePreview';
 import { cn } from '@/lib/utils';
 import { DesignBriefDialog } from './DesignBriefDialog';
+import { useUiVisibility } from '@/hooks/useUiVisibility';
 
 interface ProductItemCardProps {
     item: OrderItem;
@@ -45,6 +46,9 @@ export function ProductItemCard({
     const [showSpecs, setShowSpecs] = useState(false);
     const [designBriefOpen, setDesignBriefOpen] = useState(false);
 
+    // UI Visibility Logic
+    const { canView } = useUiVisibility('product_card');
+
     const priorityColor =
         item.priority_computed === 'red' ? 'border-l-red-500' :
             item.priority_computed === 'yellow' ? 'border-l-yellow-500' :
@@ -70,31 +74,37 @@ export function ProductItemCard({
                         <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-2">
                                 <h3 className="font-semibold text-base sm:text-lg truncate">
-                                    {item.product_name}
+                                    {canView('pc_product_name') ? item.product_name : 'Product'}
                                 </h3>
-                                <Badge
-                                    variant="outline"
-                                    className={cn("text-xs shrink-0 border", deptColors[item.current_stage as keyof typeof deptColors] || deptColors.sales)}
-                                >
-                                    {item.current_stage}
-                                </Badge>
+                                {canView('pc_status_badge') && (
+                                    <Badge
+                                        variant="outline"
+                                        className={cn("text-xs shrink-0 border", deptColors[item.current_stage as keyof typeof deptColors] || deptColors.sales)}
+                                    >
+                                        {item.current_stage}
+                                    </Badge>
+                                )}
                             </div>
 
                             {/* Quick Info Grid */}
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-                                <div className="space-y-1">
-                                    <p className="text-xs text-muted-foreground">Quantity</p>
-                                    <p className="font-medium">{item.quantity}</p>
-                                </div>
+                                {canView('pc_quantity') && (
+                                    <div className="space-y-1">
+                                        <p className="text-xs text-muted-foreground">Quantity</p>
+                                        <p className="font-medium">{item.quantity}</p>
+                                    </div>
+                                )}
 
-                                <div className="space-y-1">
-                                    <p className="text-xs text-muted-foreground">Delivery</p>
-                                    <p className="font-medium text-xs sm:text-sm">
-                                        {format(new Date(item.delivery_date), 'MMM d, yyyy')}
-                                    </p>
-                                </div>
+                                {canView('pc_delivery_date') && (
+                                    <div className="space-y-1">
+                                        <p className="text-xs text-muted-foreground">Delivery</p>
+                                        <p className="font-medium text-xs sm:text-sm">
+                                            {format(new Date(item.delivery_date), 'MMM d, yyyy')}
+                                        </p>
+                                    </div>
+                                )}
 
-                                {item.assigned_to_name && (
+                                {canView('pc_assigned_to') && item.assigned_to_name && (
                                     <div className="space-y-1 col-span-2 sm:col-span-1">
                                         <p className="text-xs text-muted-foreground">Assigned</p>
                                         <p className="font-medium truncate text-xs sm:text-sm">
@@ -120,7 +130,7 @@ export function ProductItemCard({
                     {/* Action Buttons - Apple Style */}
                     <div className="flex flex-wrap gap-2">
                         {/* Dynamic Brief Button based on Department */}
-                        {['design', 'prepress', 'production'].includes(item.current_stage) && (
+                        {canView('pc_brief_button') && ['design', 'prepress', 'production'].includes(item.current_stage) && (
                             <Button
                                 variant="outline"
                                 size="sm"
@@ -142,29 +152,33 @@ export function ProductItemCard({
                             </Button>
                         )}
 
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={onUpload}
-                            className="group hover:bg-blue-50 dark:hover:bg-blue-950/20 hover:border-blue-300 transition-all"
-                        >
-                            <Upload className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
-                            Upload File
-                        </Button>
+                        {canView('pc_upload_button') && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={onUpload}
+                                className="group hover:bg-blue-50 dark:hover:bg-blue-950/20 hover:border-blue-300 transition-all"
+                            >
+                                <Upload className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
+                                Upload File
+                            </Button>
+                        )}
 
                         {canEdit && (
                             <>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={onAssignUser}
-                                    className="group hover:bg-purple-50 dark:hover:bg-purple-950/20 hover:border-purple-300 transition-all"
-                                >
-                                    <UserPlus className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
-                                    Assign User
-                                </Button>
+                                {canView('pc_assign_user_button') && (
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={onAssignUser}
+                                        className="group hover:bg-purple-50 dark:hover:bg-purple-950/20 hover:border-purple-300 transition-all"
+                                    >
+                                        <UserPlus className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
+                                        Assign User
+                                    </Button>
+                                )}
 
-                                {onAssignDepartment && (
+                                {canView('pc_assign_dept_button') && onAssignDepartment && (
                                     <Button
                                         variant="outline"
                                         size="sm"
@@ -176,7 +190,7 @@ export function ProductItemCard({
                                     </Button>
                                 )}
 
-                                {onWorkflowAction && item.current_stage !== 'completed' && (
+                                {canView('pc_process_button') && onWorkflowAction && item.current_stage !== 'completed' && (
                                     <Button
                                         variant="outline"
                                         size="sm"
@@ -190,15 +204,17 @@ export function ProductItemCard({
                             </>
                         )}
 
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={onAddNote}
-                            className="group hover:bg-yellow-50 dark:hover:bg-yellow-950/20 hover:border-yellow-300 transition-all"
-                        >
-                            <FileText className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
-                            Add Note
-                        </Button>
+                        {canView('pc_add_note_button') && (
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={onAddNote}
+                                className="group hover:bg-yellow-50 dark:hover:bg-yellow-950/20 hover:border-yellow-300 transition-all"
+                            >
+                                <FileText className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
+                                Add Note
+                            </Button>
+                        )}
                     </div>
                 </div>
 
@@ -206,27 +222,29 @@ export function ProductItemCard({
                 <CollapsibleContent>
                     <div className="border-t px-4 sm:px-6 py-4 space-y-4 bg-muted/30">
                         {/* Specifications */}
-                        <div>
-                            <button
-                                onClick={() => setShowSpecs(!showSpecs)}
-                                className="flex items-center justify-between w-full text-sm font-medium mb-2 hover:text-primary transition-colors"
-                            >
-                                <span>Product Specifications</span>
-                                {showSpecs ? (
-                                    <ChevronUp className="h-4 w-4" />
-                                ) : (
-                                    <ChevronDown className="h-4 w-4" />
+                        {canView('pc_specs') && (
+                            <div>
+                                <button
+                                    onClick={() => setShowSpecs(!showSpecs)}
+                                    className="flex items-center justify-between w-full text-sm font-medium mb-2 hover:text-primary transition-colors"
+                                >
+                                    <span>Product Specifications</span>
+                                    {showSpecs ? (
+                                        <ChevronUp className="h-4 w-4" />
+                                    ) : (
+                                        <ChevronDown className="h-4 w-4" />
+                                    )}
+                                </button>
+                                {showSpecs && (
+                                    <div className="bg-background rounded-lg p-3">
+                                        <ProductSpecifications item={item} />
+                                    </div>
                                 )}
-                            </button>
-                            {showSpecs && (
-                                <div className="bg-background rounded-lg p-3">
-                                    <ProductSpecifications item={item} />
-                                </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
 
                         {/* Files */}
-                        {item.files && item.files.length > 0 && (
+                        {canView('pc_files') && item.files && item.files.length > 0 && (
                             <div>
                                 <p className="text-sm font-medium mb-2">Files ({item.files.length})</p>
                                 <FilePreview

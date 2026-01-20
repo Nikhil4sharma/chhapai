@@ -216,6 +216,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
                     // Transform Supabase orders to WCOrder format for compatibility
                     const transformedOrders: WCOrder[] = (data || []).map(order => ({
                         id: order.wc_order_id || 0,
+                        uuid: order.id, // [NEW] Map Supabase UUID
                         number: order.wc_order_number || order.id.slice(0, 8),
                         status: order.status || 'processing',
                         date_created: order.created_at,
@@ -296,6 +297,7 @@ export function CustomerDetailDialog({ customer, open, onOpenChange }: CustomerD
             if (!ordersError && ordersData) {
                 const transformedOrders: WCOrder[] = ordersData.map(order => ({
                     id: order.wc_order_id || 0,
+                    uuid: order.id, // [NEW] Map Supabase UUID
                     number: order.wc_order_number || order.id.slice(0, 8),
                     status: order.status || 'processing',
                     date_created: order.created_at,

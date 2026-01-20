@@ -45,6 +45,7 @@ export interface WCCustomer {
 
 export interface WCOrder {
     id: number;
+    uuid?: string; // [NEW] Supabase UUID for linking
     number: string;
     status: string;
     date_created: string;

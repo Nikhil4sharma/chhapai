@@ -61,6 +61,9 @@ export interface DispatchInfo {
   courier_company: string;
   tracking_number: string;
   dispatch_date: string;
+  courier_notes?: string;
+  courier_address?: string;
+  is_express?: boolean;
 }
 
 export interface OrderItem {

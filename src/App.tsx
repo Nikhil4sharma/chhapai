@@ -157,7 +157,7 @@ const App = () => (
                             </ProtectedRoute>
                           } />
                           <Route path="/dispatch" element={
-                            <ProtectedRoute allowedRoles={['admin', 'dispatch', 'super_admin']}>
+                            <ProtectedRoute allowedRoles={['admin', 'dispatch', 'sales', 'production', 'super_admin']}>
                               <Suspense fallback={<PageLoader />}>
                                 <Dispatch />
                               </Suspense>

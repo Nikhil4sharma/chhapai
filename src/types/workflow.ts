@@ -6,6 +6,7 @@ export type SalesStatus =
     | 'pending_client_approval' // Legacy or WooCommerce specific pending state
     | 'customer_approved' // Specific status for approved design
     | 'approved' // Generic approved state (if needed in Sales view, though usually items move back to dept)
+    | 'waiting_for_pickup' // [NEW] Status for ready for pickup
     | 'completed';
 
 export type DesignStatus =
@@ -86,6 +87,14 @@ export const WORKFLOW_CONFIG: Record<Department, DepartmentConfig> = {
                     { id: 'sales_reject', label: 'Reject', targetStatus: 'rejected', style: 'danger' }
                 ],
                 color: 'bg-yellow-100 text-yellow-800'
+            },
+            {
+                value: 'waiting_for_pickup',
+                label: 'Waiting for Pickup',
+                allowedActions: [
+                    { id: 'mark_completed', label: 'Handover to Customer', targetStatus: 'completed', style: 'success' }
+                ],
+                color: 'bg-amber-100 text-amber-800'
             },
             {
                 value: 'completed',

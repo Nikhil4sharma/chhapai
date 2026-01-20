@@ -8,6 +8,7 @@ import {
     DialogDescription
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -22,6 +23,7 @@ import { useWorkflow } from '@/contexts/WorkflowContext';
 import { useOrders } from '@/features/orders/context/OrderContext';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import { Order, OrderItem } from '@/types/order';
+import { FileText } from 'lucide-react';
 import { Department, ProductStatus } from '@/types/workflow';
 import { supabase } from '@/integrations/supabase/client';
 import {
@@ -103,15 +105,20 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                 targetDept = 'design';
                 targetStatus = 'design_in_progress';
             }
-            // Logic: Production (In Prod) -> Ready for Dispatch
-            else if (current === 'production' && status === 'production_in_progress') {
-                targetDept = 'production';
+            // Logic: Production (Packing Complete) -> Ready for Dispatch (Sales)
+            else if (current === 'production' && status === 'ready_for_dispatch') {
+                targetDept = 'sales';
                 targetStatus = 'ready_for_dispatch';
             }
-            // Ready for Dispatch -> Dispatched
-            else if (current === 'production' && status === 'ready_for_dispatch') {
+            // Logic: Dispatch Pending (Production) -> Dispatched
+            else if (current === 'production' && status === 'dispatch_pending') {
                 targetDept = 'production';
                 targetStatus = 'dispatched';
+            }
+            // Logic: Ready for Dispatch (Sales) -> Dispatch Pending (Production) OR Waiting
+            else if (current === 'sales' && status === 'ready_for_dispatch') {
+                // This decision happens in the dialog interaction, default remains same
+                // We will handle the "Pickup" vs "Courier" logic in the UI render
             }
 
             // SPECIFIC ACTION LOGIC: Send for Approval
@@ -120,7 +127,9 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                 targetStatus = 'pending_for_customer_approval';
             }
             // SMART SELECTION: Default Statuses based on Destination
-            if (targetDept === 'sales') {
+            if (current === 'sales' && status === 'ready_for_dispatch') {
+                targetStatus = 'ready_for_dispatch'; // Stay as ready for dispatch
+            } else if (targetDept === 'sales') {
                 targetStatus = 'pending_for_customer_approval';
             } else if (targetDept === 'prepress') {
                 targetStatus = 'prepress_in_progress';
@@ -210,12 +219,25 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
     const isApprovalMode = actionType === 'approve' || actionType === 'reject' || isApprovalState;
 
     // Determine which specialized flow to show
-    const showProductionFlow = selectedDept === 'production' && !isApprovalMode && selectedStatus !== 'dispatched' && selectedStatus !== 'delivered';
-    const showDispatchDecision = selectedDept === 'sales' && selectedStatus === 'ready_for_dispatch'; // Legacy flow or Sales Dispatch?
-    // Actually, user said: Sales clicks Process on Ready to Dispatch -> Show Dispatch Mode
-    // So if item is Sales + Ready to Dispatch, we show DispatchFlow.
-    const isReadyToDispatch = item.department === 'sales' && item.status === 'ready_for_dispatch';
-    const showDispatchFinalize = selectedDept === 'production' && selectedStatus === 'dispatched';
+    // Determine which specialized flow to show
+    // 1. PRODUCTION SETUP (Prepress -> Production)
+    const showProductionSetup = selectedDept === 'production' && currentDept !== 'production';
+
+    // 2. PRODUCTION EXECUTION (In Production)
+    const showProductionExecution = selectedDept === 'production' && currentDept === 'production' && selectedStatus !== 'dispatched' && selectedStatus !== 'ready_for_dispatch' && selectedStatus !== 'dispatch_pending';
+
+    // 3. DISPATCH DECISION (Sales -> Ready to Dispatch)
+    // Condition: Item is in Sales/Dispatch dept and status is ready_for_dispatch
+    const showDispatchDecision = (currentDept === 'sales' || currentDept === 'dispatch') && item.status === 'ready_for_dispatch';
+
+    // 4. DISPATCH FINALIZE (Production -> Dispatched)
+    // Condition: Item is in Production dept and status is dispatch_pending
+    const showDispatchFinalize = currentDept === 'production' && item.status === 'dispatch_pending';
+
+    // 5. PICKUP CONFIRMATION (Sales -> Completed)
+    // Condition: Item is in Sales dept and status is waiting_for_pickup
+    const showPickupConfirmation = currentDept === 'sales' && item.status === 'waiting_for_pickup';
+
     const showOutsourceFlow = selectedDept === 'outsource';
 
     // -- Handlers --
@@ -269,7 +291,22 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                     dispatch_date: dispatchData.dispatch_date
                 });
             }
-            // 3. General Move
+            // 3. Handle Pickup Completion (Sales -> Completed)
+            else if (showPickupConfirmation) {
+                // Mark as dispatched/completed
+                // Using markAsDispatched with dummy tracking or new method if needed
+                // But 'shipping_method' should be 'pickup'
+                await markAsDispatched(order.id, item.item_id, {
+                    courier_company: 'Self Pickup',
+                    tracking_number: 'HANDOVER',
+                    dispatch_date: new Date().toISOString(),
+                    // Store receiver details in notes or distinct columns if available
+                    // For now, we put them in notes or courier fields
+                    courier_notes: `Picked up by: ${dispatchData?.receiver_name || 'Customer'} (${dispatchData?.receiver_phone || 'N/A'})`
+                });
+                toast({ title: "Order Completed", description: "Marked as picked up successfully." });
+            }
+            // 4. General Move
             else {
                 // Build Final Notes
                 let finalNotes = notes;
@@ -300,7 +337,7 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                     last_workflow_note: finalNotes
                 };
 
-                if (showProductionFlow) {
+                if (showProductionSetup) {
                     updateData.production_stage_sequence = productionStages;
 
                     // Auto-init first stage if not set (Setup Mode)
@@ -331,12 +368,17 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
 
 
                 // Dispatch Decision (Sales) logic
-                if (isReadyToDispatch) { // Waiting for pickup or pending
+                if (showDispatchDecision) {
                     // Mapping local dispatchData status to updateData
                     if (dispatchData?.status) updateData.status = dispatchData.status;
+
                     if (dispatchData?.status === 'dispatch_pending') {
                         updateData.current_stage = 'production'; // Send back to Prod per specs
                         updateData.assigned_department = 'production';
+                        updateData.current_substage = 'dispatch'; // Optional: set substage to known value if needed
+                    } else if (dispatchData?.status === 'waiting_for_pickup') {
+                        updateData.current_stage = 'sales'; // Stays in Sales
+                        updateData.assigned_department = 'sales';
                     }
 
                     // SAVE Dispatch Info to ORDERS table (Order Level)
@@ -346,7 +388,10 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                             dispatchUpdate.dispatch_info = {
                                 ...order.dispatch_info,
                                 courier_company: dispatchData.courier_company,
-                                is_express: dispatchData.is_express
+                                is_express: dispatchData.is_express,
+                                courier_address: dispatchData.address,
+                                courier_phone: dispatchData.phone,
+                                courier_notes: dispatchData.notes
                             };
                             dispatchUpdate.shipping_method = 'courier';
                         } else if (dispatchData.mode === 'pickup') {
@@ -482,7 +527,9 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                                     <Settings className="w-5 h-5 text-primary" />}
                             {actionType === 'approve' ? "Approve Design" :
                                 actionType === 'reject' ? "Reject & Revision" :
-                                    actionType === 'send_for_approval' ? "Send for Approval" : "Process Order"}
+                                    actionType === 'send_for_approval' ? "Send for Approval" :
+                                        showDispatchDecision ? "Dispatch Decision" :
+                                            showPickupConfirmation ? "Confirm Pickup" : "Process Order"}
                             <span className="text-muted-foreground/40 font-light mx-1">/</span>
                             <span className="text-foreground/90 font-medium">{item.product_name}</span>
                         </DialogTitle>
@@ -567,24 +614,43 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                                 </div>
                             )}
                         </div>
-                    ) : isReadyToDispatch ? (
+                    ) : showDispatchDecision ? (
                         /* 2. DISPATCH DECISION (Sales View) */
                         <DispatchFlow
                             mode="decision"
+                            initialData={{
+                                // Pre-fill address for Sales to edit/confirm
+                                courier_address: order.shipping?.address || order.customer.address,
+                                courier_notes: '' // Start empty or previous notes?
+                            }}
                             onDataChange={(d) => setDispatchData(d)} // Store decision
                             onValidChange={setIsValid}
                         />
+                    ) : showDispatchFinalize ? (
+                        /* 3. DISPATCH FINALIZE (Production/Dispatch View) */
+                        <DispatchFlow
+                            mode="finalize"
+                            initialData={order.dispatch_info} // Pass saved info (notes, address)
+                            onDataChange={(d) => setDispatchData(d)}
+                            onValidChange={setIsValid}
+                        />
                     ) : (
-                        /* 3. STANDARD FLOW */
+                        /* 4. STANDARD FLOW */
                         <>
-                            {/* Department Select - HIDE for Production Flow */}
-                            {!showProductionFlow && (
+        /* Department Select - HIDE for Production Flows and Pickup */
+                            {!showProductionExecution && !showDispatchFinalize && !showDispatchDecision && !showPickupConfirmation && (
                                 <div className="space-y-3">
                                     <Label className="text-xs uppercase font-semibold text-muted-foreground">Select Destination</Label>
                                     <RadioGroup value={selectedDept} onValueChange={(v) => setSelectedDept(v as Department)} className="grid grid-cols-3 gap-3">
                                         {['sales', 'design', 'prepress', 'production', 'outsource'].filter(d => {
                                             // Exclude current department - users can't assign to their own department
                                             if (currentDept === d) return false;
+
+                                            // FIX: Valid Return Paths for Outsource
+                                            if (currentDept === 'outsource') {
+                                                return d === 'prepress' || d === 'production';
+                                            }
+
                                             // Fix: Design team cannot assign to Outsource
                                             if (currentDept === 'design' && d === 'outsource') return false;
                                             return true;
@@ -607,63 +673,56 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
 
                             {/* DYNAMIC SUB-COMPONENTS */}
 
-                            {/* Production Builder & Execution */}
-                            {showProductionFlow && (
+                            {/* Production Flows */}
+                            {showProductionSetup && (
                                 <>
-                                    {/* Material Management Section - Visible to both */}
                                     <div className="mb-6">
                                         <MaterialManagement
                                             orderId={order.id}
                                             userId={user?.id || ''}
                                         />
                                     </div>
-
-                                    {/* 
-                                      LOGIC SPLIT:
-                                      1. Setup Mode (Assigning TO Production): Show Builder
-                                      2. Execution Mode (Working IN Production): Show Control
-                                    */}
-                                    {(currentDept !== 'production') ? (
-                                        <ProductionFlow
-                                            initialStages={productionStages}
-                                            onStagesChange={setProductionStages}
-                                            onMaterialChange={(p, q) => setPaperSelection({ paper: p, qty: q })}
-                                        />
-                                    ) : (
-                                        <ProductionStageControl
-                                            stages={productionStages}
-                                            currentSubstage={currentSubstage}
-                                            substageStatus={substageStatus}
-                                            onStateChange={(substage, status) => {
-                                                // 1. Update Current State
-                                                setCurrentSubstage(substage);
-                                                setSubstageStatus(status);
-
-                                                // 2. Auto-Advance Logic
-                                                if (status === 'completed') {
-                                                    const idx = productionStages.indexOf(substage);
-
-                                                    // If last stage (e.g., Packing), set status to ready_for_dispatch and move to dispatch
-                                                    if (idx === productionStages.length - 1) {
-                                                        setSelectedStatus('ready_for_dispatch');
-                                                        setSelectedDept('dispatch');
-                                                        setAutoSubmitPacking(true); // Trigger auto-submit
-                                                        // Explicitly set for UI feedback
-                                                        toast({ title: "Packing Complete!", description: "Moving to Dispatch automatically...", className: "bg-green-500 text-white" });
-                                                    }
-                                                    // If there is a next stage, advance to it after a short delay
-                                                    else if (idx !== -1 && idx < productionStages.length - 1) {
-                                                        const nextStage = productionStages[idx + 1];
-                                                        setTimeout(() => {
-                                                            setCurrentSubstage(nextStage);
-                                                            setSubstageStatus('pending');
-                                                        }, 600); // Short delay for user to see the "Check" animation
-                                                    }
-                                                }
-                                            }}
-                                        />
-                                    )}
+                                    <ProductionFlow
+                                        initialStages={productionStages}
+                                        onStagesChange={setProductionStages}
+                                        onMaterialChange={(p, q) => setPaperSelection({ paper: p, qty: q })}
+                                    />
                                 </>
+                            )}
+
+                            {showProductionExecution && (
+                                <ProductionStageControl
+                                    stages={productionStages}
+                                    currentSubstage={currentSubstage}
+                                    substageStatus={substageStatus}
+                                    onStateChange={(substage, status) => {
+                                        // 1. Update Current State
+                                        setCurrentSubstage(substage);
+                                        setSubstageStatus(status);
+
+                                        // 2. Auto-Advance Logic
+                                        if (status === 'completed') {
+                                            const idx = productionStages.indexOf(substage);
+
+                                            // If last stage (e.g., Packing), set status to ready_for_dispatch and move to dispatch
+                                            if (idx === productionStages.length - 1) {
+                                                // MOVE TO SALES -> READY FOR DISPATCH
+                                                setSelectedStatus('ready_for_dispatch');
+                                                setSelectedDept('sales'); // CRITICAL: Moves back to Sales
+                                                setAutoSubmitPacking(true); // Trigger auto-submit
+                                                toast({ title: "Packing Complete!", description: "Moving to Sales for Dispatch Decision...", className: "bg-green-500 text-white" });
+                                            }
+                                            // If there is a next stage, advance to it after a short delay
+                                            else if (idx !== -1 && idx < productionStages.length - 1) {
+                                                const nextStage = productionStages[idx + 1];
+                                                setTimeout(() => {
+                                                    setCurrentSubstage(nextStage);
+                                                    setSubstageStatus('pending');
+                                                }, 600);
+                                            }
+                                        }
+                                    }}
+                                />
                             )}
 
                             {/* Outsource Flow */}
@@ -686,13 +745,53 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                                 />
                             )}
 
+                            {/* Pickup Confirmation (Sales) */}
+                            {showPickupConfirmation && (
+                                <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                                    <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-4 rounded-xl flex items-start gap-4">
+                                        <Briefcase className="w-10 h-10 text-amber-600 mt-1" />
+                                        <div className="space-y-2">
+                                            <h4 className="font-bold text-amber-800 dark:text-amber-400">Handover to Customer</h4>
+                                            <p className="text-sm text-amber-700 dark:text-amber-300 leading-relaxed">
+                                                Confirm that the customer is picking up this order. <br />
+                                                This will mark the order as <strong>Completed</strong>.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label>Picked Up By (Name)</Label>
+                                            <Input
+                                                placeholder="e.g. Rahul (Driver)"
+                                                onChange={(e) => setDispatchData(prev => ({ ...prev, receiver_name: e.target.value }))}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label>Phone Number</Label>
+                                            <Input
+                                                placeholder="98765..."
+                                                onChange={(e) => setDispatchData(prev => ({ ...prev, receiver_phone: e.target.value }))}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="pt-2">
+                                        <Button variant="outline" className="w-full gap-2 border-dashed">
+                                            <FileText className="w-4 h-4" />
+                                            Print Delivery Challan
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Status & User (Generic) */}
-                            {/* Hide ONLY if we are in Execution Mode (Production doing work) OR Outsource/Dispatch Flow */}
-                            {/* But SHOW if we represent Prepress assigning TO Production (Setup Mode) */}
-                            {(!showOutsourceFlow && !showDispatchFinalize && !(showProductionFlow && currentDept === 'production')) && (
+                            {/* Hide ONLY if we are in Execution Mode, Dispatch Flows, or Pickup Confirmation */}
+                            {/* Show if Setup Mode or Standard Flow */}
+                            {(!showOutsourceFlow && !showDispatchFinalize && !showProductionExecution && !showDispatchDecision && !showPickupConfirmation) && (
                                 <div className="grid grid-cols-2 gap-6">
-                                    {/* Status Select - Hide if in Production Flow Setup (Auto-managed) */}
-                                    {!showProductionFlow ? (
+                                    {/* Status Select - Hide if in Production Setup (Auto-managed) */}
+                                    {!showProductionSetup ? (
                                         <div className="space-y-3">
                                             <Label className="text-xs uppercase font-semibold text-muted-foreground">Status</Label>
                                             <Select value={selectedStatus} onValueChange={(v) => setSelectedStatus(v as ProductStatus)}>
