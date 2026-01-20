@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/tooltip';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import { useOrders } from '@/features/orders/context/OrderContext';
+import { useNotifications } from '@/hooks/useNotifications';
 import { toast } from '@/hooks/use-toast';
 import { PRODUCTION_STEPS } from '@/types/order';
 import { supabase } from '@/integrations/supabase/client';
@@ -51,6 +52,7 @@ import { Network, Layout } from 'lucide-react'; // For workflow icon
 export default function Settings() {
   const { isAdmin, user, isLoading: authLoading } = useAuth();
   const { lastSyncTime, refreshOrders } = useOrders();
+  const { permission, checkPermission, requestPushPermission, showPushNotification } = useNotifications();
 
   // CRITICAL: Wait for auth to be ready before rendering
   if (authLoading) {
@@ -420,73 +422,40 @@ export default function Settings() {
                 </div>
 
                 {/* Enable Notifications Button - Show if permission not granted */}
-                {Notification.permission !== 'granted' && (
+                {permission !== 'granted' && (
                   <div className="flex items-center justify-between gap-3 pt-2 pb-2 border-t border-border">
                     <div className="space-y-0.5 min-w-0">
                       <Label className="text-sm font-medium">Enable Browser Notifications</Label>
                       <p className="text-xs sm:text-sm text-muted-foreground">
-                        {Notification.permission === 'denied'
+                        {permission === 'denied'
                           ? 'Notifications are blocked. Enable them in browser settings.'
                           : 'Click to allow notifications from this site'}
                       </p>
                     </div>
                     <Button
-                      variant={Notification.permission === 'denied' ? 'destructive' : 'default'}
+                      variant={permission === 'denied' ? 'outline' : 'default'}
                       size="sm"
                       onClick={async () => {
-                        if (!('Notification' in window)) {
-                          toast({
-                            title: "Not Supported",
-                            description: "Your browser does not support notifications",
-                            variant: "destructive",
-                          });
-                          return;
-                        }
+                        if (permission === 'denied') {
+                          // Try checking again in case user changed it
+                          checkPermission();
 
-                        if (Notification.permission === 'denied') {
-                          toast({
-                            title: "Permission Blocked",
-                            description: "Please enable notifications manually: Click the lock icon in address bar → Site settings → Notifications → Allow",
-                            variant: "destructive",
-                          });
-                          return;
-                        }
-
-                        try {
-                          console.log('Requesting notification permission...');
-                          const permission = await Notification.requestPermission();
-                          console.log('Permission result:', permission);
-
-                          if (permission === 'granted') {
+                          if (Notification.permission === 'denied') {
                             toast({
-                              title: "Notifications Enabled!",
-                              description: "You'll receive real-time updates about your orders",
-                            });
-                          } else if (permission === 'denied') {
-                            toast({
-                              title: "Permission Denied",
-                              description: "Notifications were blocked. You can enable them later in browser settings.",
-                              variant: "destructive",
-                            });
-                          } else {
-                            toast({
-                              title: "Permission Dismissed",
-                              description: "Please click 'Allow' when prompted to enable notifications",
+                              title: "Permission Blocked",
+                              description: "Please enable manually: Click lock icon in address bar → Site settings → Notifications → Allow",
                               variant: "destructive",
                             });
                           }
-                        } catch (error) {
-                          console.error('Error requesting permission:', error);
-                          toast({
-                            title: "Error",
-                            description: "Failed to request permission. Please try again.",
-                            variant: "destructive",
-                          });
+                          return;
                         }
+
+                        // Use hook method
+                        await requestPushPermission();
                       }}
                     >
                       <Bell className="h-4 w-4 mr-2" />
-                      {Notification.permission === 'denied' ? 'Unblock in Browser' : 'Enable Notifications'}
+                      {permission === 'denied' ? 'Check Permission' : 'Enable Notifications'}
                     </Button>
                   </div>
                 )}
@@ -496,7 +465,7 @@ export default function Settings() {
                   <div className="space-y-0.5 min-w-0">
                     <Label className="text-sm">Test Push Notification</Label>
                     <p className="text-xs sm:text-sm text-muted-foreground">
-                      {Notification.permission === 'granted'
+                      {permission === 'granted'
                         ? "Send a test notification to verify it's working"
                         : 'Enable notifications first to test'}
                     </p>
@@ -504,90 +473,32 @@ export default function Settings() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={Notification.permission !== 'granted'}
+                    disabled={permission !== 'granted'}
                     onClick={async () => {
-                      // Check if browser supports notifications
-                      if (!('Notification' in window)) {
-                        toast({
-                          title: "Not Supported",
-                          description: "Your browser does not support notifications",
-                          variant: "destructive",
-                        });
-                        return;
-                      }
-
-                      // Check current permission status
-                      let permission = Notification.permission;
-
-                      // Request permission if not granted (this requires user interaction - which we have via button click)
-                      if (permission === 'default') {
-                        try {
-                          console.log('Requesting notification permission from Settings button...');
-                          permission = await Notification.requestPermission();
-                          console.log('Permission result:', permission);
-                        } catch (error) {
-                          console.error('Error requesting permission:', error);
-                          toast({
-                            title: "Error",
-                            description: "Failed to request permission. Please try again.",
-                            variant: "destructive",
-                          });
-                          return;
-                        }
-                      }
+                      // Force a re-check first
+                      checkPermission();
 
                       if (permission === 'granted') {
-                        try {
-                          // Show notification directly using browser API
-                          const notification = new Notification('Test Notification - Chhapai Order Flow', {
-                            body: 'This is a test push notification! If you can see this, notifications are working correctly.',
-                            icon: '/chhapai-logo.png',
-                            badge: '/chhapai-logo.png',
-                            tag: 'test-notification',
-                            requireInteraction: false,
-                            silent: false,
-                          });
-
-                          // Handle notification click
-                          notification.onclick = () => {
-                            window.focus();
-                            notification.close();
-                          };
-
-                          // Auto-close after 5 seconds
-                          setTimeout(() => {
-                            notification.close();
-                          }, 5000);
-
-                          toast({
-                            title: "Test Notification Sent",
-                            description: "Check your browser notifications (top-right corner or system tray)",
-                          });
-                        } catch (error) {
-                          console.error('Error showing notification:', error);
-                          toast({
-                            title: "Error",
-                            description: `Failed to show notification: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                            variant: "destructive",
-                          });
-                        }
-                      } else if (permission === 'denied') {
+                        showPushNotification(
+                          'Test Notification',
+                          'This is a test push notification from Chhapai!',
+                          faviconUrl
+                        );
                         toast({
-                          title: "Permission Denied",
-                          description: "Notifications were blocked. Enable them in browser settings: Click lock icon → Site settings → Notifications → Allow",
-                          variant: "destructive",
+                          title: "Test Sent",
+                          description: "Check your system notifications tray."
                         });
                       } else {
                         toast({
-                          title: "Permission Dismissed",
-                          description: "Please click 'Allow' when the browser prompts you for notification permission",
-                          variant: "destructive",
+                          title: "Not Enabled",
+                          description: "Please enable notifications first.",
+                          variant: "destructive"
                         });
                       }
                     }}
                   >
                     <Bell className="h-4 w-4 mr-2" />
-                    {Notification.permission === 'granted' ? 'Send Test' : 'Enable & Test'}
+                    Send Test
                   </Button>
                 </div>
                 <Separator />

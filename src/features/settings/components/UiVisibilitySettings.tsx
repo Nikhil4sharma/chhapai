@@ -11,6 +11,50 @@ import { Loader2, Save, Layout } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { UiModule, UiVisibilityRule } from '@/hooks/useUiVisibility';
 
+import { RotateCcw } from 'lucide-react'; // Add icon
+
+// Define Defaults Client-Side for "Self-Healing"
+const DEFAULT_MODULES = [
+    // Product Card Modules
+    { module_key: 'priority_badge', label: 'Priority Badge', page_type: 'product_card', description: 'Colored strip and icon indicating order priority' },
+    { module_key: 'manager_badge', label: 'Manager Name', page_type: 'product_card', description: 'Name of the sales manager assigned to the order' },
+    { module_key: 'delivery_date', label: 'Delivery Date', page_type: 'product_card', description: 'Expected delivery date of the item' },
+    { module_key: 'design_brief', label: 'Design Brief', page_type: 'product_card', description: 'Instructions for the design team' },
+    { module_key: 'prepress_brief', label: 'Prepress Brief', page_type: 'product_card', description: 'Instructions for the prepress team' },
+    { module_key: 'production_brief', label: 'Production Brief', page_type: 'product_card', description: 'Instructions for production' },
+    { module_key: 'brief', label: 'Order Brief', page_type: 'product_card', description: 'General order instructions' },
+    { module_key: 'workflow_notes', label: 'Workflow History', page_type: 'product_card', description: 'Latest note and history button' },
+    { module_key: 'specifications', label: 'Product Specs', page_type: 'product_card', description: 'Detailed product specifications table' },
+    { module_key: 'outsource_info', label: 'Outsource Info', page_type: 'product_card', description: 'Vendor details if outsourced' },
+    { module_key: 'send_approval_button', label: 'Send for Approval', page_type: 'product_card', description: 'Button to send item for internal or client approval' },
+    { module_key: 'revision_button', label: 'Revision Button', page_type: 'product_card', description: 'Button to request revision if rejected' },
+    { module_key: 'production_handoff_button', label: 'Production Handoff', page_type: 'product_card', description: 'Button to move approved item to production' },
+    { module_key: 'outsource_button', label: 'Outsource Button', page_type: 'product_card', description: 'Button to assign item to an external vendor' },
+    { module_key: 'process_button', label: 'Process Button', page_type: 'product_card', description: 'Main action button (Start, Complete, Process)' },
+
+    // Order Details Page Modules
+    { module_key: 'od_header', label: 'Order Header', page_type: 'order_details', description: 'Top section with Order ID and main actions' },
+    { module_key: 'od_status_card', label: 'Status Card', page_type: 'order_details', description: 'Summary card showing delivery date and overall status' },
+    { module_key: 'od_items_list', label: 'Items List', page_type: 'order_details', description: 'List of all product items in the order' },
+    { module_key: 'od_timeline', label: 'Timeline & Notes', page_type: 'order_details', description: 'Communication history and notes section' },
+    { module_key: 'od_payment_card', label: 'Payment & Financials', page_type: 'order_details', description: 'Payment details, balance, and collection options' },
+
+    // Order Details Item Card (Micro-Controls)
+    { module_key: 'odi_product_name', label: 'Item Name', page_type: 'order_details_item', description: 'Product name display' },
+    { module_key: 'odi_status_badge', label: 'Status Badge', page_type: 'order_details_item', description: 'Current stage badge (e.g., Design, Production)' },
+    { module_key: 'odi_quantity', label: 'Quantity', page_type: 'order_details_item', description: 'Quantity display' },
+    { module_key: 'odi_delivery_date', label: 'Delivery Date', page_type: 'order_details_item', description: 'Delivery date display' },
+    { module_key: 'odi_assigned_to', label: 'Assigned User', page_type: 'order_details_item', description: 'Assigned user display' },
+    { module_key: 'odi_process_button', label: 'Process Button', page_type: 'order_details_item', description: 'Primary action button (Play icon)' },
+    { module_key: 'odi_brief_button', label: 'Brief Button', page_type: 'order_details_item', description: 'View Design/Prepress/Produciton Brief' },
+    { module_key: 'odi_upload_button', label: 'Upload Button', page_type: 'order_details_item', description: 'File upload button' },
+    { module_key: 'odi_assign_user_button', label: 'Assign User Button', page_type: 'order_details_item', description: 'Button to assign a specific user' },
+    { module_key: 'odi_assign_dept_button', label: 'Move Dept Button', page_type: 'order_details_item', description: 'Button to move item to another department' },
+    { module_key: 'odi_add_note_button', label: 'Add Note Button', page_type: 'order_details_item', description: 'Button to add a text note' },
+    { module_key: 'odi_specs_section', label: 'Specifications', page_type: 'order_details_item', description: 'Collapsible specifications section' },
+    { module_key: 'odi_files_section', label: 'Files Section', page_type: 'order_details_item', description: 'List of attached files' }
+];
+
 export function UiVisibilitySettings() {
     const [loading, setLoading] = useState(true);
     const [modules, setModules] = useState<UiModule[]>([]);
@@ -114,11 +158,38 @@ export function UiVisibilitySettings() {
         }
     };
 
+    const handleResetDefaults = async () => {
+        setSaving(true);
+        try {
+            const { error } = await supabase
+                .from('ui_modules')
+                .upsert(DEFAULT_MODULES, { onConflict: 'module_key,page_type' });
+
+            if (error) throw error;
+
+            toast({
+                title: "Defaults Restored",
+                description: "UI Modules have been reset to system defaults.",
+            });
+
+            // Refresh
+            const { data: modulesData } = await supabase.from('ui_modules').select('*').order('page_type');
+            if (modulesData) setModules(modulesData as UiModule[]);
+
+        } catch (error) {
+            console.error('Error resetting modules:', error);
+            toast({ title: "Error", description: "Failed to reset modules", variant: "destructive" });
+        } finally {
+            setSaving(false);
+        }
+    };
+
     if (loading) return <div className="flex justify-center p-8"><Loader2 className="animate-spin" /></div>;
 
     // Group modules by page_type
     const productCardModules = modules.filter(m => m.page_type === 'product_card');
     const orderDetailsModules = modules.filter(m => m.page_type === 'order_details');
+    const orderItemModules = modules.filter(m => m.page_type === 'order_details_item');
 
     return (
         <div className="space-y-6">
@@ -165,9 +236,10 @@ export function UiVisibilitySettings() {
                     </div>
 
                     <Tabs defaultValue="product_card">
-                        <TabsList>
-                            <TabsTrigger value="product_card">Product Card</TabsTrigger>
-                            <TabsTrigger value="order_details">Order Details Page</TabsTrigger>
+                        <TabsList className="mb-4">
+                            <TabsTrigger value="product_card">Dashboard Card</TabsTrigger>
+                            <TabsTrigger value="order_details">Order Page Layout</TabsTrigger>
+                            <TabsTrigger value="order_details_item">Item Card (Micro)</TabsTrigger>
                         </TabsList>
 
                         <TabsContent value="product_card" className="space-y-6 pt-4">
@@ -226,12 +298,35 @@ export function UiVisibilitySettings() {
                                 ))}
                             </div>
                         </TabsContent>
+
+                        <TabsContent value="order_details_item" className="space-y-4 pt-4">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {orderItemModules.map(module => (
+                                    <div key={module.module_key} className="flex items-center justify-between p-3 border rounded-lg bg-card hover:bg-accent/50 transition-colors">
+                                        <div className="space-y-1">
+                                            <div className="font-medium">{module.label}</div>
+                                            <div className="text-xs text-muted-foreground">{module.description}</div>
+                                        </div>
+                                        <Switch
+                                            checked={rules[module.module_key] ?? true}
+                                            onCheckedChange={(checked) => handleToggle(module.module_key, checked)}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </TabsContent>
                     </Tabs>
 
                     <div className="flex justify-end pt-4 border-t">
                         <Button onClick={handleSave} disabled={saving}>
                             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                             Save Visibility Rules
+                        </Button>
+                    </div>
+                    <div className="flex justify-start pt-4 border-t mt-4">
+                        <Button variant="outline" size="sm" onClick={handleResetDefaults} disabled={saving}>
+                            <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                            Initialize/Reset Default Modules
                         </Button>
                     </div>
 

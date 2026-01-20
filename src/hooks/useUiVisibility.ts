@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/features/auth/context/AuthContext';
 
-export type UiPageType = 'product_card' | 'order_details';
+export type UiPageType = 'product_card' | 'order_details' | 'order_details_item';
 
 export interface UiModule {
     module_key: string;

@@ -46,8 +46,8 @@ export function ProductItemCard({
     const [showSpecs, setShowSpecs] = useState(false);
     const [designBriefOpen, setDesignBriefOpen] = useState(false);
 
-    // UI Visibility Logic
-    const { canView } = useUiVisibility('product_card');
+    // UI Visibility Logic - Specific Scope for Order Details Items
+    const { canView } = useUiVisibility('order_details_item');
 
     const priorityColor =
         item.priority_computed === 'red' ? 'border-l-red-500' :
@@ -66,50 +66,51 @@ export function ProductItemCard({
     };
 
     return (
-        <Card className={cn("border-l-4 transition-all hover:shadow-md", priorityColor)}>
+        <Card className={cn("border-l-4 transition-all hover:shadow-md bg-card/50", priorityColor)}>
             <Collapsible open={isOpen} onOpenChange={setIsOpen}>
                 {/* Header */}
-                <div className="p-4 sm:p-6">
-                    <div className="flex items-start justify-between gap-4 mb-4">
-                        <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-2">
-                                <h3 className="font-semibold text-base sm:text-lg truncate">
-                                    {canView('pc_product_name') ? item.product_name : 'Product'}
+                <div className="p-4">
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
+                        <div className="flex-1 min-w-0 space-y-2">
+                            <div className="flex items-center gap-2">
+                                <h3 className="font-semibold text-lg tracking-tight">
+                                    {canView('odi_product_name') ? item.product_name : 'Product Item'}
                                 </h3>
-                                {canView('pc_status_badge') && (
+                                {canView('odi_status_badge') && (
                                     <Badge
-                                        variant="outline"
-                                        className={cn("text-xs shrink-0 border", deptColors[item.current_stage as keyof typeof deptColors] || deptColors.sales)}
+                                        variant="secondary"
+                                        className={cn("capitalize text-xs font-semibold px-2 py-0.5 border", deptColors[item.current_stage as keyof typeof deptColors] || deptColors.sales)}
                                     >
                                         {item.current_stage}
                                     </Badge>
                                 )}
                             </div>
 
-                            {/* Quick Info Grid */}
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-                                {canView('pc_quantity') && (
-                                    <div className="space-y-1">
-                                        <p className="text-xs text-muted-foreground">Quantity</p>
-                                        <p className="font-medium">{item.quantity}</p>
+                            {/* Quick Info Grid - Compact */}
+                            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+                                {canView('odi_quantity') && (
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-medium uppercase tracking-wider opacity-70">Qty:</span>
+                                        <span className="font-semibold text-foreground">{item.quantity}</span>
                                     </div>
                                 )}
 
-                                {canView('pc_delivery_date') && (
-                                    <div className="space-y-1">
-                                        <p className="text-xs text-muted-foreground">Delivery</p>
-                                        <p className="font-medium text-xs sm:text-sm">
+                                {canView('odi_delivery_date') && (
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-medium uppercase tracking-wider opacity-70">Delivery:</span>
+                                        <span className="font-semibold text-foreground text-xs">
                                             {format(new Date(item.delivery_date), 'MMM d, yyyy')}
-                                        </p>
+                                        </span>
                                     </div>
                                 )}
 
-                                {canView('pc_assigned_to') && item.assigned_to_name && (
-                                    <div className="space-y-1 col-span-2 sm:col-span-1">
-                                        <p className="text-xs text-muted-foreground">Assigned</p>
-                                        <p className="font-medium truncate text-xs sm:text-sm">
+                                {canView('odi_assigned_to') && item.assigned_to_name && (
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-medium uppercase tracking-wider opacity-70">Assigned:</span>
+                                        <div className="flex items-center gap-1 bg-muted/50 px-1.5 py-0.5 rounded text-foreground font-medium text-xs">
+                                            <Users className="w-3 h-3" />
                                             {item.assigned_to_name}
-                                        </p>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -117,102 +118,63 @@ export function ProductItemCard({
 
                         {/* Collapse Toggle */}
                         <CollapsibleTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                {isOpen ? (
-                                    <ChevronUp className="h-4 w-4" />
-                                ) : (
-                                    <ChevronDown className="h-4 w-4" />
-                                )}
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 opacity-50 hover:opacity-100">
+                                {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                             </Button>
                         </CollapsibleTrigger>
                     </div>
 
-                    {/* Action Buttons - Apple Style */}
-                    <div className="flex flex-wrap gap-2">
-                        {/* Dynamic Brief Button based on Department */}
-                        {canView('pc_brief_button') && ['design', 'prepress', 'production'].includes(item.current_stage) && (
+                    {/* Action Buttons - Refined Layout */}
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/40">
+
+                        {/* Primary Process Button - Prominent */}
+                        {canEdit && canView('odi_process_button') && onWorkflowAction && item.current_stage !== 'completed' && (
+                            <Button
+                                size="sm"
+                                onClick={() => onWorkflowAction('process')}
+                                className="h-8 text-xs font-semibold shadow-sm bg-primary/90 hover:bg-primary text-primary-foreground"
+                            >
+                                <PlayCircle className="h-3.5 w-3.5 mr-1.5" />
+                                Process
+                            </Button>
+                        )}
+
+                        {/* Secondary Actions - Ghost/Outline */}
+                        {canView('odi_brief_button') && ['design', 'prepress', 'production'].includes(item.current_stage) && (
                             <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => setDesignBriefOpen(true)}
-                                className={cn(
-                                    "group transition-all border-2",
-                                    item.current_stage === 'design' && "hover:bg-indigo-50 dark:hover:bg-indigo-950/20 hover:border-indigo-300 border-indigo-100",
-                                    item.current_stage === 'prepress' && "hover:bg-pink-50 dark:hover:bg-pink-950/20 hover:border-pink-300 border-pink-100",
-                                    item.current_stage === 'production' && "hover:bg-orange-50 dark:hover:bg-orange-950/20 hover:border-orange-300 border-orange-100"
-                                )}
+                                className="h-8 text-xs"
                             >
-                                <Palette className={cn(
-                                    "h-4 w-4 mr-2 group-hover:scale-110 transition-transform",
-                                    item.current_stage === 'design' && "text-indigo-600 dark:text-indigo-400",
-                                    item.current_stage === 'prepress' && "text-pink-600 dark:text-pink-400",
-                                    item.current_stage === 'production' && "text-orange-600 dark:text-orange-400"
-                                )} />
+                                <Palette className="h-3.5 w-3.5 mr-1.5 opacity-70" />
                                 <span className="capitalize">{item.current_stage} Brief</span>
                             </Button>
                         )}
 
-                        {canView('pc_upload_button') && (
+                        {canView('odi_upload_button') && (
                             <Button
-                                variant="outline"
+                                variant="ghost"
                                 size="sm"
                                 onClick={onUpload}
-                                className="group hover:bg-blue-50 dark:hover:bg-blue-950/20 hover:border-blue-300 transition-all"
+                                className="h-8 text-xs text-muted-foreground hover:text-foreground"
                             >
-                                <Upload className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
-                                Upload File
+                                <Upload className="h-3.5 w-3.5 mr-1.5" />
+                                Upload
                             </Button>
                         )}
 
-                        {canEdit && (
-                            <>
-                                {canView('pc_assign_user_button') && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={onAssignUser}
-                                        className="group hover:bg-purple-50 dark:hover:bg-purple-950/20 hover:border-purple-300 transition-all"
-                                    >
-                                        <UserPlus className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
-                                        Assign User
-                                    </Button>
-                                )}
 
-                                {canView('pc_assign_dept_button') && onAssignDepartment && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={onAssignDepartment}
-                                        className="group hover:bg-orange-50 dark:hover:bg-orange-950/20 hover:border-orange-300 transition-all"
-                                    >
-                                        <Building2 className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
-                                        Assign Dept
-                                    </Button>
-                                )}
 
-                                {canView('pc_process_button') && onWorkflowAction && item.current_stage !== 'completed' && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => onWorkflowAction('process')}
-                                        className="group hover:bg-green-50 dark:hover:bg-green-950/20 hover:border-green-300 transition-all"
-                                    >
-                                        <PlayCircle className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
-                                        Process
-                                    </Button>
-                                )}
-                            </>
-                        )}
-
-                        {canView('pc_add_note_button') && (
+                        {canView('odi_add_note_button') && (
                             <Button
-                                variant="outline"
+                                variant="ghost"
                                 size="sm"
                                 onClick={onAddNote}
-                                className="group hover:bg-yellow-50 dark:hover:bg-yellow-950/20 hover:border-yellow-300 transition-all"
+                                className="h-8 text-xs text-muted-foreground hover:text-foreground ml-auto"
                             >
-                                <FileText className="h-4 w-4 mr-2 group-hover:scale-110 transition-transform" />
-                                Add Note
+                                <FileText className="h-3.5 w-3.5 mr-1.5" />
+                                Note
                             </Button>
                         )}
                     </div>
@@ -220,23 +182,19 @@ export function ProductItemCard({
 
                 {/* Collapsible Content */}
                 <CollapsibleContent>
-                    <div className="border-t px-4 sm:px-6 py-4 space-y-4 bg-muted/30">
+                    <div className="border-t border-border/50 bg-muted/20 px-4 py-3 space-y-3">
                         {/* Specifications */}
-                        {canView('pc_specs') && (
-                            <div>
+                        {canView('odi_specs_section') && (
+                            <div className="rounded-md border bg-card/60 overflow-hidden">
                                 <button
                                     onClick={() => setShowSpecs(!showSpecs)}
-                                    className="flex items-center justify-between w-full text-sm font-medium mb-2 hover:text-primary transition-colors"
+                                    className="flex items-center justify-between w-full px-3 py-2 text-xs font-semibold bg-muted/40 hover:bg-muted/60 transition-colors"
                                 >
                                     <span>Product Specifications</span>
-                                    {showSpecs ? (
-                                        <ChevronUp className="h-4 w-4" />
-                                    ) : (
-                                        <ChevronDown className="h-4 w-4" />
-                                    )}
+                                    {showSpecs ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                                 </button>
                                 {showSpecs && (
-                                    <div className="bg-background rounded-lg p-3">
+                                    <div className="p-3">
                                         <ProductSpecifications item={item} />
                                     </div>
                                 )}
@@ -244,9 +202,12 @@ export function ProductItemCard({
                         )}
 
                         {/* Files */}
-                        {canView('pc_files') && item.files && item.files.length > 0 && (
-                            <div>
-                                <p className="text-sm font-medium mb-2">Files ({item.files.length})</p>
+                        {canView('odi_files_section') && item.files && item.files.length > 0 && (
+                            <div className="pt-1">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Attached Files</span>
+                                    <Badge variant="secondary" className="h-4 px-1 text-[10px]">{item.files.length}</Badge>
+                                </div>
                                 <FilePreview
                                     files={item.files}
                                     orderId={orderId}

@@ -28,7 +28,7 @@ export function useNotifications() {
       setIsLoading(false);
       return;
     }
-    
+
     try {
       const { data, error } = await supabase
         .from('notifications')
@@ -36,9 +36,9 @@ export function useNotifications() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(50);
-      
+
       if (error) throw error;
-      
+
       const mappedNotifications: AppNotification[] = (data || []).map(n => ({
         id: n.id,
         user_id: n.user_id,
@@ -50,7 +50,7 @@ export function useNotifications() {
         read: n.read || false,
         created_at: new Date(n.created_at),
       }));
-      
+
       setNotifications(mappedNotifications);
     } catch (error) {
       console.error('Error fetching notifications:', error);
@@ -63,14 +63,14 @@ export function useNotifications() {
   // Load user notification settings from Supabase
   const fetchSettings = useCallback(async () => {
     if (!user || !user.id) return;
-    
+
     try {
       const { data, error } = await supabase
         .from('user_settings')
         .select('sound_enabled, push_enabled')
         .eq('user_id', user.id)
         .maybeSingle();
-      
+
       if (error) {
         // If table doesn't exist or column doesn't exist, use defaults
         if (error.code === 'PGRST116' || error.code === '42703') {
@@ -81,7 +81,7 @@ export function useNotifications() {
         }
         throw error;
       }
-      
+
       if (data) {
         setSoundEnabled(data.sound_enabled ?? true);
         setPushEnabled(data.push_enabled ?? true);
@@ -101,25 +101,25 @@ export function useNotifications() {
   // Play notification sound
   const playSound = useCallback(() => {
     if (!soundEnabled) return;
-    
+
     try {
       // Create a more audible notification sound
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
       const oscillator = audioContext.createOscillator();
       const gainNode = audioContext.createGain();
-      
+
       oscillator.connect(gainNode);
       gainNode.connect(audioContext.destination);
-      
+
       oscillator.frequency.value = 880; // A5 note
       oscillator.type = 'sine';
-      
+
       gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-      
+
       oscillator.start(audioContext.currentTime);
       oscillator.stop(audioContext.currentTime + 0.5);
-      
+
       // Play second beep
       setTimeout(() => {
         const osc2 = audioContext.createOscillator();
@@ -138,8 +138,25 @@ export function useNotifications() {
     }
   }, [soundEnabled]);
 
+  // Permission state tracking
+  const [permission, setPermission] = useState<NotificationPermission>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'default'
+  );
+
+  // Check permission on mount and when window gets focus
+  const checkPermission = useCallback(() => {
+    if ('Notification' in window) {
+      setPermission(Notification.permission);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkPermission();
+    window.addEventListener('focus', checkPermission);
+    return () => window.removeEventListener('focus', checkPermission);
+  }, [checkPermission]);
+
   // Request browser push notification permission
-  // IMPORTANT: This must be called from a user interaction (click, touch, etc.)
   const requestPushPermission = useCallback(async () => {
     if (!('Notification' in window)) {
       console.log('Browser does not support notifications');
@@ -150,12 +167,15 @@ export function useNotifications() {
       });
       return false;
     }
-    
+
+    // Update state before checking
+    setPermission(Notification.permission);
+
     if (Notification.permission === 'granted') {
       console.log('Notification permission already granted');
       return true;
     }
-    
+
     if (Notification.permission === 'denied') {
       console.log('Notification permission denied by user');
       toast({
@@ -165,22 +185,21 @@ export function useNotifications() {
       });
       return false;
     }
-    
-    // Request permission if not yet decided
-    // This will only work if called from a user interaction
+
     try {
       console.log('Requesting notification permission...');
-      const permission = await Notification.requestPermission();
-      console.log('Permission result:', permission);
-      
-      if (permission === 'granted') {
+      const perm = await Notification.requestPermission();
+      console.log('Permission result:', perm);
+      setPermission(perm); // Update state
+
+      if (perm === 'granted') {
         console.log('Notification permission granted');
         toast({
           title: "Notifications Enabled",
           description: "You'll receive real-time updates about your orders",
         });
         return true;
-      } else if (permission === 'denied') {
+      } else if (perm === 'denied') {
         console.log('Notification permission denied');
         toast({
           title: "Permission Denied",
@@ -209,13 +228,13 @@ export function useNotifications() {
       console.log('Browser does not support notifications');
       return;
     }
-    
+
     // Check permission first
     if (Notification.permission === 'denied') {
       console.log('Notification permission denied by user');
       return;
     }
-    
+
     // Request permission if not granted
     if (Notification.permission === 'default') {
       Notification.requestPermission().then((permission) => {
@@ -226,17 +245,17 @@ export function useNotifications() {
       });
       return;
     }
-    
+
     if (Notification.permission !== 'granted') {
       console.log('Notification permission not granted');
       return;
     }
-    
+
     if (!pushEnabled) {
       console.log('Push notifications disabled in user settings');
       return;
     }
-    
+
     try {
       const notification = new Notification(title, {
         body,
@@ -246,18 +265,18 @@ export function useNotifications() {
         requireInteraction: false,
         silent: false,
       });
-      
+
       // Handle notification click
       notification.onclick = () => {
         window.focus();
         notification.close();
       };
-      
+
       // Auto-close after 5 seconds
       setTimeout(() => {
         notification.close();
       }, 5000);
-      
+
       console.log('Push notification shown:', title);
     } catch (e) {
       console.error('Push notification failed:', e);
@@ -267,7 +286,7 @@ export function useNotifications() {
   // Toggle sound
   const toggleSound = useCallback(async () => {
     if (!user || !user.id) return;
-    
+
     const newValue = !soundEnabled;
     setSoundEnabled(newValue);
 
@@ -282,7 +301,7 @@ export function useNotifications() {
         }, {
           onConflict: 'user_id'
         });
-      
+
       if (error) {
         // If column doesn't exist, just update local state
         if (error.code === '42703') {
@@ -299,7 +318,7 @@ export function useNotifications() {
 
   // Mark as read
   const markAsRead = useCallback(async (id: string) => {
-    setNotifications(prev => 
+    setNotifications(prev =>
       prev.map(n => n.id === id ? { ...n, read: true } : n)
     );
 
@@ -308,7 +327,7 @@ export function useNotifications() {
         .from('notifications')
         .update({ read: true })
         .eq('id', id);
-      
+
       if (error) throw error;
     } catch (error) {
       console.error('Error marking notification as read:', error);
@@ -327,7 +346,7 @@ export function useNotifications() {
         .update({ read: true })
         .eq('user_id', user.id)
         .eq('read', false);
-      
+
       if (error) throw error;
     } catch (error) {
       console.error('Error marking all as read:', error);
@@ -343,7 +362,7 @@ export function useNotifications() {
         .from('notifications')
         .delete()
         .eq('id', id);
-      
+
       if (error) throw error;
     } catch (error) {
       console.error('Error deleting notification:', error);
@@ -359,7 +378,7 @@ export function useNotifications() {
         .from('notifications')
         .delete()
         .eq('user_id', user.id);
-      
+
       if (error) throw error;
       setNotifications([]);
     } catch (error) {
@@ -387,7 +406,7 @@ export function useNotifications() {
         },
         (payload) => {
           console.log('[Notifications] Realtime update:', payload.eventType);
-          
+
           if (payload.eventType === 'INSERT') {
             const newNotification = payload.new as any;
             const mappedNotification: AppNotification = {
@@ -401,9 +420,9 @@ export function useNotifications() {
               read: newNotification.read || false,
               created_at: new Date(newNotification.created_at),
             };
-            
+
             setNotifications(prev => [mappedNotification, ...prev]);
-            
+
             // Play sound and show push notification for new notifications
             if (!mappedNotification.read) {
               playSound();
@@ -415,11 +434,11 @@ export function useNotifications() {
               prev.map(n =>
                 n.id === updatedNotification.id
                   ? {
-                      ...n,
-                      read: updatedNotification.read || false,
-                      title: updatedNotification.title,
-                      message: updatedNotification.message,
-                    }
+                    ...n,
+                    read: updatedNotification.read || false,
+                    title: updatedNotification.title,
+                    message: updatedNotification.message,
+                  }
                   : n
               )
             );
@@ -457,6 +476,8 @@ export function useNotifications() {
     refetch: fetchNotifications,
     requestPushPermission,
     showPushNotification,
+    permission,
+    checkPermission
   };
 }
 
@@ -481,7 +502,7 @@ export async function createNotification(
         item_id: itemId || null,
         read: false,
       });
-    
+
     if (error) throw error;
     console.log('[Notifications] Created notification:', { userId, title, type });
   } catch (error) {

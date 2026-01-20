@@ -163,23 +163,46 @@ export function ProductionStageControl({
                             )}
 
                             {substageStatus === 'completed' && (
-                                <div className="flex flex-col items-center animate-in fade-in zoom-in duration-300">
+                                <div className="flex flex-col items-center animate-in fade-in zoom-in duration-300 w-full">
                                     <Button
                                         variant="ghost"
-                                        className="text-xs text-muted-foreground hover:text-foreground mb-2"
+                                        size="sm"
+                                        className="text-xs text-muted-foreground hover:text-foreground mb-4 h-6"
                                         onClick={handleRevert}
                                     >
-                                        <RotateCcw className="w-3 h-3 mr-1" /> Reopen Stage
+                                        <RotateCcw className="w-3 h-3 mr-1" /> Reopen {stageObjects[currentIndex].label}
                                     </Button>
-                                    {/* Hint for next stage if available */}
+
+                                    {/* Explicit NEXT STAGE Action */}
                                     {currentIndex < stageObjects.length - 1 ? (
-                                        <p className="text-xs text-muted-foreground animate-pulse">
-                                            Next: {stageObjects[currentIndex + 1].label}
-                                        </p>
+                                        <div className="w-full flex justify-center">
+                                            {stageObjects[currentIndex + 1].key === 'packing' ? (
+                                                <Button
+                                                    className="w-full max-w-[240px] rounded-full h-14 text-base font-bold shadow-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-all hover:scale-105 active:scale-95 animate-pulse"
+                                                    onClick={() => handleStart('packing')}
+                                                >
+                                                    <div className="flex flex-col items-center leading-none">
+                                                        <span className="text-[10px] opacity-80 uppercase tracking-widest font-medium mb-1">Final Stage</span>
+                                                        <span className="flex items-center gap-2">Start Packing <ChevronRight className="w-4 h-4" /></span>
+                                                    </div>
+                                                </Button>
+                                            ) : (
+                                                <Button
+                                                    className="w-full max-w-[240px] rounded-full h-12 text-sm font-bold shadow-md hover:scale-105 transition-transform"
+                                                    onClick={() => handleStart(stageObjects[currentIndex + 1].key)}
+                                                >
+                                                    Start {stageObjects[currentIndex + 1].label} <ChevronRight className="w-4 h-4 ml-1" />
+                                                </Button>
+                                            )}
+                                        </div>
                                     ) : (
-                                        <p className="text-xs font-bold text-green-600 animate-pulse mt-1">
-                                            All Stages Complete • Ready for Dispatch
-                                        </p>
+                                        <div className="bg-green-50 dark:bg-green-950/30 border border-green-100 dark:border-green-900/50 px-6 py-4 rounded-xl text-center shadow-sm w-full animate-in slide-in-from-bottom-2">
+                                            <p className="text-sm font-bold text-green-700 dark:text-green-400 flex items-center justify-center gap-2 mb-1">
+                                                <Check className="w-4 h-4" />
+                                                Workflow Complete
+                                            </p>
+                                            <p className="text-xs text-muted-foreground">Order is ready for dispatch.</p>
+                                        </div>
                                     )}
                                 </div>
                             )}

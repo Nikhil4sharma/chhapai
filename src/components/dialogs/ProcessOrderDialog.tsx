@@ -480,18 +480,20 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
     useEffect(() => {
         if (substageStatus === 'completed' && currentSubstage && productionStages.length > 0) {
             const currentIndex = productionStages.indexOf(currentSubstage);
+
+            // If Last Stage (likely Packing) is completed
             if (currentIndex === productionStages.length - 1) {
-                // Last stage completed
+                // Determine target status logic
                 if (workflowConfigForDept) {
+                    // Check if 'packing' is the current completed stage for clarity
+                    const isPacking = currentSubstage === 'packing';
+
                     const readyStatus = workflowConfigForDept.statuses.find(s => s.value === 'ready_for_dispatch');
                     if (readyStatus) {
                         setSelectedStatus('ready_for_dispatch');
+                        // Optional: Trigger auto-open or highlight the main Process button
                     }
                 }
-            } else {
-                // Optional: Auto-move to next stage? 
-                // User might want manual control. Staying on "completed" allows them to review before moving.
-                // But we could set the "Next" stage as active if we wanted.
             }
         }
     }, [substageStatus, currentSubstage, productionStages, workflowConfigForDept]);
@@ -615,7 +617,7 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                             )}
                         </div>
                     ) : showDispatchDecision ? (
-                        /* 2. DISPATCH DECISION (Sales View) */
+                        // 2. DISPATCH DECISION (Sales View)
                         <DispatchFlow
                             mode="decision"
                             initialData={{
@@ -627,7 +629,7 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                             onValidChange={setIsValid}
                         />
                     ) : showDispatchFinalize ? (
-                        /* 3. DISPATCH FINALIZE (Production/Dispatch View) */
+                        // 3. DISPATCH FINALIZE (Production/Dispatch View)
                         <DispatchFlow
                             mode="finalize"
                             initialData={order.dispatch_info} // Pass saved info (notes, address)
@@ -635,24 +637,32 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                             onValidChange={setIsValid}
                         />
                     ) : (
-                        /* 4. STANDARD FLOW */
+                        // 4. STANDARD FLOW
                         <>
-        /* Department Select - HIDE for Production Flows and Pickup */
                             {!showProductionExecution && !showDispatchFinalize && !showDispatchDecision && !showPickupConfirmation && (
                                 <div className="space-y-3">
                                     <Label className="text-xs uppercase font-semibold text-muted-foreground">Select Destination</Label>
                                     <RadioGroup value={selectedDept} onValueChange={(v) => setSelectedDept(v as Department)} className="grid grid-cols-3 gap-3">
                                         {['sales', 'design', 'prepress', 'production', 'outsource'].filter(d => {
-                                            // Exclude current department - users can't assign to their own department
-                                            if (currentDept === d) return false;
+                                            // 1. Allow CURRENT department (to enable Reassign User / Change Internal Status)
+                                            if (currentDept === d) return true;
 
-                                            // FIX: Valid Return Paths for Outsource
+                                            // 2. Strict Rules for Destination
+
+                                            // Outsource Restrictions
                                             if (currentDept === 'outsource') {
-                                                return d === 'prepress' || d === 'production';
+                                                return d === 'prepress' || d === 'production' || d === 'design';
                                             }
+                                            if (d === 'outsource' && currentDept === 'design') return false; // Design -> Outsource (Blocked)
 
-                                            // Fix: Design team cannot assign to Outsource
-                                            if (currentDept === 'design' && d === 'outsource') return false;
+                                            // 3. Strict Forward Flow (Optional - preventing huge skips)
+                                            // Prevent Design -> Production (Must go via Prepress)
+                                            if (currentDept === 'design' && d === 'production') return false;
+
+                                            // Prevent Sales -> Production (Must go via Design/Prepress usually, unless Reorder)
+                                            // Keeping it open for Sales for flexibility, but maybe warn?
+                                            // For now, adhering to user request for "proper" flow
+
                                             return true;
                                         }).map(d => (
                                             <div key={d}>

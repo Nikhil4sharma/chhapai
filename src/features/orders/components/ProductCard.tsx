@@ -39,6 +39,7 @@ import { workflowService } from '@/services/workflowService';
 import { useWorkflow } from '@/contexts/WorkflowContext';
 import { ProcessOrderDialog } from '@/components/dialogs/ProcessOrderDialog';
 import { ProductionHandoffDialog } from './ProductionHandoffDialog';
+import { useUiVisibility } from '@/hooks/useUiVisibility';
 import { updateItemSpecifications } from '@/features/orders/services/supabaseOrdersService';
 import { reservePaperForJob } from '@/services/inventory';
 
@@ -57,6 +58,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
     item.delivery_date ? new Date(item.delivery_date) : undefined
   );
   const [isDeliveryDateOpen, setIsDeliveryDateOpen] = useState(false);
+  const { canView } = useUiVisibility('product_card');
   const {
     assignToUser,
     uploadFile,
@@ -231,15 +233,18 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
           <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={handleOrderClick}
-                  className="text-sm font-semibold text-primary hover:underline cursor-pointer flex items-center gap-2"
-                >
-                  {order.order_id}{productSuffix ? ` ${productSuffix}` : ''}
-                  <PriorityBadge priority={item.priority_computed} />
-                </button>
 
-                {order.assigned_user_name && (
+                {canView('priority_badge') && (
+                  <button
+                    onClick={handleOrderClick}
+                    className="text-sm font-semibold text-primary hover:underline cursor-pointer flex items-center gap-2"
+                  >
+                    {order.order_id}{productSuffix ? ` ${productSuffix}` : ''}
+                    <PriorityBadge priority={item.priority_computed} />
+                  </button>
+                )}
+
+                {canView('manager_badge') && order.assigned_user_name && (
                   <Badge variant="secondary" className="text-[10px] font-normal px-2 py-0.5 bg-indigo-50 text-indigo-700 border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800">
                     <User className="w-3 h-3 mr-1" />
                     Manager: {order.assigned_user_name}
@@ -256,7 +261,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               </div>
 
               {/* Delivery Date - Clickable for Sales */}
-              {role === 'sales' ? (
+              {canView('delivery_date') && (role === 'sales' ? (
                 <Popover open={isDeliveryDateOpen} onOpenChange={setIsDeliveryDateOpen}>
                   <PopoverTrigger asChild>
                     <button
@@ -324,7 +329,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                     {item.delivery_date ? format(new Date(item.delivery_date), 'MMM d, yyyy') : 'No Date'}
                   </span>
                 </div>
-              )}
+              ))}
             </div>
 
             <div className="flex flex-wrap items-baseline gap-2">
@@ -348,6 +353,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               ];
 
               return briefs.map(brief => {
+                if (!canView(brief.key)) return null; // Visibility Check
                 const content = specs[brief.key] || specs[brief.key.toUpperCase()];
                 if (!content) return null;
 
@@ -356,7 +362,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   pink: 'bg-pink-50 border-pink-100 text-pink-900 dark:bg-pink-900/20 dark:border-pink-900/40 dark:text-pink-100',
                   orange: 'bg-orange-50 border-orange-100 text-orange-900 dark:bg-orange-900/20 dark:border-orange-900/40 dark:text-orange-100',
                   blue: 'bg-blue-50 border-blue-100 text-blue-900 dark:bg-blue-900/20 dark:border-blue-900/40 dark:text-blue-100',
-                }[brief.color];
+                }[brief.color] as string;
 
                 return (
                   <div key={brief.key} className={cn("mt-4 p-4 rounded-lg border", colorStyles)}>
@@ -373,7 +379,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
             })()}
 
             {/* Production/Workflow Note (Last Note) - Apple Style */}
-            {item.last_workflow_note && (
+            {canView('workflow_notes') && item.last_workflow_note && (
               <div className="mt-4 group relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-50 to-white dark:from-slate-900 dark:to-slate-900/50 border border-slate-200 dark:border-slate-800 p-4 transition-all hover:shadow-md">
                 <div className="flex gap-3.5">
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 shadow-sm ring-1 ring-blue-100 dark:ring-blue-800/30">
@@ -407,10 +413,12 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               </div>
             )}
 
-            {/* Specifications - Visible for ALL roles */}
-            <div className="bg-muted/20 border border-border/40 rounded-lg p-3">
-              <ProductSpecifications item={item} />
-            </div>
+            {/* Specifications - Visible for ALL roles but wrapped in check just in case */}
+            {canView('specifications') && (
+              <div className="bg-muted/20 border border-border/40 rounded-lg p-3">
+                <ProductSpecifications item={item} />
+              </div>
+            )}
 
             <div className="flex items-center gap-3 flex-wrap text-xs pt-1">
               <div className="flex items-center gap-1.5 py-1 px-2 bg-muted/30 rounded-full border border-border/40">
@@ -425,7 +433,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               </div>
             </div>
 
-            {item.outsource_info && (
+            {item.outsource_info && canView('outsource_info') && (
               <div className="p-2 bg-secondary/50 rounded text-xs border border-border/60">
                 <div className="flex items-center gap-1 mb-1">
                   <Building2 className="h-3 w-3 text-primary" />
@@ -494,7 +502,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   const isSendForApproval = (effectiveRole === 'design' || effectiveRole === 'prepress') && item.status !== 'approved' && item.status !== 'rejected';
 
                   // Default Send for Approval button
-                  if (isSendForApproval) {
+                  if (isSendForApproval && canView('send_approval_button')) {
                     return (
                       <Button
                         size="sm"
@@ -507,7 +515,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   }
 
                   // Design & Prepress - Rejected State (Revision)
-                  if ((effectiveRole === 'design' || effectiveRole === 'prepress') && item.status === 'rejected') {
+                  if ((effectiveRole === 'design' || effectiveRole === 'prepress') && item.status === 'rejected' && canView('revision_button')) {
                     return (
                       <Button
                         size="sm"
@@ -548,20 +556,24 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   if (effectiveRole === 'prepress' && item.status === 'approved') {
                     return (
                       <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          onClick={handleHandoffToProduction}
-                          className="text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9 bg-orange-600 hover:bg-orange-700 text-white"
-                        >
-                          <ArrowRight className="w-4 h-4 mr-2" /> Send for Production
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={handleOutsourceClick}
-                          className="text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9 bg-pink-600 hover:bg-pink-700 text-white"
-                        >
-                          <Building2 className="w-4 h-4 mr-2" /> Send to Outsource
-                        </Button>
+                        {canView('production_handoff_button') && (
+                          <Button
+                            size="sm"
+                            onClick={handleHandoffToProduction}
+                            className="text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9 bg-orange-600 hover:bg-orange-700 text-white"
+                          >
+                            <ArrowRight className="w-4 h-4 mr-2" /> Send for Production
+                          </Button>
+                        )}
+                        {canView('outsource_button') && (
+                          <Button
+                            size="sm"
+                            onClick={handleOutsourceClick}
+                            className="text-xs flex-shrink-0 justify-start font-bold shadow-sm border-0 transition-all active:scale-95 rounded-full px-4 h-9 bg-pink-600 hover:bg-pink-700 text-white"
+                          >
+                            <Building2 className="w-4 h-4 mr-2" /> Send to Outsource
+                          </Button>
+                        )}
                       </div>
                     );
                   }
@@ -570,7 +582,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                   // If it's production, we want to show the Production specific state buttons if available
                   // or the default Process button if not.
 
-                  return (
+                  return canView('process_button') ? (
                     <Button
                       size="sm"
                       onClick={(e) => {
@@ -602,7 +614,7 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                         )
                       )}
                     </Button>
-                  );
+                  ) : null;
                 })()}
 
               </div>
