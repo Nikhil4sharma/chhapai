@@ -165,7 +165,8 @@ GST ${data.purchaserGst || 'N/A'}`;
                 if (!content) return;
 
                 const lines = content.split('\n');
-                let currentY = cell.y + 2.5;
+                let currentY = cell.y + 3; // Start slightly lower than top padding
+                const maxWidth = cell.width - 4; // Cell width minus padding
 
                 doc.setFontSize(9);
                 lines.forEach((line, idx) => {
@@ -175,9 +176,16 @@ GST ${data.purchaserGst || 'N/A'}`;
                     } else {
                         doc.setFont('helvetica', 'normal');
                     }
-                    // Draw the line manually
-                    doc.text(line, cell.x + 2, currentY);
-                    currentY += 4;
+                    
+                    // Split text to fit width
+                    const splitLines = doc.splitTextToSize(line, maxWidth);
+                    
+                    splitLines.forEach((splitLine: string) => {
+                        doc.text(splitLine, cell.x + 2, currentY);
+                        currentY += 4; // Line height
+                    });
+
+                    // Add a tiny bit of extra space after paragraphs if needed, though split handles simple wrapping
                 });
             }
         }

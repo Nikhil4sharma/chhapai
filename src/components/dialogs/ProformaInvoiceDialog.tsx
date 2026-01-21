@@ -738,6 +738,39 @@ export function ProformaInvoiceDialog({ open, onOpenChange }: ProformaInvoiceDia
                                                             >
                                                                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-pencil w-4 h-4"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg>
                                                             </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                onClick={async () => {
+                                                                    if (confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {
+                                                                        try {
+                                                                            const { error } = await supabase
+                                                                                .from('proforma_invoices')
+                                                                                .delete()
+                                                                                .eq('id', invoice.id);
+
+                                                                            if (error) throw error;
+
+                                                                            toast({
+                                                                                title: 'Deleted',
+                                                                                description: 'Invoice deleted successfully',
+                                                                            });
+                                                                            fetchHistory();
+                                                                        } catch (e) {
+                                                                            console.error('Delete failed', e);
+                                                                            toast({
+                                                                                title: 'Error',
+                                                                                description: 'Failed to delete invoice',
+                                                                                variant: 'destructive',
+                                                                            });
+                                                                        }
+                                                                    }
+                                                                }}
+                                                                title="Delete Invoice"
+                                                                className="h-9 w-9 p-0 rounded-full hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 hover:text-red-600 dark:hover:text-red-400"
+                                                            >
+                                                                <Trash2 className="w-4 h-4" />
+                                                            </Button>
                                                         </div>
                                                     </div>
                                                 </div>
