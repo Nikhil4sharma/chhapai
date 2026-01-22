@@ -40,8 +40,9 @@ export function DispatchFlow({ mode, initialData, onDataChange, onValidChange }:
             if (dispatchMode === 'pickup') {
                 isValid = true; // No extra fields needed
                 data.status = 'waiting_for_pickup';
+                data.notes = addressNotes; // Pass notes for pickup too
             } else {
-                isValid = courierName.length > 0;
+                isValid = true; // Courier info is optional for Sales decision
                 data.courier_company = courierName;
                 data.is_express = isExpress;
                 data.address = address; // Pass address back
@@ -69,38 +70,67 @@ export function DispatchFlow({ mode, initialData, onDataChange, onValidChange }:
             {mode === 'decision' && (
                 <div className="space-y-4">
                     <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1">Dispatch Method</Label>
-                    <RadioGroup
-                        value={dispatchMode}
-                        onValueChange={(v) => setDispatchMode(v as 'pickup' | 'courier')}
-                        className="grid grid-cols-2 gap-4"
-                    >
-                        <div>
-                            <RadioGroupItem value="pickup" id="pickup" className="peer sr-only" />
-                            <Label
-                                htmlFor="pickup"
-                                className="flex flex-col items-center justify-between rounded-2xl border bg-card p-6 hover:bg-muted/30 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:text-primary cursor-pointer transition-all shadow-sm"
-                            >
-                                <Store className="mb-3 h-8 w-8 stroke-[1.5]" />
-                                <span className="font-semibold text-base">Customer Pickup</span>
-                            </Label>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div
+                            onClick={() => setDispatchMode('courier')}
+                            className={cn(
+                                "relative flex flex-col items-center justify-center p-6 rounded-2xl border-2 cursor-pointer transition-all hover:bg-primary/5 hover:border-primary/50 group",
+                                dispatchMode === 'courier'
+                                    ? "border-primary bg-primary/5 shadow-md scale-[1.02]"
+                                    : "border-muted bg-card hover:shadow-sm"
+                            )}
+                        >
+                            <div className={cn(
+                                "w-12 h-12 rounded-full flex items-center justify-center mb-3 transition-colors",
+                                dispatchMode === 'courier' ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground group-hover:bg-primary/20 group-hover:text-primary"
+                            )}>
+                                <Truck className="w-6 h-6 stroke-[1.5]" />
+                            </div>
+                            <h3 className={cn("font-bold text-lg", dispatchMode === 'courier' ? "text-primary" : "text-foreground")}>Ship via Courier</h3>
+                            <p className="text-xs text-muted-foreground text-center mt-1">Send using 3rd party logistics</p>
+
+                            {dispatchMode === 'courier' && (
+                                <div className="absolute top-3 right-3 text-primary">
+                                    <div className="w-4 h-4 rounded-full bg-primary text-white flex items-center justify-center">
+                                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4L3.5 6.5L9 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                        <div>
-                            <RadioGroupItem value="courier" id="courier" className="peer sr-only" />
-                            <Label
-                                htmlFor="courier"
-                                className="flex flex-col items-center justify-between rounded-2xl border bg-card p-6 hover:bg-muted/30 peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:text-primary cursor-pointer transition-all shadow-sm"
-                            >
-                                <Truck className="mb-3 h-8 w-8 stroke-[1.5]" />
-                                <span className="font-semibold text-base">Courier / Delivery</span>
-                            </Label>
+
+                        <div
+                            onClick={() => setDispatchMode('pickup')}
+                            className={cn(
+                                "relative flex flex-col items-center justify-center p-6 rounded-2xl border-2 cursor-pointer transition-all hover:bg-amber-500/5 hover:border-amber-500/50 group",
+                                dispatchMode === 'pickup'
+                                    ? "border-amber-500 bg-amber-500/5 shadow-md scale-[1.02]"
+                                    : "border-muted bg-card hover:shadow-sm"
+                            )}
+                        >
+                            <div className={cn(
+                                "w-12 h-12 rounded-full flex items-center justify-center mb-3 transition-colors",
+                                dispatchMode === 'pickup' ? "bg-amber-500 text-white" : "bg-muted text-muted-foreground group-hover:bg-amber-500/20 group-hover:text-amber-600"
+                            )}>
+                                <Store className="w-6 h-6 stroke-[1.5]" />
+                            </div>
+                            <h3 className={cn("font-bold text-lg", dispatchMode === 'pickup' ? "text-amber-600" : "text-foreground")}>Client Pickup</h3>
+                            <p className="text-xs text-muted-foreground text-center mt-1">Customer collects from factory</p>
+
+                            {dispatchMode === 'pickup' && (
+                                <div className="absolute top-3 right-3 text-amber-600">
+                                    <div className="w-4 h-4 rounded-full bg-amber-500 text-white flex items-center justify-center">
+                                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 4L3.5 6.5L9 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                    </RadioGroup>
+                    </div>
                 </div>
             )}
 
             {/* Courier Details Form */}
             {(dispatchMode === 'courier' || mode === 'finalize') && (
-                <div className="space-y-6">
+                <div className="space-y-6 pt-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
 
                     {/* INFO CARD (Finalize Mode) */}
                     {mode === 'finalize' && (
@@ -162,18 +192,20 @@ export function DispatchFlow({ mode, initialData, onDataChange, onValidChange }:
                     )}
 
                     {/* ACTION FIELDS */}
-                    <div className="space-y-6">
+                    <div className="space-y-5">
                         {/* Courier & Express Row */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                            {/* Courier Name - Optional for Decision */}
                             <div className="space-y-2">
                                 <Label className="text-sm font-medium flex items-center gap-1">
                                     Courier Service
-                                    {mode !== 'decision' && <span className="text-red-500">*</span>}
+                                    {mode === 'finalize' && <span className="text-red-500">*</span>}
+                                    {mode === 'decision' && <span className="text-muted-foreground font-normal text-xs ml-auto">(Preferred)</span>}
                                 </Label>
                                 <div className="relative">
                                     <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                                     <Input
-                                        placeholder="BlueDart, DTDC, Uber..."
+                                        placeholder={mode === 'decision' ? "Preferred Courier (Optional)" : "BlueDart, DTDC, Uber..."}
                                         className="pl-9 h-11 rounded-xl bg-background border-input/80 focus:ring-primary/20 transition-all font-medium"
                                         value={courierName}
                                         onChange={(e) => setCourierName(e.target.value)}
@@ -247,29 +279,16 @@ export function DispatchFlow({ mode, initialData, onDataChange, onValidChange }:
                             </div>
                         )}
 
-                        {/* Additional Address/Notes Fields for Sales (Decision Mode) */}
+                        {/* Simplified Decision Fields */}
                         {mode === 'decision' && (
-                            <div className="space-y-5 pt-2">
-                                <div className="space-y-2">
-                                    <Label className="text-sm font-medium">Delivery Address</Label>
-                                    <Textarea
-                                        className="min-h-[100px] rounded-xl bg-background border-input/80 focus:ring-primary/20 transition-all resize-none p-4"
-                                        placeholder="Full delivery address including pincode..."
-                                        value={address}
-                                        onChange={(e) => setAddress(e.target.value)}
-                                    />
-                                    <p className="text-[11px] text-muted-foreground px-1">Ensure the address is complete for the courier.</p>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <Label className="text-sm font-medium">Courier Instructions</Label>
-                                    <Textarea
-                                        className="min-h-[80px] rounded-xl bg-background border-input/80 focus:ring-primary/20 transition-all resize-none p-4"
-                                        placeholder="e.g. Call before delivery, handle with care..."
-                                        value={addressNotes}
-                                        onChange={(e) => setAddressNotes(e.target.value)}
-                                    />
-                                </div>
+                            <div className="space-y-2">
+                                <Label className="text-sm font-medium">Notes / Instructions</Label>
+                                <Textarea
+                                    className="min-h-[80px] rounded-xl bg-background border-input/80 focus:ring-primary/20 transition-all resize-none p-4"
+                                    placeholder="Any special handling or delivery instructions..."
+                                    value={addressNotes}
+                                    onChange={(e) => setAddressNotes(e.target.value)}
+                                />
                             </div>
                         )}
                     </div>

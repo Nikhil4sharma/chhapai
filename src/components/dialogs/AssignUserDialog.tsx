@@ -108,8 +108,17 @@ export function AssignUserDialog({
       } else if (profiles) {
         // Filter profiles by department (case-insensitive) AND NOT hidden
         const matchingProfiles = profiles.filter(profile => {
-          const profileDept = (profile.department || '').toLowerCase().trim();
-          return profileDept === deptLower && !profile.is_hidden;
+          // CRITICAL FIX: Use the role map to determine valid departments
+          // If department is 'Outsource', we want users from 'Production' too
+          const allowedDepartments = new Set<string>([deptLower]);
+
+          if (deptLower === 'outsource') {
+            allowedDepartments.add('production');
+          } else if (deptLower === 'dispatch') {
+            allowedDepartments.add('production');
+          }
+
+          return allowedDepartments.has(profileDept) && !profile.is_hidden;
         });
 
         matchingProfiles.forEach(profile => {

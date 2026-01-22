@@ -156,10 +156,10 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
             setIsValid(true);
 
             // Reset Flow Data
-            // FIX: Default to all PRODUCTION_STEPS if sequence is empty, ensuring 'Packing' and others are present by default
+            // FIX: Start with empty stages if not previously defined. Do NOT default to all stages.
             const initialStages = (item.production_stage_sequence && item.production_stage_sequence.length > 0)
                 ? item.production_stage_sequence
-                : PRODUCTION_STEPS.map(s => s.key);
+                : [];
 
             setProductionStages(initialStages);
             setCurrentSubstage(item.current_substage || null);
@@ -718,7 +718,6 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                                     <ProductionFlow
                                         initialStages={productionStages}
                                         onStagesChange={setProductionStages}
-                                        onMaterialChange={(p, q) => setPaperSelection({ paper: p, qty: q })}
                                     />
                                 </>
                             )}
@@ -742,6 +741,7 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                                                 // MOVE TO SALES -> READY FOR DISPATCH
                                                 setSelectedStatus('ready_for_dispatch');
                                                 setSelectedDept('sales'); // CRITICAL: Moves back to Sales
+                                                setNotes('Production Complete. Packing Done. Moved to Sales for Dispatch.'); // Fix: Auto-fill note to pass validation
                                                 setAutoSubmitPacking(true); // Trigger auto-submit
                                                 toast({ title: "Packing Complete!", description: "Moving to Sales for Dispatch Decision...", className: "bg-green-500 text-white" });
                                             }
@@ -872,22 +872,24 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                         </>
                     )}
 
-                    {/* Common Notes / Instructions */}
-                    <div className="space-y-3">
-                        <Label className="text-xs uppercase font-bold tracking-widest text-muted-foreground/80 flex items-center gap-1.5">
-                            <ScrollText className="w-3.5 h-3.5" />
-                            {actionType === 'reject' ? "Requirements for Revision" :
-                                actionType === 'approve' ? "Approval Note / Feedback" :
-                                    actionType === 'send_for_approval' ? "Note for Sales Team" :
-                                        `Instructions for ${selectedDept}`}
-                        </Label>
-                        <Textarea
-                            value={notes}
-                            onChange={(e) => setNotes(e.target.value)}
-                            placeholder={actionType === 'reject' ? "Explain what needs to be changed..." : "Add details or feedback..."}
-                            className="min-h-[140px] text-base resize-none bg-background/50 border-muted placeholder:text-muted-foreground/40 focus:ring-2 focus:ring-primary/20 transition-all rounded-xl"
-                        />
-                    </div>
+                    {/* Common Notes / Instructions - FIX: Hide if Dispatch/Pickup flow is active (they have their own notes) */}
+                    {!showDispatchDecision && !showPickupConfirmation && (
+                        <div className="space-y-3">
+                            <Label className="text-xs uppercase font-bold tracking-widest text-muted-foreground/80 flex items-center gap-1.5">
+                                <ScrollText className="w-3.5 h-3.5" />
+                                {actionType === 'reject' ? "Requirements for Revision" :
+                                    actionType === 'approve' ? "Approval Note / Feedback" :
+                                        actionType === 'send_for_approval' ? "Note for Sales Team" :
+                                            `Instructions for ${selectedDept.charAt(0).toUpperCase() + selectedDept.slice(1)}`}
+                            </Label>
+                            <Textarea
+                                value={notes}
+                                onChange={(e) => setNotes(e.target.value)}
+                                placeholder={actionType === 'reject' ? "Explain what needs to be changed..." : `Add details for ${selectedDept}...`}
+                                className="min-h-[140px] text-base resize-none bg-background/50 border-muted placeholder:text-muted-foreground/40 focus:ring-2 focus:ring-primary/20 transition-all rounded-xl"
+                            />
+                        </div>
+                    )}
 
                 </div>
 
@@ -902,7 +904,8 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                             "px-8 py-6 rounded-full font-bold shadow-xl transition-all hover:scale-[1.02] active:scale-95",
                             actionType === 'approve' ? "bg-green-600 hover:bg-green-700 text-white" :
                                 actionType === 'reject' ? "bg-red-600 hover:bg-red-700 text-white" :
-                                    "bg-primary hover:bg-primary/90"
+                                    showDispatchDecision ? "bg-indigo-600 hover:bg-indigo-700 text-white ring-2 ring-indigo-200 dark:ring-indigo-900" :
+                                        "bg-primary hover:bg-primary/90"
                         )}
                     >
                         {isSubmitting ? (
@@ -912,7 +915,8 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                                 <ArrowRight className="w-4 h-4 mr-2" />
                                 {actionType === 'approve' ? "Confirm Approval" :
                                     actionType === 'reject' ? "Confirm Rejection" :
-                                        actionType === 'send_for_approval' ? "Send to Sales" : "Confirm Move"}
+                                        actionType === 'send_for_approval' ? "Send to Sales" :
+                                            showDispatchDecision ? "Confirm & Initiate" : "Confirm Move"}
                             </>
                         )}
                     </Button>

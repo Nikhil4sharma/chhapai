@@ -37,7 +37,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     // Load notifications from Supabase
     const fetchNotifications = useCallback(async () => {
-        if (!user || !user.id) {
+        if (!user?.id) {
             setIsLoading(false);
             return;
         }
@@ -71,11 +71,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         } finally {
             setIsLoading(false);
         }
-    }, [user]);
+    }, [user?.id]);
 
     // Real-time subscription
     useEffect(() => {
-        if (!user || !user.id) return;
+        if (!user?.id) return;
 
         fetchNotifications();
 
@@ -119,12 +119,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
                     }
                 }
             )
-            .subscribe();
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    // console.log('Subscribed to notifications');
+                } else if (status === 'CHANNEL_ERROR') {
+                    console.error('Error subscribing to notifications channel');
+                }
+            });
 
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [user, fetchNotifications]);
+    }, [user?.id, fetchNotifications]);
 
     // Actions
     const markAsRead = useCallback(async (id: string) => {

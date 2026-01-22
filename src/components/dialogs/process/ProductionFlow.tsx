@@ -12,23 +12,16 @@ import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea
 interface ProductionFlowProps {
     initialStages?: string[];
     onStagesChange: (stages: string[]) => void;
-    onMaterialChange: (paper: PaperInventory | null, qty: number) => void;
 }
 
-export function ProductionFlow({ initialStages = [], onStagesChange, onMaterialChange }: ProductionFlowProps) {
+export function ProductionFlow({ initialStages = [], onStagesChange }: ProductionFlowProps) {
     const { productionStages } = useWorkflow();
     const [selectedStages, setSelectedStages] = useState<string[]>(initialStages);
-    const [selectedPaper, setSelectedPaper] = useState<PaperInventory | null>(null);
-    const [paperQty, setPaperQty] = useState<number>(0);
 
     // Sync changes to parent
     useEffect(() => {
         onStagesChange(selectedStages);
     }, [selectedStages, onStagesChange]);
-
-    useEffect(() => {
-        onMaterialChange(selectedPaper, paperQty);
-    }, [selectedPaper, paperQty, onMaterialChange]);
 
     // Handle initial paper? (Might need if editing existing allocation, but typically fresh for flow)
 
@@ -146,42 +139,6 @@ export function ProductionFlow({ initialStages = [], onStagesChange, onMaterialC
                 )}
             </div>
 
-            {/* Material Allocation Section */}
-            <div className="space-y-3 bg-muted/20 p-4 rounded-xl border border-border/50">
-                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider ml-1 flex items-center gap-2">
-                    <ScrollText className="w-3.5 h-3.5" />
-                    Material Allocation
-                </Label>
-                <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-2">
-                        <PaperSelector
-                            value={selectedPaper ? selectedPaper.id : ''}
-                            onSelect={setSelectedPaper}
-                        />
-                    </div>
-                    <div className="col-span-1">
-                        <div className="relative">
-                            <Input
-                                type="number"
-                                placeholder="Qty"
-                                min={0}
-                                value={paperQty || ''}
-                                onChange={(e) => setPaperQty(Number(e.target.value))}
-                                className="bg-background"
-                            />
-                            <span className="absolute right-3 top-2.5 text-xs text-muted-foreground pointer-events-none">Sheets</span>
-                        </div>
-                    </div>
-                </div>
-                {selectedPaper && (
-                    <div className="text-[10px] text-muted-foreground pl-1 flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-                        Selected: <span className="font-medium text-foreground">{selectedPaper.name}</span> ({selectedPaper.gsm} GSM)
-                        <span className="text-muted-foreground/50 mx-1">|</span>
-                        {selectedPaper.available_sheets} Available
-                    </div>
-                )}
-            </div>
         </div>
     );
 }

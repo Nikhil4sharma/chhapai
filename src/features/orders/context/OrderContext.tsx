@@ -15,8 +15,6 @@ import {
   assignOrderToUser as supabaseAssignOrderToUser,
   addTimelineEntry as supabaseAddTimelineEntry,
   addActivityLog,
-  subscribeToOrdersChanges,
-  subscribeToOrderItemsChanges,
   updateItemSpecifications as supabaseUpdateItemSpecifications,
   deleteOrder as supabaseDeleteOrder,
 } from '@/features/orders/services/supabaseOrdersService';
@@ -660,86 +658,55 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    // Supabase Realtime subscriptions - RLS automatically filters based on user access
+    // Supabase Realtime subscriptions - Consolidated into a SINGLE channel
+    // This dramatically reduces WebSocket overhead and prevents connection limits
     // CRITICAL: Only set up subscriptions after initial fetch to prevent clearing orders
-    const unsubscribeOrders = subscribeToOrdersChanges((payload) => {
-      console.log('[OrderContext] Orders change received:', payload.eventType);
-      // Only trigger real-time updates after initial fetch is complete
-      if (initialFetchComplete && isMounted && fetchOrdersRef.current) {
-        // Use immediate=true for critical updates (INSERT, DELETE) and debounce for UPDATE
-        const isCriticalUpdate = payload.eventType === 'INSERT' || payload.eventType === 'DELETE';
-        debouncedFetch(() => {
-          // CRITICAL: Clear cache before real-time update to ensure fresh data
-          // Real-time updates should always fetch fresh data
-          if (fetchOrdersRef.current) {
-            // Clear cache to force fresh fetch (access ref from closure)
-            // Store current cache for potential restore
-            const currentCache = ordersCacheRef.current;
-            ordersCacheRef.current = null;
-            // Fetch with forceRefresh=true to bypass all guards
-            fetchOrdersRef.current(false, true).then(() => {
-              // Also refresh timeline after orders update
-              if (fetchTimelineRef.current) {
-                fetchTimelineRef.current();
-              }
-            }).catch((err) => {
-              console.error('[OrderContext] Error in real-time orders fetch:', err);
-              // Restore cache on error (fallback)
-              if (currentCache) {
-                ordersCacheRef.current = currentCache;
-              }
-            });
-          }
-        }, isCriticalUpdate);
-      }
-    });
 
-    const unsubscribeItems = subscribeToOrderItemsChanges((payload) => {
-      console.log('[OrderContext] Order items change received:', payload.eventType);
-      // Only trigger real-time updates after initial fetch is complete
-      if (initialFetchComplete && isMounted && fetchOrdersRef.current) {
-        // Use immediate=true for critical updates (INSERT, DELETE) and debounce for UPDATE
-        const isCriticalUpdate = payload.eventType === 'INSERT' || payload.eventType === 'DELETE';
-        debouncedFetch(() => {
-          // CRITICAL: Clear cache before real-time update to ensure fresh data
-          // Real-time updates should always fetch fresh data
-          if (fetchOrdersRef.current) {
-            // Clear cache to force fresh fetch (access ref from closure)
-            // Store current cache for potential restore
-            const currentCache = ordersCacheRef.current;
-            ordersCacheRef.current = null;
-            // Fetch with forceRefresh=true to bypass all guards
-            fetchOrdersRef.current(false, true).then(() => {
-              // Also refresh timeline after items update
-              if (fetchTimelineRef.current) {
-                fetchTimelineRef.current();
-              }
-            }).catch((err) => {
-              console.error('[OrderContext] Error in real-time items fetch:', err);
-              // Restore cache on error (fallback)
-              if (currentCache) {
-                ordersCacheRef.current = currentCache;
-              }
-            });
-          }
-        }, isCriticalUpdate);
-      }
-    });
-
-    // Timeline subscription - Subscribe to timeline table changes
-    const timelineChannel = supabase
-      .channel('timeline-changes')
+    // Create ONE channel for all order-related changes
+    const globalChannel = supabase.channel('order-context-global')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'timeline',
-        },
+        { event: '*', schema: 'public', table: 'orders' },
+        (payload) => {
+          console.log('[OrderContext] Orders change received:', payload.eventType);
+          if (initialFetchComplete && isMounted && fetchOrdersRef.current) {
+            const isCriticalUpdate = payload.eventType === 'INSERT' || payload.eventType === 'DELETE';
+            debouncedFetch(() => {
+              if (fetchOrdersRef.current) {
+                // Clear cache and fetch fresh
+                ordersCacheRef.current = null;
+                fetchOrdersRef.current(false, true).then(() => {
+                  fetchTimelineRef.current?.();
+                });
+              }
+            }, isCriticalUpdate);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'order_items' },
+        (payload) => {
+          console.log('[OrderContext] Order items change received:', payload.eventType);
+          if (initialFetchComplete && isMounted && fetchOrdersRef.current) {
+            const isCriticalUpdate = payload.eventType === 'INSERT' || payload.eventType === 'DELETE';
+            debouncedFetch(() => {
+              if (fetchOrdersRef.current) {
+                ordersCacheRef.current = null;
+                fetchOrdersRef.current(false, true).then(() => {
+                  fetchTimelineRef.current?.();
+                });
+              }
+            }, isCriticalUpdate);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'timeline' },
         (payload) => {
           console.log('[OrderContext] Timeline change received:', payload.eventType);
           if (initialFetchComplete && isMounted && fetchTimelineRef.current) {
-            // For timeline updates, use immediate execution for faster feel
             const isCriticalUpdate = payload.eventType === 'INSERT' || payload.eventType === 'DELETE';
             debouncedFetch(() => {
               fetchTimelineRef.current?.();
@@ -747,22 +714,12 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           }
         }
       )
-      .subscribe();
-
-    // Activity logs subscription - Subscribe to order_activity_logs table changes
-    const activityLogsChannel = supabase
-      .channel('activity-logs-changes')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'order_activity_logs',
-        },
+        { event: '*', schema: 'public', table: 'order_activity_logs' },
         (payload) => {
           console.log('[OrderContext] Activity log change received:', payload.eventType);
           if (initialFetchComplete && isMounted && fetchTimelineRef.current) {
-            // For activity logs, use immediate execution for faster feel
             const isCriticalUpdate = payload.eventType === 'INSERT' || payload.eventType === 'DELETE';
             debouncedFetch(() => {
               fetchTimelineRef.current?.();
@@ -770,65 +727,40 @@ export function OrderProvider({ children }: { children: React.ReactNode }) {
           }
         }
       )
-      .subscribe();
-
-    // Subscribe to payment_ledger changes for real-time balance updates
-    const paymentLedgerChannel = supabase
-      .channel('payment_ledger_changes')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'payment_ledger'
-        },
+        { event: '*', schema: 'public', table: 'payment_ledger' },
         (payload) => {
           console.log('[OrderContext] Payment ledger change:', payload.eventType);
           if (initialFetchComplete && isMounted && fetchOrdersRef.current) {
-            // Payments affect order status, so refresh orders
-            // Use debounce since payment might trigger multiple updates
             debouncedFetch(() => {
-              if (fetchOrdersRef.current) {
-                // Force refresh to recalculate financial statuses
-                fetchOrdersRef.current(false, true);
-              }
+              fetchOrdersRef.current?.(false, true);
             });
           }
         }
       )
-      .subscribe();
-
-    // CRITICAL: Add order_files subscription for instant file upload updates
-    const orderFilesChannel = supabase
-      .channel('order_files_changes')
       .on(
         'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'order_files'
-        },
+        { event: 'INSERT', schema: 'public', table: 'order_files' },
         (payload) => {
           console.log('[OrderContext] File uploaded:', payload);
-          // Trigger refresh when file is uploaded
           if (fetchOrdersRef.current) {
-            fetchOrdersRef.current(false, true); // Force refresh
+            fetchOrdersRef.current(false, true);
           }
         }
       )
-      .subscribe();
-
-    // REMOVED: 200ms polling was causing card content to blink
-    // Supabase realtime subscriptions are sufficient for updates
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('[OrderContext] Subscribed to global changes');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('[OrderContext] Realtime channel error');
+        }
+      });
 
     return () => {
       isMounted = false; // Mark as unmounted
       if (debounceTimer) clearTimeout(debounceTimer);
-      unsubscribeOrders();
-      unsubscribeItems();
-      supabase.removeChannel(timelineChannel);
-      supabase.removeChannel(activityLogsChannel);
-      supabase.removeChannel(orderFilesChannel); // Clean up order_files subscription
+      supabase.removeChannel(globalChannel);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       // CRITICAL: DO NOT call setOrders([]) here - it causes orders to disappear
       // DO NOT clear cache or fetch guard on unmount - keep for session persistence
