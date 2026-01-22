@@ -23,7 +23,8 @@ GRANT USAGE ON SCHEMA extensions TO postgres, anon, authenticated, service_role;
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_net' AND extnamespace = 'public'::regnamespace) THEN
-        ALTER EXTENSION pg_net SET SCHEMA extensions;
+        -- Attempt to relocate extensions to extensions schema (often restricted, so we comment out if failing)
+        -- ALTER EXTENSION pg_net SET SCHEMA extensions;
     END IF;
 END $$;
 

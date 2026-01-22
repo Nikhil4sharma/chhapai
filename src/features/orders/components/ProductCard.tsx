@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { PriorityBadge } from '@/features/orders/components/PriorityBadge';
 import { StageBadge } from '@/features/orders/components/StageBadge';
 import { Badge } from '@/components/ui/badge';
+import { useNotificationContext } from '@/contexts/NotificationContext';
 import { cn } from '@/lib/utils';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/features/auth/context/AuthContext';
@@ -490,10 +491,10 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
                 )}
 
                 {(() => {
-                  // Admin View Consistency: If Admin, simulate the role of the current stage/department
-                  // This ensures Admin sees exactly what the department user sees (Process vs Handoff vs Start/Complete)
+                  // Admin View Consistency: If Admin or Sales, simulate the role of the current stage/department
+                  // This ensures they see exactly what the department user sees (Process vs Handoff vs Start/Complete)
                   const currentStageRole = item.current_stage as UserRole;
-                  const effectiveRole = isAdmin || role === 'super_admin' ? currentStageRole : role;
+                  const effectiveRole = isAdmin || role === 'super_admin' || role === 'sales' ? currentStageRole : role;
 
                   const canShowAction = (role === 'sales' || isAdmin || role === item.assigned_department || role === item.current_stage || actions.length > 0) && item.status !== 'completed' && item.current_stage !== 'completed' && !isPendingApproval;
 
@@ -622,17 +623,33 @@ export function ProductCard({ order, item, className, productSuffix }: ProductCa
               {/* Utility Toolbar */}
               <div className="flex items-center justify-start flex-wrap gap-2 relative z-20 pointer-events-auto">
                 {/* Brief - Visible for relevant stages (Design/Prepress/Production) */}
-                {['design', 'prepress', 'production'].includes(item.current_stage) && (
-                  <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setDesignBriefOpen(true); }} className="h-8 px-3 text-xs">
-                    <Palette className={cn(
-                      "h-3 w-3 mr-1",
-                      item.current_stage === 'design' && "text-indigo-600 dark:text-indigo-400 font-bold",
-                      item.current_stage === 'prepress' && "text-pink-600 dark:text-pink-400 font-bold",
-                      item.current_stage === 'production' && "text-orange-600 dark:text-orange-400 font-bold"
-                    )} />
-                    <span className="capitalize">{item.current_stage} Brief</span>
-                  </Button>
-                )}
+                {['design', 'prepress', 'production'].includes(item.current_stage) && (() => {
+                  try {
+                    // Calculate chat count from notifications (unread)
+                    const { getUnreadCount } = useNotificationContext();
+                    const chatCount = getUnreadCount(item.item_id);
+
+                    return (
+                      <Button variant="ghost" size="sm" onClick={(e) => { e.stopPropagation(); setDesignBriefOpen(true); }} className="h-8 px-3 text-xs relative">
+                        <Palette className={cn(
+                          "h-3 w-3 mr-1",
+                          item.current_stage === 'design' && "text-indigo-600 dark:text-indigo-400 font-bold",
+                          item.current_stage === 'prepress' && "text-pink-600 dark:text-pink-400 font-bold",
+                          item.current_stage === 'production' && "text-orange-600 dark:text-orange-400 font-bold"
+                        )} />
+                        <span className="capitalize">{item.current_stage} Brief</span>
+                        {chatCount > 0 && (
+                          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white animate-in zoom-in duration-300">
+                            {chatCount > 9 ? '9+' : chatCount}
+                          </span>
+                        )}
+                      </Button>
+                    );
+                  } catch (e) {
+                    // Fallback if context missing
+                    return null;
+                  }
+                })()}
 
                 {/* View - Hidden for Design */}
                 {role !== 'design' && (

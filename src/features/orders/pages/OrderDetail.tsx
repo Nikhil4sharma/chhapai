@@ -294,7 +294,6 @@ export default function OrderDetailNew() {
                     onEdit={handleEdit}
                     onDelete={canDelete ? () => setDeleteDialogOpen(true) : undefined}
                     canDelete={canDelete}
-                    onChat={handleChat}
                 />
             )}
 

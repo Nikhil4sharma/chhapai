@@ -425,7 +425,27 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                 });
             }
 
-            toast({ title: "Updated", description: "Workflow updated successfully", className: "bg-green-500 text-white" });
+            // Dynamic Toast Message
+            let toastTitle = "Updated";
+            let toastDesc = "Workflow updated successfully";
+
+            if (selectedUser && selectedUser !== '_unassign' && selectedUser !== item.assigned_to) {
+                const assignedUserName = availableUsers.find(u => u.id === selectedUser)?.name || "User";
+                toastTitle = "Order Assigned";
+                toastDesc = `Order successfully assigned to ${assignedUserName}`;
+            } else if (selectedDept !== currentDept) {
+                toastTitle = "Stage Changed";
+                toastDesc = `Order moved to ${selectedDept.charAt(0).toUpperCase() + selectedDept.slice(1)}`;
+            } else if (selectedStatus !== item.status) {
+                toastTitle = "Status Updated";
+                toastDesc = `Status changed to ${selectedStatus}`;
+            }
+
+            toast({
+                title: toastTitle,
+                description: toastDesc,
+                variant: "success",
+            });
             await refreshOrders();
             onOpenChange(false);
 
@@ -644,7 +664,10 @@ export function ProcessOrderDialog({ open, onOpenChange, order, item, actionType
                                     <Label className="text-xs uppercase font-semibold text-muted-foreground">Select Destination</Label>
                                     <RadioGroup value={selectedDept} onValueChange={(v) => setSelectedDept(v as Department)} className="grid grid-cols-3 gap-3">
                                         {['sales', 'design', 'prepress', 'production', 'outsource'].filter(d => {
-                                            // 1. Allow CURRENT department (to enable Reassign User / Change Internal Status)
+                                            // 1. Hide Sales if we are ALREADY in Sales (Process button logic)
+                                            if (currentDept === 'sales' && d === 'sales') return false;
+
+                                            // 2. Allow CURRENT department (generic fallback for others)
                                             if (currentDept === d) return true;
 
                                             // 2. Strict Rules for Destination

@@ -305,9 +305,7 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     return file.uploaded_by === user?.id || isAdmin || role === 'sales';
   };
 
-  if (!files || files.length === 0) return null;
-
-  // -- Helper functions (getFileName, isImage, isPdf, handleDeleteFile, etc.) same as before --
+  // -- Helper functions --
   const getFileName = (file: OrderFile) => {
     if (file.file_name) return file.file_name;
     const url = file.url || '';
@@ -324,14 +322,15 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
     return /\.pdf$/i.test(name);
   };
 
-  // File URL Cache Logic (Same as original)
+  // File URL Cache Logic (Moved up to fix hook order)
   useEffect(() => {
     let isMounted = true;
     const loadSignedUrls = async () => {
       const newCache = new Map(fileUrlCache);
       for (const file of files) {
+        if (!file) continue; // Safety check
         const fileName = getFileName(file);
-        if (isImage(fileName, file.url, file.type) && file.url.includes('supabase.co/storage')) {
+        if (isImage(fileName, file.url, file.type) && file.url && file.url.includes('supabase.co/storage')) {
           try {
             const urlObj = new URL(file.url);
             const pathMatch = urlObj.pathname.match(/\/storage\/v1\/object\/(?:public|sign\/[^/]+)\/([^/]+)\/(.+)/);
@@ -348,10 +347,11 @@ export function FilePreview({ files, compact = false, onFileDeleted, canDelete =
       }
       if (isMounted && newCache.size > fileUrlCache.size) { setFileUrlCache(newCache); setCacheVersion(v => v + 1); }
     };
-    if (files.length > 0) loadSignedUrls();
+    if (files && files.length > 0) loadSignedUrls();
     return () => { isMounted = false; };
   }, [files]);
 
+  if (!files || files.length === 0) return null;
   const getFileUrl = async (file: OrderFile): Promise<string> => {
     let url = file.url || '';
     if (url && url.includes('supabase.co/storage')) {

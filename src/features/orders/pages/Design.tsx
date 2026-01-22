@@ -93,18 +93,6 @@ export default function Design() {
     const userProfileDept = (profile?.department || '').toLowerCase().trim();
     const isDesignUser = userRole === deptLower || userProfileDept === deptLower || isAdmin;
 
-    console.log('[Design] Filtering items:', {
-      user_id: user?.id,
-      role: role,
-      userRole: userRole,
-      profileDepartment: profile?.department,
-      userProfileDept: userProfileDept,
-      deptLower: deptLower,
-      isDesignUser: isDesignUser,
-      isAdmin: isAdmin,
-      totalOrders: orders.length,
-    });
-
     const filtered = orders
       .filter(order => !order.is_completed && !order.archived_from_wc)
       .flatMap(order =>
@@ -132,26 +120,30 @@ export default function Design() {
               return false;
             }
 
-            // CRITICAL FIX: Visibility logic (CORRECTED)
+            // CRITICAL FIX: Visibility logic (STRICT)
             // - Admin sees ALL items in design department
             // - Sales sees ALL items in design department
-            // - Department users see ALL items in their department (regardless of assigned_to)
-            // - assigned_to does NOT control department-level visibility
-            // - assigned_to is only used for "Assigned to Me" tab filtering
+            // - Design department users see:
+            //    1. Items assigned SPECIFICALLY to them
+            //    2. Items that are UNASSIGNED (assigned_to is null or empty)
+            //    3. Items assigned to '_unassign' (if that sentinel is used)
+            // - Design users CANNOT see items assigned to OTHER Design users (or other departments)
 
+            // VISIBILITY LOGIC (Simplified - Trust RLS):
+            // 1. Admin & Sales see everything
             if (isAdmin || role === 'sales') {
-              return true; // Admin and Sales see everything
+              return true;
             }
 
-            // CRITICAL: User must be in design department to see any design items
-            if (!isDesignUser) {
-              return false;
+            // 2. Design users see items that RLS has already approved
+            // RLS checks: assigned_to, department match, stage match
+            // No need to duplicate that logic here
+            if (isDesignUser) {
+              return true;
             }
 
-            // Department users ALWAYS see items in their department
-            // assigned_to does NOT filter out items from department view
-            // This ensures department-wide visibility (read-only for assigned items)
-            return true;
+            // 3. Other roles don't see design items
+            return false;
           })
           .map(item => ({
             order,
@@ -159,12 +151,20 @@ export default function Design() {
           }))
       );
 
-    console.log('[Design] Filtered items count:', filtered.length, {
-      totalOrders: orders.length,
-      isDesignUser: isDesignUser,
-      userRole: role,
-      userProfileDept: profile?.department,
-    });
+
+    console.log('[Design] === END FILTERING ===');
+    console.log('[Design] Filtered items count:', filtered.length);
+    if (filtered.length > 0) {
+      console.log('[Design] Sample filtered items:', filtered.slice(0, 3).map(f => ({
+        productName: f.item.product_name,
+        assignedTo: f.item.assigned_to,
+        matchesUserId: f.item.assigned_to === user?.id,
+        assignedDept: f.item.assigned_department,
+        currentStage: f.item.current_stage,
+      })));
+    } else {
+      console.warn('[Design] No design items found!');
+    }
 
     return filtered;
   }, [orders, isAdmin, user, role, profile]);

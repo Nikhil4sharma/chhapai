@@ -8,6 +8,7 @@ import { Loader2 } from 'lucide-react';
 const AdminDashboard = lazy(() => import('@/features/admin/pages/Admin')); // Consolidated Admin Dashboard
 const SalesDashboard = lazy(() => import('@/features/orders/pages/Sales'));
 const DesignDashboard = lazy(() => import('@/features/orders/pages/Design'));
+const PrepressDashboard = lazy(() => import('@/features/orders/pages/Prepress'));
 const ProductionDashboard = lazy(() => import('@/features/orders/pages/Production'));
 const DispatchDashboard = lazy(() => import('@/features/orders/pages/Dispatch'));
 const HRDashboard = lazy(() => import('@/features/admin/pages/HRDashboard'));
@@ -31,6 +32,7 @@ export const DashboardSwitcher = () => {
     if (location.pathname.includes('/admin') && role === 'admin') return <AdminDashboard />;
     if (location.pathname.includes('/sales') && role === 'sales') return <SalesDashboard />;
     if (location.pathname.includes('/design') && role === 'design') return <DesignDashboard />;
+    if (location.pathname.includes('/prepress') && role === 'prepress') return <PrepressDashboard />;
     if (location.pathname.includes('/production') && role === 'production') return <ProductionDashboard />;
     if (location.pathname.includes('/dispatch') && role === 'dispatch') return <DispatchDashboard />;
     if (location.pathname.includes('/outsource') && role === 'outsource') return <ProductionDashboard />;
@@ -45,11 +47,8 @@ export const DashboardSwitcher = () => {
             return <Navigate to="/sales" replace />;
         case 'design':
             return <Navigate to="/design" replace />;
-        case 'prepress': // Prepress also goes to production dashboard for now or separate? 
-            // User hasn't specified prepress dashboard, assuming production or separate. 
-            // If Prepress.tsx exists use it, otherwise Production. 
-            // Let's check imports. No PrepressDashboard imported.
-            return <Navigate to="/production" replace />; // Fallback
+        case 'prepress':
+            return <Navigate to="/prepress" replace />;
         case 'production':
         case 'dispatch':
         case 'outsource':

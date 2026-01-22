@@ -8,12 +8,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
     Send, Paperclip, Clock, Palette, CheckCircle2,
-    FileText, User, AlertCircle, ArrowRight, MessageSquare, History, List
+    FileText, User, AlertCircle, ArrowRight, MessageSquare, History, List, X, Trash2, Edit2, Reply, Image as ImageIcon, File
 } from 'lucide-react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'; // Added Tabs import
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useOrders } from '@/features/orders/context/OrderContext';
 import { useAuth } from '@/features/auth/context/AuthContext';
 import { format } from 'date-fns';
@@ -21,6 +21,13 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { OrderItem } from '@/types/order';
+import { useNotificationContext } from '@/contexts/NotificationContext';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface DesignBriefDialogProps {
     open: boolean;
@@ -48,13 +55,21 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
     const [isSaving, setIsSaving] = useState(false);
     const [isSending, setIsSending] = useState(false);
     const [activeTab, setActiveTab] = useState<'chat' | 'history'>('chat');
+    const [attachment, setAttachment] = useState<File | null>(null);
+    const [replyTo, setReplyTo] = useState<{ id: string, name: string, text: string } | null>(null);
+    const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLTextAreaElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (open) {
             setBriefText(item.specifications?.[briefKey] || '');
+            setNewMessage('');
+            setAttachment(null);
+            setReplyTo(null);
+            setEditingMessageId(null);
         }
     }, [open, item, briefKey]);
 
@@ -80,24 +95,20 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
         }
     }, [chatMessages.length, open, activeTab]);
 
-    const handleSaveBrief = async () => {
-        setIsSaving(true);
-        try {
-            await updateItemSpecifications(orderUUID, item.item_id, { [briefKey]: briefText });
-            toast({ title: "Saved", description: "Brief updated." });
-        } catch (error) {
-            toast({ title: "Error", description: "Failed to save.", variant: "destructive" });
-        } finally {
-            setIsSaving(false);
-        }
-    };
+    // Logic moved lower down to use useNotificationContext
+
 
     // Mobile Tab State (Brief vs Chat)
     const [mobileTab, setMobileTab] = useState<'brief' | 'chat'>('chat');
-    const isMobile = window.innerWidth < 1024; // Simple check, or use useMediaQuery hook if available
+
+    const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            setAttachment(e.target.files[0]);
+        }
+    };
 
     const handleSendMessage = async () => {
-        if (!newMessage.trim() || !user) return;
+        if ((!newMessage.trim() && !attachment) || !user) return;
         if (!orderUUID) {
             toast({ title: "Error", description: "Order ID missing. Cannot send.", variant: "destructive" });
             return;
@@ -105,35 +116,76 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
 
         setIsSending(true);
         try {
-            // 1. Insert Timeline Message
-            const { error } = await supabase.from('timeline').insert({
-                order_id: orderUUID,
-                item_id: item.item_id, // Ensure this is the UUID
-                product_name: item.product_name,
-                stage: item.current_stage || 'design',
-                action: 'design_chat',
-                performed_by: user.id,
-                performed_by_name: profile?.full_name || 'Design Team',
-                notes: newMessage.trim(),
-                is_public: true,
-            });
+            let uploadedUrl = null;
+            let fileType = 'file';
 
-            if (error) throw error;
+            // 1. Upload File if present
+            if (attachment) {
+                const fileExt = attachment.name.split('.').pop();
+                const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+                const filePath = `${item.item_id}/${fileName}`;
 
-            // 2. Notify Sales Manager / Assigned User
-            if (item.assigned_to && item.assigned_to !== user.id) {
-                await supabase.from('notifications').insert({
-                    user_id: item.assigned_to,
-                    title: `New Message on Order #${orderId}`,
-                    message: `${profile?.full_name || 'Design Team'}: ${newMessage.trim()}`,
-                    type: 'info',
+                const { error: uploadError } = await supabase.storage
+                    .from('order_files')
+                    .upload(filePath, attachment);
+
+                if (uploadError) throw uploadError;
+
+                const { data: { publicUrl } } = supabase.storage
+                    .from('order_files')
+                    .getPublicUrl(filePath);
+
+                uploadedUrl = publicUrl;
+                fileType = attachment.type.startsWith('image/') ? 'image' : 'file';
+            }
+
+            // 2. Insert or Update Timeline Message
+            if (editingMessageId) {
+                const { error } = await supabase.from('timeline')
+                    .update({
+                        notes: newMessage.trim(),
+                        // Append new attachment if any (logic could be refined to replace or add)
+                        attachments: uploadedUrl ? [{ url: uploadedUrl, type: fileType }] : undefined
+                    })
+                    .eq('timeline_id', editingMessageId);
+
+                if (error) throw error;
+                toast({ title: "Updated", description: "Message updated." });
+            } else {
+                const finalMessage = replyTo ? `> Replying to ${replyTo.name}: "${replyTo.text.substring(0, 50)}..."\n\n${newMessage.trim()}` : newMessage.trim();
+
+                const { error } = await supabase.from('timeline').insert({
                     order_id: orderUUID,
-                    item_id: item.item_id
+                    item_id: item.item_id,
+                    product_name: item.product_name,
+                    stage: item.current_stage || 'design',
+                    action: 'design_chat',
+                    performed_by: user.id,
+                    performed_by_name: profile?.full_name || 'Design Team',
+                    notes: finalMessage,
+                    attachments: uploadedUrl ? [{ url: uploadedUrl, type: fileType }] : [],
+                    is_public: true,
                 });
+
+                if (error) throw error;
+
+                // Notify if not editing
+                if (item.assigned_to && item.assigned_to !== user.id) {
+                    await supabase.from('notifications').insert({
+                        user_id: item.assigned_to,
+                        title: `New Message on Order #${orderId}`,
+                        message: `${profile?.full_name || 'Design Team'}: ${newMessage.trim()}`,
+                        type: 'info',
+                        order_id: orderUUID,
+                        item_id: item.item_id
+                    });
+                }
             }
 
             setNewMessage('');
-            // Trigger refresh to update timeline
+            setAttachment(null);
+            setReplyTo(null);
+            setEditingMessageId(null);
             await refreshOrders();
         } catch (error: any) {
             console.error("Error sending message:", error);
@@ -143,6 +195,70 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
             if (inputRef.current) inputRef.current.focus();
         }
     };
+
+    const handleDeleteMessage = async (timelineId: string) => {
+        try {
+            const { error } = await supabase.from('timeline')
+                .update({ deleted_at: new Date().toISOString() } as any) // Cast as any if column not in type def yet
+                .eq('timeline_id', timelineId);
+
+            if (error) throw error;
+            toast({ title: "Deleted", description: "Message deleted." });
+            refreshOrders();
+        } catch (error: any) {
+            toast({ title: "Error", description: "Failed to delete.", variant: "destructive" });
+        }
+    };
+
+    const handleEditMessage = (msg: any) => {
+        setEditingMessageId(msg.timeline_id);
+        setNewMessage(msg.notes);
+        if (inputRef.current) inputRef.current.focus();
+    };
+
+    const handleReply = (msg: any) => {
+        setReplyTo({
+            id: msg.timeline_id,
+            name: msg.performed_by_name,
+            text: msg.notes
+        });
+        if (inputRef.current) inputRef.current.focus();
+    };
+
+    // Mark chat as read when opening (or switching tabs)
+    const { markItemAsRead } = useNotificationContext();
+    useEffect(() => {
+        if (open && item.item_id) {
+            markItemAsRead(item.item_id);
+        }
+    }, [open, item.item_id, markItemAsRead]);
+
+    const handleSaveBrief = async () => {
+        setIsSaving(true);
+        try {
+            await updateItemSpecifications(orderUUID, item.item_id, { [briefKey]: briefText });
+            toast({ title: "Saved", description: "Brief updated." });
+            // FORCE REFRESH: Since item comes from parent, we need parent to update.
+            // Depending on architecture, refreshOrders() call in parent loop might handle this.
+            // But for local UI update, we might rely on the fact that we edit local 'briefText' state.
+        } catch (error) {
+            toast({ title: "Error", description: "Failed to save.", variant: "destructive" });
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // ... (rest of implementation)
+
+    // Get consolidated instructions
+    const instructions = [
+        item.specifications?.design_instructions && { label: "Specific Instructions", text: item.specifications.design_instructions },
+        // Add the BRIEF itself if it exists (so the user sees what they typed as 'instructions')
+        item.specifications?.[briefKey] && { label: `${deptLabel} Brief`, text: item.specifications[briefKey] },
+        item.specifications?.notes && item.specifications.notes !== item.specifications?.design_instructions && { label: "Notes", text: item.specifications.notes },
+        item.last_workflow_note && item.last_workflow_note !== item.specifications?.notes && { label: "Latest Update", text: item.last_workflow_note }
+    ].filter(Boolean) as { label: string, text: string }[];
+
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -168,24 +284,30 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
                         </div>
                     </div>
 
-                    {/* Mobile View Toggle */}
-                    <div className="lg:hidden flex bg-muted/50 p-1 rounded-lg border border-border/40">
-                        <button
-                            onClick={() => setMobileTab('brief')}
-                            className={cn(
-                                "px-3 py-1.5 text-xs font-semibold rounded-md transition-all",
-                                mobileTab === 'brief' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground/80"
-                            )}>
-                            Brief
-                        </button>
-                        <button
-                            onClick={() => setMobileTab('chat')}
-                            className={cn(
-                                "px-3 py-1.5 text-xs font-semibold rounded-md transition-all",
-                                mobileTab === 'chat' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground/80"
-                            )}>
-                            Chat
-                        </button>
+                    <div className="flex items-center gap-2">
+                        {/* Mobile View Toggle */}
+                        <div className="lg:hidden flex bg-muted/50 p-1 rounded-lg border border-border/40">
+                            <button
+                                onClick={() => setMobileTab('brief')}
+                                className={cn(
+                                    "px-3 py-1.5 text-xs font-semibold rounded-md transition-all",
+                                    mobileTab === 'brief' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground/80"
+                                )}>
+                                Brief
+                            </button>
+                            <button
+                                onClick={() => setMobileTab('chat')}
+                                className={cn(
+                                    "px-3 py-1.5 text-xs font-semibold rounded-md transition-all",
+                                    mobileTab === 'chat' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground/80"
+                                )}>
+                                Chat
+                            </button>
+                        </div>
+                        {/* Close Button */}
+                        <Button variant="ghost" size="icon" onClick={() => onOpenChange(false)} className="rounded-full hover:bg-slate-100 dark:hover:bg-slate-800">
+                            <X className="h-5 w-5 text-muted-foreground" />
+                        </Button>
                     </div>
                 </div>
 
@@ -229,18 +351,23 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
                                     </div>
                                 </div>
 
-                                {/* Latest Note Highlight */}
-                                {item.last_workflow_note && (
+                                {/* Instructions / Latest Note Highlight */}
+                                {instructions.length > 0 && (
                                     <div className="space-y-2">
                                         <label className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                                             <AlertCircle className="w-3.5 h-3.5" />
-                                            Latest Note
+                                            Instructions / Latest Note
                                         </label>
                                         <div className="rounded-2xl border border-amber-100 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/10 p-4 relative overflow-hidden group">
                                             <div className="absolute top-0 left-0 w-1 h-full bg-amber-400/50" />
-                                            <p className="text-sm text-amber-900 dark:text-amber-100 leading-relaxed pl-2 font-medium">
-                                                "{item.last_workflow_note}"
-                                            </p>
+                                            <div className="space-y-3">
+                                                {instructions.map((inst, idx) => (
+                                                    <div key={idx} className={cn("text-sm text-amber-900 dark:text-amber-100 leading-relaxed pl-2", idx > 0 && "border-t border-amber-200/30 pt-2")}>
+                                                        <span className="font-semibold block text-xs opacity-70 mb-1">{inst.label}:</span>
+                                                        <div className="whitespace-pre-wrap">{inst.text}</div>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
                                     </div>
                                 )}
@@ -310,13 +437,50 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
                                                                 <span className="text-[11px] font-semibold text-foreground/80">{msg.performed_by_name}</span>
                                                                 <span className="text-[10px] text-muted-foreground/60">{format(new Date(msg.created_at), 'M/d h:mm a')}</span>
                                                             </div>
-                                                            <div className={cn(
-                                                                "px-4 py-2.5 sm:px-5 sm:py-3 text-sm leading-relaxed shadow-sm relative transition-all",
-                                                                isMe
-                                                                    ? "bg-indigo-600 text-white rounded-2xl rounded-tr-sm"
-                                                                    : "bg-white dark:bg-zinc-800 border border-border/60 text-foreground rounded-2xl rounded-tl-sm group-hover:shadow-md"
-                                                            )}>
-                                                                {msg.notes}
+                                                            <div className="group relative">
+                                                                <div className={cn(
+                                                                    "px-4 py-2.5 sm:px-5 sm:py-3 text-sm leading-relaxed shadow-sm relative transition-all",
+                                                                    isMe
+                                                                        ? "bg-indigo-600 text-white rounded-2xl rounded-tr-sm"
+                                                                        : "bg-white dark:bg-zinc-800 border border-border/60 text-foreground rounded-2xl rounded-tl-sm group-hover:shadow-md"
+                                                                )}>
+                                                                    <div className="whitespace-pre-wrap">{msg.notes}</div>
+                                                                    {msg.attachments && msg.attachments.length > 0 && (
+                                                                        <div className="mt-2 space-y-2">
+                                                                            {msg.attachments.map((att: any, i: number) => (
+                                                                                <div key={i} className="rounded-lg overflow-hidden border border-white/20 bg-black/10">
+                                                                                    {att.type === 'image' ? (
+                                                                                        <img src={att.url} alt="attachment" className="max-w-full h-auto max-h-[200px] object-contain" />
+                                                                                    ) : (
+                                                                                        <a href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 p-2 text-xs hover:underline">
+                                                                                            <Paperclip className="h-3 w-3" /> Attachment
+                                                                                        </a>
+                                                                                    )}
+                                                                                </div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+
+                                                                {/* Message Actions */}
+                                                                <div className={cn(
+                                                                    "absolute top-0 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 p-0.5 rounded-md bg-background border shadow-sm",
+                                                                    isMe ? "right-full mr-2" : "left-full ml-2"
+                                                                )}>
+                                                                    <Button size="icon" variant="ghost" className="h-6 w-6 rounded-sm" onClick={() => handleReply(msg)}>
+                                                                        <Reply className="h-3 w-3" />
+                                                                    </Button>
+                                                                    {isMe && (
+                                                                        <>
+                                                                            <Button size="icon" variant="ghost" className="h-6 w-6 rounded-sm" onClick={() => handleEditMessage(msg)}>
+                                                                                <Edit2 className="h-3 w-3" />
+                                                                            </Button>
+                                                                            <Button size="icon" variant="ghost" className="h-6 w-6 rounded-sm hover:text-red-500" onClick={() => handleDeleteMessage(msg.timeline_id)}>
+                                                                                <Trash2 className="h-3 w-3" />
+                                                                            </Button>
+                                                                        </>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </div>
@@ -329,8 +493,30 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
 
                                 {/* Input Area (Only visible in Chat Tab) */}
                                 <div className="p-3 sm:p-4 bg-background border-t mt-auto shrink-0 z-20 shadow-[-10px_0_20px_rgba(0,0,0,0.02)]">
+                                    {/* Reply Context */}
+                                    {replyTo && (
+                                        <div className="mb-2 p-2 bg-muted/40 border-l-2 border-indigo-500 rounded text-xs text-muted-foreground flex items-center justify-between">
+                                            <span>Replying to <b>{replyTo.name}</b></span>
+                                            <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setReplyTo(null)}><X className="h-3 w-3" /></Button>
+                                        </div>
+                                    )}
+                                    {/* Attachment Preview */}
+                                    {attachment && (
+                                        <div className="mb-2 p-2 bg-muted/40 rounded text-xs flex items-center gap-2">
+                                            {attachment.type.startsWith('image/') ? <ImageIcon className="h-4 w-4" /> : <File className="h-4 w-4" />}
+                                            <span className="truncate max-w-[200px]">{attachment.name}</span>
+                                            <Button variant="ghost" size="icon" className="h-5 w-5 ml-auto text-destructive" onClick={() => setAttachment(null)}><X className="h-3 w-3" /></Button>
+                                        </div>
+                                    )}
+
                                     <div className="bg-muted/30 p-1.5 rounded-[24px] border border-border/50 flex gap-2 items-end focus-within:ring-2 focus-within:ring-indigo-500/10 focus-within:border-indigo-500/20 transition-all bg-background/50 backdrop-blur-sm">
-                                        <Button variant="ghost" size="icon" className="shrink-0 h-9 w-9 rounded-full text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors">
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            className="hidden"
+                                            onChange={handleFileSelect}
+                                        />
+                                        <Button variant="ghost" size="icon" onClick={() => fileInputRef.current?.click()} className="shrink-0 h-9 w-9 rounded-full text-muted-foreground/70 hover:text-foreground hover:bg-muted/50 transition-colors">
                                             <Paperclip className="w-4 h-4" />
                                         </Button>
                                         <Textarea
@@ -343,21 +529,22 @@ export function DesignBriefDialog({ open, onOpenChange, orderId, orderUUID, item
                                                     handleSendMessage();
                                                 }
                                             }}
-                                            placeholder="Type a message..."
+                                            placeholder={editingMessageId ? "Edit message..." : "Type a message..."}
                                             className="border-0 bg-transparent focus-visible:ring-0 resize-none min-h-[36px] max-h-[120px] py-2 text-sm placeholder:text-muted-foreground/50"
                                         />
                                         <Button
                                             size="icon"
                                             onClick={handleSendMessage}
-                                            disabled={!newMessage.trim() || isSending}
+                                            disabled={(!newMessage.trim() && !attachment) || isSending}
                                             className={cn(
                                                 "h-9 w-9 rounded-full shrink-0 transition-all shadow-sm transform active:scale-95",
-                                                newMessage.trim() ? "bg-indigo-600 hover:bg-indigo-700 text-white" : "bg-muted text-muted-foreground"
+                                                (newMessage.trim() || attachment) ? "bg-indigo-600 hover:bg-indigo-700 text-white" : "bg-muted text-muted-foreground"
                                             )}
                                         >
                                             <Send className="w-4 h-4 ml-0.5" />
                                         </Button>
                                     </div>
+                                    {editingMessageId && <div className="text-[10px] text-muted-foreground mt-1 text-center">Editing message. <button className="hover:underline text-primary" onClick={() => { setEditingMessageId(null); setNewMessage(''); }}>Cancel</button></div>}
                                 </div>
                             </TabsContent>
 
